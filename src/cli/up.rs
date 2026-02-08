@@ -64,7 +64,7 @@ impl Up {
             .join(".devcontainer")
             .join("devcontainer.json");
         let override_file =
-            write_compose_override(compose, &dc.common, &worktree_path, &config_file)?;
+            write_compose_override(compose, &dc.common, &worktree_path, &config_file, name)?;
 
         compose_up(compose, &worktree_path, &override_file)?;
 
@@ -110,7 +110,7 @@ impl Up {
 
 /// Match the devcontainer CLI convention: `{basename}_devcontainer`, lowercased,
 /// keeping only `[a-z0-9-_]`.
-fn compose_project_name(worktree_path: &Path) -> String {
+pub(crate) fn compose_project_name(worktree_path: &Path) -> String {
     let basename = worktree_path
         .file_name()
         .unwrap_or_default()
@@ -129,9 +129,12 @@ fn write_compose_override(
     common: &Common,
     worktree_path: &Path,
     config_file: &Path,
+    project_name: &str,
 ) -> eyre::Result<PathBuf> {
-    let override_path = std::env::temp_dir()
-        .join(format!("{}-override.yml", compose_project_name(worktree_path)));
+    let override_path = std::env::temp_dir().join(format!(
+        "{}-override.yml",
+        compose_project_name(worktree_path)
+    ));
     let local_folder = worktree_path.to_string_lossy();
     let config_file = config_file.to_string_lossy();
 
@@ -139,6 +142,8 @@ fn write_compose_override(
         "labels": [
             format!("devcontainer.local_folder={local_folder}"),
             format!("devcontainer.config_file={config_file}"),
+            "dev.dc.managed=true".to_string(),
+            format!("dev.dc.project={project_name}"),
         ]
     });
 
@@ -275,5 +280,8 @@ fn exec_interactive(
     // replaces the process before indicatif's cleanup can run.
     let _ = crossterm::execute!(std::io::stdout(), crossterm::cursor::Show);
 
-    Err(std::process::Command::new("docker").args(&args).exec().into())
+    Err(std::process::Command::new("docker")
+        .args(&args)
+        .exec()
+        .into())
 }

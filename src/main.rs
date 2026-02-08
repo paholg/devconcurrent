@@ -18,9 +18,5 @@ fn main() -> eyre::Result<()> {
     let cli = Cli::parse();
     dc::preflight::check()?;
     let config = Config::load()?;
-    match cli.command {
-        Commands::Up(up) => up.run(&config)?,
-        _ => todo!("{cli:?}"),
-    }
-    Ok(())
+    cli.run(&config)
 }
