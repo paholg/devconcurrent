@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 
+use bollard::Docker;
 use clap::Args;
 use tokio::process::Command;
 use tracing::warn;
@@ -23,7 +24,7 @@ pub struct Prune {
 }
 
 impl Prune {
-    pub async fn run(self, config: &Config) -> eyre::Result<()> {
+    pub async fn run(self, docker: &Docker, config: &Config) -> eyre::Result<()> {
         let (_, project) = config.project(self.project.as_deref())?;
 
         let worktrees = list_worktrees(&project.path, &project.workspace_dir).await?;
@@ -32,7 +33,7 @@ impl Prune {
             return Ok(());
         }
 
-        let workspaces = Workspace::list_project(self.project.as_deref(), config).await?;
+        let workspaces = Workspace::list_project(docker, self.project.as_deref(), config).await?;
         let ws_map: HashMap<&Path, &Workspace> = workspaces
             .iter()
             .map(|ws| (ws.path.as_path(), ws))

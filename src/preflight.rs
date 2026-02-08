@@ -1,17 +1,22 @@
 use std::process::Stdio;
 
+use bollard::Docker;
 use eyre::bail;
 use tokio::process::Command;
 
-pub async fn check() -> eyre::Result<()> {
-    if Command::new("docker")
-        .args(["version", "--format", "{{.Client.Version}}"])
-        .stderr(Stdio::null())
-        .stdout(Stdio::null())
-        .status()
-        .await
-        .map_or(true, |s| !s.success())
-    {
+use crate::docker;
+
+pub async fn check() -> eyre::Result<Docker> {
+    let docker = match docker::client() {
+        Ok(d) => d,
+        Err(_) => {
+            bail!(
+                "docker is not installed or the daemon is not running.\nInstall Docker: https://docs.docker.com/get-docker/"
+            );
+        }
+    };
+
+    if docker.version().await.is_err() {
         bail!(
             "docker is not installed or the daemon is not running.\nInstall Docker: https://docs.docker.com/get-docker/"
         );
@@ -43,5 +48,5 @@ pub async fn check() -> eyre::Result<()> {
         );
     }
 
-    Ok(())
+    Ok(docker)
 }

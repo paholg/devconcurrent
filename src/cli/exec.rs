@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::path::PathBuf;
 
+use bollard::Docker;
 use clap::Args;
 use eyre::eyre;
 use nucleo_picker::{Picker, Render};
@@ -40,9 +41,9 @@ impl Render<Workspace> for WsRenderer {
 }
 
 impl Exec {
-    pub async fn run(self, config: &Config) -> eyre::Result<()> {
+    pub async fn run(self, docker: &Docker, config: &Config) -> eyre::Result<()> {
         let (path, container_id) = if let Some(ref name) = self.name {
-            let workspaces = Workspace::list_project(None, config).await?;
+            let workspaces = Workspace::list_project(docker, None, config).await?;
             let ws = workspaces
                 .into_iter()
                 .find(|ws| {
@@ -62,7 +63,7 @@ impl Exec {
                 .ok_or_else(|| eyre!("no containers for workspace"))?;
             (ws.path, cid)
         } else {
-            let mut workspaces = Workspace::list_project(self.project.as_deref(), config).await?;
+            let mut workspaces = Workspace::list_project(docker, self.project.as_deref(), config).await?;
             workspaces.retain(|ws| ws.status == Status::Running);
             pick_workspace(workspaces)?
         };

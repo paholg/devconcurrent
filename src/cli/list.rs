@@ -1,3 +1,4 @@
+use bollard::Docker;
 use clap::Args;
 
 use crate::{config::Config, workspace::Workspace};
@@ -14,8 +15,8 @@ pub struct List {
 }
 
 impl List {
-    pub async fn run(self, config: &Config) -> eyre::Result<()> {
-        dbg!(Workspace::list_all(config).await?);
+    pub async fn run(self, docker: &Docker, config: &Config) -> eyre::Result<()> {
+        dbg!(Workspace::list_all(docker, config).await?);
         Ok(())
     }
 }

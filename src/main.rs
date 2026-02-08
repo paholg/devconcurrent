@@ -13,7 +13,7 @@ async fn main() -> eyre::Result<()> {
     dc::subscriber::init_subscriber();
 
     let cli = Cli::parse();
-    dc::preflight::check().await?;
+    let docker = dc::preflight::check().await?;
     let config = Config::load()?;
-    cli.run(&config).await
+    cli.run(&docker, &config).await
 }
