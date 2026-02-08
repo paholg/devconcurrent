@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::io::{BufRead, BufReader, Write};
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -286,34 +288,11 @@ fn detect_execs(container_ids: &[String]) -> HashMap<String, Vec<ExecSession>> {
         }
     }
 
-    // Inspect all exec IDs in one batch to get full details
-    let flat_exec_ids: Vec<&str> = all_exec_ids
-        .iter()
-        .flat_map(|(_, eids)| eids.iter().map(|s| s.as_str()))
-        .collect();
-
-    if flat_exec_ids.is_empty() {
-        return result;
-    }
-
-    let mut args = vec!["inspect", "--format", "{{json .}}"];
-    args.extend(flat_exec_ids.iter().copied());
-
-    let output = match duct::cmd("docker", &args).unchecked().read() {
-        Ok(o) => o,
-        Err(_) => return result,
-    };
-
-    // Parse each line and map back to container IDs
-    let inspects: Vec<Option<DockerExecInspect>> = output
-        .lines()
-        .map(|line| serde_json::from_str(line.trim()).ok())
-        .collect();
-
-    let mut idx = 0;
+    // Inspect each exec via the Docker API socket — `docker inspect` doesn't
+    // work on exec IDs, only the /exec/{id}/json endpoint does.
     for (cid, eids) in &all_exec_ids {
-        for _ in eids {
-            if let Some(Some(inspect)) = inspects.get(idx) {
+        for eid in eids {
+            if let Some(inspect) = docker_exec_inspect(eid) {
                 if inspect.running {
                     let mut command = vec![inspect.process_config.entrypoint.clone()];
                     command.extend(inspect.process_config.arguments.iter().cloned());
@@ -323,11 +302,38 @@ fn detect_execs(container_ids: &[String]) -> HashMap<String, Vec<ExecSession>> {
                     });
                 }
             }
-            idx += 1;
         }
     }
 
     result
+}
+
+fn docker_exec_inspect(exec_id: &str) -> Option<DockerExecInspect> {
+    let socket_path = "/var/run/docker.sock";
+    let mut stream = UnixStream::connect(socket_path).ok()?;
+
+    let request = format!(
+        "GET /exec/{exec_id}/json HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+    );
+    stream.write_all(request.as_bytes()).ok()?;
+
+    let mut reader = BufReader::new(stream);
+
+    // Skip HTTP status line and headers
+    let mut line = String::new();
+    loop {
+        line.clear();
+        reader.read_line(&mut line).ok()?;
+        if line.trim().is_empty() {
+            break;
+        }
+    }
+
+    // Read remaining body
+    let mut body = String::new();
+    reader.read_line(&mut body).ok()?;
+
+    serde_json::from_str(body.trim()).ok()
 }
 
 fn list_with_filter(

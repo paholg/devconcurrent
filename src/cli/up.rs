@@ -246,7 +246,7 @@ fn compose_ps_q(
     Ok(id)
 }
 
-fn exec_interactive(
+pub(crate) fn exec_interactive(
     container_id: &str,
     user: Option<&str>,
     workdir: Option<&Path>,

@@ -1,9 +1,8 @@
-use std::path::PathBuf;
-
 use clap::{Args, Parser, Subcommand};
 
 use crate::config::Config;
 
+mod exec;
 mod list;
 mod prune;
 pub(crate) mod up;
@@ -22,7 +21,7 @@ impl Cli {
         match self.command {
             Commands::Up(up) => up.run(config),
             Commands::Down(down) => todo!(),
-            Commands::Exec(exec) => todo!(),
+            Commands::Exec(exec) => exec.run(config),
             Commands::List(list) => list.run(config),
             Commands::Prune(prune) => prune.run(config),
         }
@@ -36,7 +35,7 @@ pub enum Commands {
     #[command(visible_alias = "d")]
     Down(Down),
     #[command(visible_alias = "x")]
-    Exec(Exec),
+    Exec(exec::Exec),
     #[command(visible_alias = "l")]
     List(list::List),
     /// Clean up any workspaces not actively in use.
@@ -51,22 +50,3 @@ pub enum Commands {
 #[derive(Debug, Args)]
 pub struct Down {}
 
-/// Exec into a running devcontainer
-///
-/// Supply either path or name, or leave both blank to get a picker.
-#[derive(Debug, Args)]
-#[command(verbatim_doc_comment)]
-pub struct Exec {
-    #[arg(short, long, help = "path to workspace for devcontainer")]
-    workspace: Option<PathBuf>,
-
-    #[arg(short, long, help = "name of devcontainer")]
-    name: Option<String>,
-
-    #[arg(
-        num_args = 0..,
-        allow_hyphen_values = true,
-        help = "run the given command, or leave blank to run your default shell"
-    )]
-    cmd: Option<Vec<String>>,
-}

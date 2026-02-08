@@ -38,16 +38,6 @@ pub struct Project {
     pub fwd_port: Option<u16>,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct ProjectOverride {
-    #[serde(default)]
-    pub default_cmd: Option<Cmd>,
-    #[serde(default)]
-    pub path: Option<PathBuf>,
-    #[serde(default)]
-    pub workspace_dir: Option<PathBuf>,
-}
-
 impl Config {
     pub fn load() -> eyre::Result<Self> {
         let dirs = directories::ProjectDirs::from("", "", "dc")
