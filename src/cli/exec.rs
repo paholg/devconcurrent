@@ -35,15 +35,12 @@ impl Render<Workspace> for WsRenderer {
     type Str<'a> = Cow<'a, str>;
 
     fn render<'a>(&self, ws: &'a Workspace) -> Self::Str<'a> {
-        ws.path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
+        ws.path.file_name().unwrap_or_default().to_string_lossy()
     }
 }
 
 impl Exec {
-    pub fn run(self, config: &Config) -> eyre::Result<()> {
+    pub async fn run(self, config: &Config) -> eyre::Result<()> {
         let (path, container_id) = if let Some(ref name) = self.name {
             let workspaces = Workspace::list_project(None, config)?;
             let ws = workspaces

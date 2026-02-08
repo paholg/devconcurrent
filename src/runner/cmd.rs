@@ -30,8 +30,8 @@ impl Runnable for Cmd {
         }
     }
 
-    fn run(&self, dir: Option<&Path>) -> eyre::Result<()> {
+    async fn run(&self, dir: Option<&Path>) -> eyre::Result<()> {
         let argv = self.as_args();
-        super::pty::run_in_pty(&argv, dir)
+        super::pty::run_in_pty(&argv, dir).await
     }
 }

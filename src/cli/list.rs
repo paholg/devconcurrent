@@ -14,7 +14,7 @@ pub struct List {
 }
 
 impl List {
-    pub fn run(self, config: &Config) -> eyre::Result<()> {
+    pub async fn run(self, config: &Config) -> eyre::Result<()> {
         dbg!(Workspace::list_all(config)?);
         Ok(())
     }

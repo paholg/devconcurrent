@@ -19,7 +19,7 @@ impl Runnable for DockerExec<'_> {
         self.cmd.command()
     }
 
-    fn run(&self, _dir: Option<&Path>) -> eyre::Result<()> {
+    async fn run(&self, _dir: Option<&Path>) -> eyre::Result<()> {
         let workdir_str;
         let mut args: Vec<&str> = vec!["exec"];
         if let Some(u) = self.user {
@@ -44,6 +44,6 @@ impl Runnable for DockerExec<'_> {
         args.extend(self.cmd.as_args());
 
         let full_argv: Vec<&str> = std::iter::once("docker").chain(args).collect();
-        super::pty::run_in_pty(&full_argv, None)
+        super::pty::run_in_pty(&full_argv, None).await
     }
 }

@@ -2,13 +2,10 @@
 
 use clap::Parser;
 use color_eyre::config::HookBuilder;
-use dc::{
-    self,
-    cli::{Cli, Commands},
-    config::Config,
-};
+use dc::{self, cli::Cli, config::Config};
 
-fn main() -> eyre::Result<()> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> eyre::Result<()> {
     HookBuilder::default()
         .display_env_section(false)
         .install()?;
@@ -18,5 +15,5 @@ fn main() -> eyre::Result<()> {
     let cli = Cli::parse();
     dc::preflight::check()?;
     let config = Config::load()?;
-    cli.run(&config)
+    cli.run(&config).await
 }

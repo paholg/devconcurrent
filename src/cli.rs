@@ -17,13 +17,13 @@ pub struct Cli {
 }
 
 impl Cli {
-    pub fn run(self, config: &Config) -> eyre::Result<()> {
+    pub async fn run(self, config: &Config) -> eyre::Result<()> {
         match self.command {
-            Commands::Up(up) => up.run(config),
+            Commands::Up(up) => up.run(config).await,
             Commands::Down(down) => todo!(),
-            Commands::Exec(exec) => exec.run(config),
-            Commands::List(list) => list.run(config),
-            Commands::Prune(prune) => prune.run(config),
+            Commands::Exec(exec) => exec.run(config).await,
+            Commands::List(list) => list.run(config).await,
+            Commands::Prune(prune) => prune.run(config).await,
         }
     }
 }
@@ -49,4 +49,3 @@ pub enum Commands {
 
 #[derive(Debug, Args)]
 pub struct Down {}
-

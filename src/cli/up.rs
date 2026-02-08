@@ -38,7 +38,7 @@ pub struct Up {
 }
 
 impl Up {
-    pub fn run(self, config: &Config) -> eyre::Result<()> {
+    pub async fn run(self, config: &Config) -> eyre::Result<()> {
         let (name, project) = config.project(self.project.as_deref())?;
 
         let ws_name = self
@@ -57,7 +57,7 @@ impl Up {
 
         // initializeCommand runs on the host, from the worktree
         if let Some(ref cmd) = dc.common.initialize_command {
-            runner::run("initializeCommand", cmd, Some(&worktree_path))?;
+            runner::run("initializeCommand", cmd, Some(&worktree_path)).await?;
         }
 
         let config_file = worktree_path
@@ -66,7 +66,7 @@ impl Up {
         let override_file =
             write_compose_override(compose, &dc.common, &worktree_path, &config_file, name)?;
 
-        compose_up(compose, &worktree_path, &override_file)?;
+        compose_up(compose, &worktree_path, &override_file).await?;
 
         let container_id = compose_ps_q(compose, &worktree_path, &override_file)?;
         let user = dc.common.remote_user.as_deref();
@@ -75,7 +75,7 @@ impl Up {
 
         // Lifecycle commands in the container
         if let Some(ref cmd) = dc.common.on_create_command {
-            cmd.run_in_container("onCreateCommand", &container_id, user, workdir, remote_env)?;
+            cmd.run_in_container("onCreateCommand", &container_id, user, workdir, remote_env).await?;
         }
         if let Some(ref cmd) = dc.common.update_content_command {
             cmd.run_in_container(
@@ -84,7 +84,7 @@ impl Up {
                 user,
                 workdir,
                 remote_env,
-            )?;
+            ).await?;
         }
         if let Some(ref cmd) = dc.common.post_create_command {
             cmd.run_in_container(
@@ -93,10 +93,10 @@ impl Up {
                 user,
                 workdir,
                 remote_env,
-            )?;
+            ).await?;
         }
         if let Some(ref cmd) = dc.common.post_start_command {
-            cmd.run_in_container("postStartCommand", &container_id, user, workdir, remote_env)?;
+            cmd.run_in_container("postStartCommand", &container_id, user, workdir, remote_env).await?;
         }
 
         // Interactive exec if requested
@@ -210,7 +210,7 @@ fn compose_base_args(compose: &Compose, worktree_path: &Path, override_file: &Pa
     args
 }
 
-fn compose_up(compose: &Compose, worktree_path: &Path, override_file: &Path) -> eyre::Result<()> {
+async fn compose_up(compose: &Compose, worktree_path: &Path, override_file: &Path) -> eyre::Result<()> {
     let mut args = vec1::vec1!["docker".into()];
     args.extend(compose_base_args(compose, worktree_path, override_file));
     args.extend(["up".into(), "-d".into(), "--build".into()]);
@@ -224,7 +224,7 @@ fn compose_up(compose: &Compose, worktree_path: &Path, override_file: &Path) -> 
     }
 
     let cmd = crate::runner::cmd::Cmd::Args(args);
-    runner::run("docker compose up", &cmd, None)
+    runner::run("docker compose up", &cmd, None).await
 }
 
 fn compose_ps_q(

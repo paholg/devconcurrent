@@ -22,7 +22,7 @@ pub struct Prune {
 }
 
 impl Prune {
-    pub fn run(self, config: &Config) -> eyre::Result<()> {
+    pub async fn run(self, config: &Config) -> eyre::Result<()> {
         let (_, project) = config.project(self.project.as_deref())?;
 
         let worktrees = list_worktrees(&project.path, &project.workspace_dir)?;

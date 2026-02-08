@@ -17,7 +17,7 @@ pub enum LifecycleCommand {
 }
 
 impl LifecycleCommand {
-    pub fn run_in_container(
+    pub async fn run_in_container(
         &self,
         label: &str,
         container: &str,
@@ -34,7 +34,7 @@ impl LifecycleCommand {
                     workdir,
                     env,
                 };
-                crate::runner::run(label, &exec, None)
+                crate::runner::run(label, &exec, None).await
             }
             LifecycleCommand::Parallel(map) => {
                 let execs: Vec<_> = map
@@ -52,7 +52,7 @@ impl LifecycleCommand {
                         )
                     })
                     .collect();
-                run_parallel(execs.iter().map(|(l, e)| (*l, e)))
+                run_parallel(execs.iter().map(|(l, e)| (*l, e))).await
             }
         }
     }
@@ -71,11 +71,11 @@ impl Runnable for LifecycleCommand {
         }
     }
 
-    fn run(&self, dir: Option<&Path>) -> eyre::Result<()> {
+    async fn run(&self, dir: Option<&Path>) -> eyre::Result<()> {
         match self {
-            LifecycleCommand::Single(cmd) => cmd.run(dir),
+            LifecycleCommand::Single(cmd) => cmd.run(dir).await,
             LifecycleCommand::Parallel(map) => {
-                run_parallel(map.iter().map(|(l, c)| (l.as_ref(), c)))
+                run_parallel(map.iter().map(|(l, c)| (l.as_ref(), c))).await
             }
         }
     }

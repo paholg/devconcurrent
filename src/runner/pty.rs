@@ -1,7 +1,7 @@
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-pub fn run_in_pty(argv: &[&str], dir: Option<&Path>) -> eyre::Result<()> {
+pub async fn run_in_pty(argv: &[&str], dir: Option<&Path>) -> eyre::Result<()> {
     let (pty, pts) = pty_process::blocking::open()?;
 
     let cmd = pty_process::blocking::Command::new(argv[0]).args(&argv[1..]);
