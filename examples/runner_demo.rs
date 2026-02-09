@@ -7,6 +7,7 @@ use dc::ansi::{CYAN, RESET};
 use dc::devcontainer::lifecycle_command::LifecycleCommand;
 use dc::runner::cmd::Cmd;
 use dc::runner::{Runnable, run};
+use tokio::time::sleep;
 
 struct PrintRunnable {
     count: usize,
@@ -20,7 +21,7 @@ impl Runnable for PrintRunnable {
     async fn run(&self, _dir: Option<&std::path::Path>) -> eyre::Result<()> {
         for i in 1..=self.count {
             tracing::info!("{CYAN}[rust]{RESET} processing item {i}");
-            std::thread::sleep(Duration::from_millis(20));
+            sleep(Duration::from_millis(20)).await;
         }
         Ok(())
     }
