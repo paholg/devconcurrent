@@ -1,42 +1,15 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use bollard::Docker;
 use bollard::models::ContainerSummaryStateEnum;
 use bollard::query_parameters::{ListContainersOptions, StatsOptions};
-use bollard::Docker;
 use futures::StreamExt;
+use tabular::{Row, Table};
 use tokio::process::Command;
 
 use crate::cli::up::compose_project_name;
 use crate::config::Config;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Status {
-    /// Worktree exists but has no containers
-    None,
-    Dead,
-    Exited,
-    Removing,
-    Created,
-    Paused,
-    Restarting,
-    Running,
-}
-
-impl Status {
-    fn from_state_enum(s: &ContainerSummaryStateEnum) -> Self {
-        match s {
-            ContainerSummaryStateEnum::RUNNING => Self::Running,
-            ContainerSummaryStateEnum::CREATED => Self::Created,
-            ContainerSummaryStateEnum::PAUSED => Self::Paused,
-            ContainerSummaryStateEnum::RESTARTING => Self::Restarting,
-            ContainerSummaryStateEnum::REMOVING => Self::Removing,
-            ContainerSummaryStateEnum::EXITED => Self::Exited,
-            ContainerSummaryStateEnum::DEAD => Self::Dead,
-            _ => Self::None,
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct Stats {
@@ -60,7 +33,7 @@ pub struct Workspace {
     pub container_ids: Vec<String>,
     pub dirty: bool,
     pub execs: Vec<ExecSession>,
-    pub status: Status,
+    pub status: ContainerSummaryStateEnum,
     pub stats: Option<Stats>,
 }
 
@@ -86,15 +59,167 @@ impl Workspace {
         match project {
             Some(name) => {
                 let mut filters = HashMap::new();
-                filters.insert(
-                    "label".to_string(),
-                    vec![format!("dev.dc.project={name}")],
-                );
+                filters.insert("label".to_string(), vec![format!("dev.dc.project={name}")]);
                 list_with_filter(docker, filters, Some(name), config).await
             }
             None => Self::list_all(docker, config).await,
         }
     }
+}
+
+fn format_ram(bytes: u64) -> String {
+    const KIB: f64 = 1024.0;
+    const MIB: f64 = KIB * 1024.0;
+    const GIB: f64 = MIB * 1024.0;
+    let b = bytes as f64;
+    if b >= GIB {
+        format!("{:.1}G", b / GIB)
+    } else if b >= MIB {
+        format!("{:.0}M", b / MIB)
+    } else if b >= KIB {
+        format!("{:.0}K", b / KIB)
+    } else {
+        format!("{bytes}B")
+    }
+}
+
+const TABLE_SPEC: &str = "{:<}  {:<}  {:<}  {:>}  {:>}  {:>}";
+
+fn format_exec(exec: &ExecSession) -> String {
+    exec.command.join(" ")
+}
+
+struct WsFields {
+    name: String,
+    project: String,
+    status: String,
+    cpu: String,
+    mem: String,
+}
+
+fn ws_fields(ws: &Workspace) -> WsFields {
+    let name = ws.path.file_name().unwrap_or_default().to_string_lossy();
+    let name = if ws.dirty {
+        format!("{name}*")
+    } else {
+        name.into_owned()
+    };
+    let status = match ws.status {
+        ContainerSummaryStateEnum::EMPTY => "-".to_string(),
+        ref s => s.to_string(),
+    };
+    let cpu = ws.stats.as_ref().map_or("-".into(), |s| {
+        if s.cpu < 0.05 {
+            "-".into()
+        } else {
+            format!("{:.1}%", s.cpu)
+        }
+    });
+    let mem = ws.stats.as_ref().map_or("-".into(), |s| format_ram(s.ram));
+    WsFields {
+        name,
+        project: ws.project.clone(),
+        status,
+        cpu,
+        mem,
+    }
+}
+
+fn ws_rows(ws: &Workspace) -> Vec<Row> {
+    let f = ws_fields(ws);
+    if ws.execs.is_empty() {
+        return vec![Row::new()
+            .with_cell(f.name)
+            .with_cell(f.project)
+            .with_cell(f.status)
+            .with_cell(f.cpu)
+            .with_cell(f.mem)
+            .with_cell("-")];
+    }
+    let mut rows = Vec::with_capacity(ws.execs.len());
+    for (i, exec) in ws.execs.iter().enumerate() {
+        let cmd = format_exec(exec);
+        if i == 0 {
+            rows.push(
+                Row::new()
+                    .with_cell(&f.name)
+                    .with_cell(&f.project)
+                    .with_cell(&f.status)
+                    .with_cell(&f.cpu)
+                    .with_cell(&f.mem)
+                    .with_cell(cmd),
+            );
+        } else {
+            rows.push(
+                Row::new()
+                    .with_cell("")
+                    .with_cell("")
+                    .with_cell("")
+                    .with_cell("")
+                    .with_cell("")
+                    .with_cell(cmd),
+            );
+        }
+    }
+    rows
+}
+
+fn ws_row_compact(ws: &Workspace) -> Row {
+    let f = ws_fields(ws);
+    let execs = if ws.execs.is_empty() {
+        "-".into()
+    } else {
+        ws.execs.iter().map(format_exec).collect::<Vec<_>>().join(", ")
+    };
+    Row::new()
+        .with_cell(f.name)
+        .with_cell(f.project)
+        .with_cell(f.status)
+        .with_cell(f.cpu)
+        .with_cell(f.mem)
+        .with_cell(execs)
+}
+
+/// Full table with header row, for `list` output.
+pub fn workspace_table(workspaces: &[Workspace]) -> Table {
+    let mut table = Table::new(TABLE_SPEC);
+    table.add_row(
+        Row::new()
+            .with_cell("NAME")
+            .with_cell("PROJECT")
+            .with_cell("STATUS")
+            .with_cell("CPU")
+            .with_cell("MEM")
+            .with_cell("EXECS"),
+    );
+    for ws in workspaces {
+        for row in ws_rows(ws) {
+            table.add_row(row);
+        }
+    }
+    table
+}
+
+/// Pair each workspace with its aligned table-row string, for the picker.
+pub fn picker_items(workspaces: Vec<Workspace>) -> Vec<PickerItem> {
+    let mut table = Table::new(TABLE_SPEC);
+    for ws in &workspaces {
+        table.add_row(ws_row_compact(ws));
+    }
+    let rendered = table.to_string();
+    workspaces
+        .into_iter()
+        .zip(rendered.lines())
+        .map(|(workspace, line)| PickerItem {
+            workspace,
+            rendered: line.to_string(),
+        })
+        .collect()
+}
+
+pub struct PickerItem {
+    pub workspace: Workspace,
+    pub rendered: String,
 }
 
 // Phase 1: Docker discovery
@@ -117,10 +242,7 @@ async fn docker_ps(
             Some(f) => PathBuf::from(f),
             None => continue,
         };
-        let project = labels
-            .get("dev.dc.project")
-            .cloned()
-            .unwrap_or_default();
+        let project = labels.get("dev.dc.project").cloned().unwrap_or_default();
         let id = match c.id {
             Some(id) => id,
             None => continue,
@@ -172,10 +294,13 @@ async fn docker_stats(docker: &Docker, container_ids: &[String]) -> HashMap<Stri
     }
 
     for id in container_ids {
-        let mut stream = docker.stats(id, Some(StatsOptions {
-            stream: false,
-            one_shot: true,
-        }));
+        let mut stream = docker.stats(
+            id,
+            Some(StatsOptions {
+                stream: false,
+                one_shot: true,
+            }),
+        );
         if let Some(Ok(stats)) = stream.next().await {
             let ram = stats
                 .memory_stats
@@ -201,8 +326,16 @@ fn compute_cpu_percent(stats: &bollard::models::ContainerStatsResponse) -> f32 {
         None => return 0.0,
     };
 
-    let total = cpu.cpu_usage.as_ref().and_then(|u| u.total_usage).unwrap_or(0);
-    let pre_total = precpu.cpu_usage.as_ref().and_then(|u| u.total_usage).unwrap_or(0);
+    let total = cpu
+        .cpu_usage
+        .as_ref()
+        .and_then(|u| u.total_usage)
+        .unwrap_or(0);
+    let pre_total = precpu
+        .cpu_usage
+        .as_ref()
+        .and_then(|u| u.total_usage)
+        .unwrap_or(0);
     let system = cpu.system_cpu_usage.unwrap_or(0);
     let pre_system = precpu.system_cpu_usage.unwrap_or(0);
     let online_cpus = cpu.online_cpus.unwrap_or(1) as f64;
@@ -218,7 +351,10 @@ fn compute_cpu_percent(stats: &bollard::models::ContainerStatsResponse) -> f32 {
 }
 
 // Phase 3b: exec-session detection
-async fn detect_execs(docker: &Docker, container_ids: &[String]) -> HashMap<String, Vec<ExecSession>> {
+async fn detect_execs(
+    docker: &Docker,
+    container_ids: &[String],
+) -> HashMap<String, Vec<ExecSession>> {
     let mut result: HashMap<String, Vec<ExecSession>> = HashMap::new();
     if container_ids.is_empty() {
         return result;
@@ -252,10 +388,10 @@ async fn detect_execs(docker: &Docker, container_ids: &[String]) -> HashMap<Stri
                     command.extend(args.iter().cloned());
                 }
             }
-            result.entry(cid.clone()).or_default().push(ExecSession {
-                pid,
-                command,
-            });
+            result
+                .entry(cid.clone())
+                .or_default()
+                .push(ExecSession { pid, command });
         }
     }
 
@@ -340,12 +476,11 @@ async fn list_with_filter(
         };
 
         // "most alive" status
-        let status = group
+        let status = *group
             .states
             .iter()
-            .map(|s| Status::from_state_enum(s))
             .max()
-            .unwrap_or(Status::None);
+            .unwrap_or(&ContainerSummaryStateEnum::EMPTY);
 
         let execs: Vec<ExecSession> = group
             .container_ids
@@ -383,18 +518,4 @@ async fn list_with_filter(
     }
 
     Ok(workspaces)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_status_ordering() {
-        assert!(Status::Running > Status::Paused);
-        assert!(Status::Paused > Status::Created);
-        assert!(Status::Created > Status::Exited);
-        assert!(Status::Exited > Status::Dead);
-        assert!(Status::Dead > Status::None);
-    }
 }

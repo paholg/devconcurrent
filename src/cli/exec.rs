@@ -1,14 +1,14 @@
-use std::borrow::Cow;
 use std::path::PathBuf;
 
 use bollard::Docker;
+use bollard::secret::ContainerSummaryStateEnum;
 use clap::Args;
 use eyre::eyre;
 use nucleo_picker::{Picker, Render};
 
 use crate::config::Config;
 use crate::devcontainer::DevContainer;
-use crate::workspace::{Status, Workspace};
+use crate::workspace::{PickerItem, Workspace, picker_items};
 
 /// Exec into a running devcontainer
 ///
@@ -30,13 +30,13 @@ pub struct Exec {
     cmd: Vec<String>,
 }
 
-struct WsRenderer;
+struct PickerItemRenderer;
 
-impl Render<Workspace> for WsRenderer {
-    type Str<'a> = Cow<'a, str>;
+impl Render<PickerItem> for PickerItemRenderer {
+    type Str<'a> = &'a str;
 
-    fn render<'a>(&self, ws: &'a Workspace) -> Self::Str<'a> {
-        ws.path.file_name().unwrap_or_default().to_string_lossy()
+    fn render<'a>(&self, item: &'a PickerItem) -> Self::Str<'a> {
+        &item.rendered
     }
 }
 
@@ -53,7 +53,7 @@ impl Exec {
                         .unwrap_or(false)
                 })
                 .ok_or_else(|| eyre!("no workspace found with name: {name}"))?;
-            if ws.status != Status::Running {
+            if ws.status != ContainerSummaryStateEnum::RUNNING {
                 return Err(eyre!("workspace is not running: {}", ws.path.display()));
             }
             let cid = ws
@@ -63,8 +63,9 @@ impl Exec {
                 .ok_or_else(|| eyre!("no containers for workspace"))?;
             (ws.path, cid)
         } else {
-            let mut workspaces = Workspace::list_project(docker, self.project.as_deref(), config).await?;
-            workspaces.retain(|ws| ws.status == Status::Running);
+            let mut workspaces =
+                Workspace::list_project(docker, self.project.as_deref(), config).await?;
+            workspaces.retain(|ws| ws.status == ContainerSummaryStateEnum::RUNNING);
             pick_workspace(workspaces)?
         };
 
@@ -96,21 +97,23 @@ fn pick_workspace(workspaces: Vec<Workspace>) -> eyre::Result<(PathBuf, String)>
             Ok((ws.path, cid))
         }
         _ => {
-            let mut picker = Picker::new(WsRenderer);
+            let items = picker_items(workspaces);
+            let mut picker = Picker::new(PickerItemRenderer);
             let injector = picker.injector();
-            for ws in workspaces {
-                injector.push(ws);
+            for item in items {
+                injector.push(item);
             }
-            let ws = picker
+            let item = picker
                 .pick()
                 .map_err(|e| eyre!("{e}"))?
                 .ok_or_else(|| eyre!("no workspace selected"))?;
-            let cid = ws
+            let cid = item
+                .workspace
                 .container_ids
                 .first()
                 .cloned()
                 .ok_or_else(|| eyre!("no containers for workspace"))?;
-            Ok((ws.path.clone(), cid))
+            Ok((item.workspace.path.clone(), cid))
         }
     }
 }

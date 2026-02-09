@@ -21,7 +21,7 @@ impl Cli {
     pub async fn run(self, docker: &Docker, config: &Config) -> eyre::Result<()> {
         match self.command {
             Commands::Up(up) => up.run(config).await,
-            Commands::Down(down) => todo!(),
+            Commands::Down(_down) => todo!(),
             Commands::Exec(exec) => exec.run(docker, config).await,
             Commands::List(list) => list.run(docker, config).await,
             Commands::Prune(prune) => prune.run(docker, config).await,

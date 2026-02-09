@@ -1,4 +1,22 @@
-# dc
+# dc - a worktree aware devcontainer manager
 
-A simple worktree-aware devcontainer manager.
+Git worktrees allow you to have multiple branches checked out at the same time
+in different directories.
 
+Devcontainers can give you isolated development environments.
+
+Combining these, you can have multiple, isolated development environments at the
+same time. This allows you to easier prioritize incoming work without playing
+the git stash/commit dance or worrying about which worktree is using what
+dependency. It also lets you spin up devcontainers to cut AI agents loose
+without interrupting your workflow.
+
+## Overview
+
+## Installation
+
+## Configuration
+
+## Detailed Usage
+
+## Devcontainer Tips
