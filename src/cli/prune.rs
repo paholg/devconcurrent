@@ -1,17 +1,14 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::io::{BufRead, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::ansi::{CYAN, GREEN, RED, RESET, YELLOW};
 use crate::config::Config;
-use crate::devcontainer::DevContainer;
 use crate::runner::{self, Runnable};
 use crate::workspace::{Speed, Workspace, workspace_table};
 use bollard::Docker;
 use clap::Args;
 use tokio::process::Command;
-use tracing::trace;
 
 #[derive(Debug, Args)]
 pub struct Prune {
@@ -29,40 +26,21 @@ pub struct Prune {
 impl Prune {
     pub async fn run(self, docker: &Docker, config: &Config) -> eyre::Result<()> {
         let (_, project) = config.project(self.project.as_deref())?;
-        let dc = DevContainer::load(project)?;
-        let dc_options = dc.common.customizations.dc;
-
-        let worktrees = list_worktrees(&project.path, &dc_options.workspace_dir()).await?;
-        if worktrees.is_empty() {
-            trace!("Nothing to prune.");
-            return Ok(());
-        }
 
         let workspaces =
             Workspace::list_project(docker, self.project.as_deref(), config, Speed::Slow).await?;
-        let ws_map: HashMap<&Path, &Workspace> = workspaces
-            .iter()
-            .map(|ws| (ws.path.as_path(), ws))
-            .collect();
 
         let mut in_use = Vec::new();
         let mut dirty = Vec::new();
-        let mut to_clean_ws = Vec::new();
-        let mut to_clean_orphans = Vec::new();
+        let mut to_clean = Vec::new();
 
-        for path in worktrees {
-            if !path.exists() {
-                to_clean_orphans.push(path);
-            } else if let Some(ws) = ws_map.get(path.as_path()) {
-                if !ws.execs.is_empty() {
-                    in_use.push(*ws);
-                } else if ws.dirty {
-                    dirty.push(*ws);
-                } else {
-                    to_clean_ws.push(*ws);
-                }
+        for ws in &workspaces {
+            if ws.path == project.path || !ws.execs.is_empty() {
+                in_use.push(ws);
+            } else if ws.dirty {
+                dirty.push(ws);
             } else {
-                to_clean_orphans.push(path);
+                to_clean.push(ws);
             }
         }
 
@@ -77,17 +55,12 @@ impl Prune {
             println!();
         }
 
-        if to_clean_ws.is_empty() && to_clean_orphans.is_empty() {
+        if to_clean.is_empty() {
             return Ok(());
         }
 
         println!("{YELLOW}Will Remove - DATA WILL BE LOST{RESET}:");
-        if !to_clean_ws.is_empty() {
-            print!("{}", workspace_table(to_clean_ws.iter().copied())?);
-        }
-        for p in &to_clean_orphans {
-            println!("  {}", p.display());
-        }
+        print!("{}", workspace_table(to_clean.iter().copied())?);
         println!();
 
         if !self.yes && !confirm()? {
@@ -95,54 +68,21 @@ impl Prune {
             return Ok(());
         }
 
-        let mut cleanups: Vec<Cleanup> = Vec::new();
-        for ws in &to_clean_ws {
-            cleanups.push(Cleanup {
+        let cleanups: Vec<Cleanup> = to_clean
+            .iter()
+            .map(|ws| Cleanup {
                 repo_path: &project.path,
                 path: &ws.path,
                 compose_name: super::up::compose_project_name(&ws.path),
-                remove_worktree: true,
+                remove_worktree: ws.path.exists(),
                 force: false,
-            });
-        }
-        for path in &to_clean_orphans {
-            cleanups.push(Cleanup {
-                repo_path: &project.path,
-                path,
-                compose_name: super::up::compose_project_name(path),
-                remove_worktree: true,
-                force: false,
-            });
-        }
+            })
+            .collect();
         let cleanups = CleanupMany { cleanups };
         runner::run("", &cleanups, None).await?;
 
         Ok(())
     }
-}
-
-async fn list_worktrees(repo_path: &Path, workspace_dir: &Path) -> eyre::Result<Vec<PathBuf>> {
-    let out = Command::new("git")
-        .args(["worktree", "list", "--porcelain"])
-        .current_dir(repo_path)
-        .output()
-        .await?;
-    eyre::ensure!(out.status.success(), "git worktree list failed");
-    let output = String::from_utf8(out.stdout)?;
-
-    let workspace_dir = workspace_dir.canonicalize()?;
-    let mut worktrees = Vec::new();
-
-    for line in output.lines() {
-        if let Some(path_str) = line.strip_prefix("worktree ") {
-            let path = PathBuf::from(path_str);
-            if path.starts_with(&workspace_dir) {
-                worktrees.push(path);
-            }
-        }
-    }
-
-    Ok(worktrees)
 }
 
 struct CleanupMany<'a> {

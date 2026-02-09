@@ -61,7 +61,7 @@ impl Workspace {
         speed: Speed,
     ) -> eyre::Result<Vec<Workspace>> {
         let mut filters = HashMap::new();
-        filters.insert("label".to_string(), vec!["dev.dc.managed=true".to_string()]);
+        filters.insert("label".to_string(), vec!["devcontainer.local_folder".to_string()]);
         list_with_filter(docker, filters, None, config, speed).await
     }
 
@@ -74,7 +74,7 @@ impl Workspace {
         match project {
             Some(name) => {
                 let mut filters = HashMap::new();
-                filters.insert("label".to_string(), vec![format!("dev.dc.project={name}")]);
+                filters.insert("label".to_string(), vec!["devcontainer.local_folder".to_string()]);
                 list_with_filter(docker, filters, Some(name), config, speed).await
             }
             None => Self::list_all(docker, config, speed).await,
@@ -562,6 +562,31 @@ async fn list_with_filter(
         group.states.push(c.state);
     }
 
+    // Resolve project for unmanaged containers (no dev.dc.project label)
+    let canonical_projects: Vec<(String, PathBuf)> = config
+        .projects
+        .iter()
+        .filter_map(|(name, proj)| {
+            proj.path.canonicalize().ok().map(|c| (name.clone(), c))
+        })
+        .collect();
+    let resolutions: Vec<(PathBuf, String)> = groups
+        .iter()
+        .filter(|(_, group)| group.project.is_empty())
+        .filter_map(|(path, _)| {
+            let canonical_path = path.canonicalize().ok()?;
+            canonical_projects
+                .iter()
+                .find(|(_, proj_canonical)| canonical_path.starts_with(proj_canonical))
+                .map(|(proj_name, _)| (path.clone(), proj_name.clone()))
+        })
+        .collect();
+    for (path, proj_name) in resolutions {
+        if let Some(group) = groups.get_mut(&path) {
+            group.project = proj_name;
+        }
+    }
+
     // Phase 2: Git worktree discovery — merge in worktrees with no containers
     let projects_to_scan: Vec<(&str, &crate::config::Project)> = match project_scope {
         Some(name) => {
@@ -576,6 +601,15 @@ async fn list_with_filter(
     };
 
     for (proj_name, project) in &projects_to_scan {
+        // Include the project root itself
+        groups
+            .entry(project.path.clone())
+            .or_insert_with(|| WorktreeGroup {
+                project: proj_name.to_string(),
+                container_ids: Vec::new(),
+                states: Vec::new(),
+            });
+
         let workspace_dir = DevContainer::load(project)?
             .common
             .customizations
@@ -588,6 +622,11 @@ async fn list_with_filter(
                 states: Vec::new(),
             });
         }
+    }
+
+    // Post-filter by project scope
+    if let Some(scope) = project_scope {
+        groups.retain(|_, group| group.project == scope);
     }
 
     // Phase 3: Enrich
