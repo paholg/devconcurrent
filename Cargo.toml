@@ -1,7 +1,10 @@
 [package]
-name    = "dc"
-version = "0.1.0"
-edition = "2024"
+name        = "dc"
+version     = "0.1.0"
+edition     = "2024"
+repository  = "https://github.com/paholg/dc"
+description = "Worktree aware devcontainer manager"
+homepage    = "https://github.com/paholg.dc"
 
 [dependencies]
 clap                 = { version = "4.5.57", features = ["derive"] }
@@ -25,7 +28,12 @@ tracing              = "0.1"
 tracing-indicatif    = "0.3"
 tracing-subscriber   = { version = "0.3", features = ["registry"] }
 vec1                 = { version = "1.12.1", features = ["serde"] }
-bollard = "0.20.1"
-tokio = { version = "1.49.0", features = ["full"] }
-futures = "0.3.31"
-tabular = { version = "0.2.0", features = ["ansi-cell"] }
+bollard              = "0.20.1"
+tokio                = { version = "1.49.0", features = ["full"] }
+futures              = "0.3.31"
+tabular              = { version = "0.2.0", features = ["ansi-cell"] }
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto      = "thin"
