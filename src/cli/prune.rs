@@ -10,6 +10,7 @@ use tracing::warn;
 
 use crate::ansi::{CYAN, GREEN, RED, RESET, YELLOW};
 use crate::config::Config;
+use crate::devcontainer::DevContainer;
 use crate::runner::Runnable;
 use crate::runner::run_parallel;
 use crate::workspace::{Workspace, workspace_table};
@@ -30,8 +31,10 @@ pub struct Prune {
 impl Prune {
     pub async fn run(self, docker: &Docker, config: &Config) -> eyre::Result<()> {
         let (_, project) = config.project(self.project.as_deref())?;
+        let dc = DevContainer::load(&project)?;
+        let dc_options = dc.common.customizations.dc;
 
-        let worktrees = list_worktrees(&project.path, &project.options.workspace_dir()).await?;
+        let worktrees = list_worktrees(&project.path, &dc_options.workspace_dir()).await?;
         if worktrees.is_empty() {
             println!("Nothing to prune.");
             return Ok(());

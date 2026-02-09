@@ -8,6 +8,7 @@ use serde_json::json;
 use crate::config::Config;
 use crate::devcontainer::{Common, Compose, DevContainer};
 use crate::runner;
+use crate::runner::cmd::Cmd;
 use crate::worktree;
 
 /// Spin up a devcontainer
@@ -37,15 +38,16 @@ impl Up {
     pub async fn run(self, config: &Config) -> eyre::Result<()> {
         let (name, project) = config.project(self.project.as_deref())?;
 
+        let dc = DevContainer::load(&project)?;
+        let dc_options = &dc.common.customizations.dc;
+        let workspace_dir = dc_options.workspace_dir();
+
         let ws_name = self
             .name
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_else(|| worktree::generate_name(name));
 
-        let worktree_path =
-            worktree::create(&project.path, &project.options.workspace_dir(), &ws_name).await?;
-
-        let dc = DevContainer::load(&worktree_path)?;
+        let worktree_path = worktree::create(&project.path, &workspace_dir, &ws_name).await?;
 
         let crate::devcontainer::Kind::Compose(ref compose) = dc.kind else {
             // This was handled at deserialize time already.
@@ -102,7 +104,13 @@ impl Up {
 
         // Interactive exec if requested
         if let Some(cmd_args) = self.exec {
-            exec_interactive(&container_id, user, workdir, &cmd_args, config)?;
+            exec_interactive(
+                &container_id,
+                user,
+                workdir,
+                &cmd_args,
+                dc_options.default_exec.as_ref(),
+            )?;
         }
 
         Ok(())
@@ -261,7 +269,7 @@ pub(crate) fn exec_interactive(
     user: Option<&str>,
     workdir: Option<&Path>,
     cmd_args: &[String],
-    config: &Config,
+    default_cmd: Option<&Cmd>,
 ) -> eyre::Result<()> {
     let mut args = vec!["exec".to_string(), "-it".into()];
     if let Some(u) = user {
@@ -273,15 +281,13 @@ pub(crate) fn exec_interactive(
     args.push(container_id.to_string());
 
     if cmd_args.is_empty() {
-        match &config.default_cmd {
-            Some(crate::runner::cmd::Cmd::Shell(s)) => {
-                args.extend(["sh".into(), "-c".into(), s.clone()]);
-            }
-            Some(crate::runner::cmd::Cmd::Args(a)) if !a.is_empty() => {
-                args.extend(a.iter().cloned());
-            }
-            _ => args.push("sh".into()),
-        }
+        args.extend(
+            default_cmd
+                .ok_or_else(|| eyre!("no command provided and no default configured"))?
+                .as_args()
+                .into_iter()
+                .map(ToString::to_string),
+        );
     } else {
         args.extend(cmd_args.iter().cloned());
     }

@@ -13,6 +13,7 @@ use tokio::process::Command;
 use crate::bytes::format_bytes;
 use crate::cli::up::compose_project_name;
 use crate::config::Config;
+use crate::devcontainer::DevContainer;
 
 #[derive(Debug)]
 pub struct Stats {
@@ -483,11 +484,11 @@ async fn list_with_filter(
                 states: Vec::new(),
             });
         group.container_ids.push(c.id.clone());
-        group.states.push(c.state.clone());
+        group.states.push(c.state);
     }
 
     // Phase 2: Git worktree discovery — merge in worktrees with no containers
-    let projects_to_scan: Vec<(&str, crate::config::Project)> = match project_scope {
+    let projects_to_scan: Vec<(&str, &crate::config::Project)> = match project_scope {
         Some(name) => {
             let (n, p) = config.project(Some(name))?;
             vec![(n, p)]
@@ -495,13 +496,15 @@ async fn list_with_filter(
         None => config
             .projects
             .iter()
-            .map(|(n, p)| (n.as_str(), p.clone()))
+            .map(|(n, p)| (n.as_str(), p))
             .collect(),
     };
 
     for (proj_name, project) in &projects_to_scan {
-        if let Ok(worktrees) = git_worktrees(&project.path, &project.options.workspace_dir()).await
-        {
+        let workspace_dir = DevContainer::load(&project)
+            .and_then(|dc| Ok(dc.common.customizations.dc.workspace_dir()))
+            .unwrap_or_else(|_| PathBuf::from("/tmp/"));
+        if let Ok(worktrees) = git_worktrees(&project.path, &workspace_dir).await {
             for wt in worktrees {
                 groups.entry(wt).or_insert_with(|| WorktreeGroup {
                     project: proj_name.to_string(),

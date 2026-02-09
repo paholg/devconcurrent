@@ -1,13 +1,12 @@
+use crate::config::Config;
+use crate::devcontainer::DevContainer;
+use crate::workspace::Workspace;
 use bollard::Docker;
 use bollard::secret::ContainerSummaryStateEnum;
 use clap::Args;
 use eyre::eyre;
 use tokio::io::copy_bidirectional;
 use tokio::net::{TcpListener, TcpStream};
-use tracing::info;
-
-use crate::config::Config;
-use crate::workspace::Workspace;
 
 /// Forward a local TCP port to a running devcontainer
 ///
@@ -61,14 +60,16 @@ impl Fwd {
             (cid, project, ws_name)
         };
 
-        let (_, proj_config) = config.project(Some(&project))?;
+        let (_, proj) = config.project(Some(&project))?;
+        let dc = DevContainer::load(&proj)?;
+        let dc_options = dc.common.customizations.dc;
 
         let host_port = self
             .port
-            .or(proj_config.options.fwd_port)
-            .ok_or_else(|| eyre!("no port specified and no fwd_port in config"))?;
+            .or(dc_options.forward_port)
+            .ok_or_else(|| eyre!("no port specified and no fwdPort in devcontainer.json"))?;
 
-        let container_port = proj_config.options.container_port.unwrap_or(host_port);
+        let container_port = dc_options.container_port.unwrap_or(host_port);
 
         // Get container IP
         let info = docker.inspect_container(&container_id, None).await?;

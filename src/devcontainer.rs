@@ -1,7 +1,4 @@
-use std::{
-    fs::File,
-    path::{Path, PathBuf},
-};
+use std::{fs::File, path::PathBuf};
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -11,8 +8,35 @@ use serde_with::{OneOrMany, serde_as};
 pub mod lifecycle_command;
 mod unsupported;
 
+use crate::{config::Project, runner::cmd::Cmd};
 use lifecycle_command::LifecycleCommand;
 use unsupported::Unsupported;
+
+fn deserialize_shell_path_opt<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<PathBuf>, D::Error> {
+    Option::<String>::deserialize(d)
+        .map(|o| o.map(|s| PathBuf::from(shellexpand::tilde(&s).as_ref())))
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DcOptions {
+    pub default_exec: Option<Cmd>,
+    #[serde(default, deserialize_with = "deserialize_shell_path_opt")]
+    worktree_folder: Option<PathBuf>,
+    /// If set, this port will be used automatically by the `dc fwd` command, to
+    /// map a static host port to the container of your choice.
+    pub forward_port: Option<u16>,
+    /// Port inside the container to forward to. Defaults to `fwd_port` if unset.
+    pub container_port: Option<u16>,
+}
+
+impl DcOptions {
+    pub fn workspace_dir(&self) -> PathBuf {
+        self.worktree_folder.clone().unwrap_or("/tmp/".into())
+    }
+}
 
 /// Devcontainer config from devcontainer.json.
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -44,7 +68,8 @@ impl DevContainer {
     /// .devcontainer/devcontainer.json
     /// .devcontainer.json
     /// .devcontainer/<folder>/devcontainer.json (where <folder> is a sub-folder, one level deep)
-    pub fn load(dir: &Path) -> eyre::Result<Self> {
+    pub fn load(project: &Project) -> eyre::Result<Self> {
+        let dir = &project.path;
         let candidates = [
             dir.join(".devcontainer/devcontainer.json"),
             dir.join(".devcontainer.json"),
@@ -203,7 +228,13 @@ pub struct Common {
     pub host_requirements: Option<HostRequirements>,
     /// Tool-specific configuration. Each tool should use a JSON object subproperty with a unique
     /// name to group its customizations.
-    pub customizations: IndexMap<String, serde_json::Value>,
+    pub customizations: Customizations,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+pub struct Customizations {
+    #[serde(default)]
+    pub dc: DcOptions,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]

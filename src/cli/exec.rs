@@ -29,7 +29,7 @@ pub struct Exec {
 
 impl Exec {
     pub async fn run(self, docker: &Docker, config: &Config) -> eyre::Result<()> {
-        let (path, container_id) = if let Some(ref name) = self.name {
+        let (_path, container_id, project_name) = if let Some(ref name) = self.name {
             let workspaces = Workspace::list_project(docker, None, config).await?;
             let ws = workspaces
                 .into_iter()
@@ -48,26 +48,28 @@ impl Exec {
                 .into_iter()
                 .next()
                 .ok_or_else(|| eyre!("no containers for workspace"))?;
-            (ws.path, cid)
+            (ws.path, cid, ws.project)
         } else {
             let mut workspaces =
                 Workspace::list_project(docker, self.project.as_deref(), config).await?;
             workspaces.retain(|ws| ws.status == ContainerSummaryStateEnum::RUNNING);
-            let (path, cid, _) = crate::workspace::pick_workspace(workspaces)?;
-            (path, cid)
+            let (path, cid, project) = crate::workspace::pick_workspace(workspaces)?;
+            (path, cid, project)
         };
 
-        let dc = DevContainer::load(&path)?;
+        let (_, project) = config.project(Some(&project_name))?;
+        let dc = DevContainer::load(project)?;
         let crate::devcontainer::Kind::Compose(ref compose) = dc.kind else {
             panic!();
         };
+        let dc_options = dc.common.customizations.dc;
 
         super::up::exec_interactive(
             &container_id,
             dc.common.remote_user.as_deref(),
             Some(compose.workspace_folder.as_path()),
             &self.cmd,
-            config,
+            dc_options.default_exec.as_ref(),
         )
     }
 }

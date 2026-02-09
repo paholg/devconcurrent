@@ -1,5 +1,5 @@
 use bollard::Docker;
-use clap::{Args, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 
 use crate::config::Config;
 
@@ -22,7 +22,6 @@ impl Cli {
     pub async fn run(self, docker: &Docker, config: &Config) -> eyre::Result<()> {
         match self.command {
             Commands::Up(up) => up.run(config).await,
-            Commands::Down(_down) => todo!(),
             Commands::Exec(exec) => exec.run(docker, config).await,
             Commands::Fwd(fwd) => fwd.run(docker, config).await,
             Commands::List(list) => list.run(docker, config).await,
@@ -35,8 +34,6 @@ impl Cli {
 pub enum Commands {
     #[command(visible_alias = "u")]
     Up(up::Up),
-    #[command(visible_alias = "d")]
-    Down(Down),
     #[command(visible_alias = "x")]
     Exec(exec::Exec),
     #[command(visible_alias = "f")]
@@ -51,6 +48,3 @@ pub enum Commands {
     #[command()]
     Prune(prune::Prune),
 }
-
-#[derive(Debug, Args)]
-pub struct Down {}
