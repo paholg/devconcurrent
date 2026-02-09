@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::io::{BufRead, Write};
 use std::path::Path;
 
@@ -7,6 +8,7 @@ use crate::config::Config;
 use crate::runner::{self, Runnable};
 use crate::workspace::{Speed, Workspace, workspace_table};
 use bollard::Docker;
+use bollard::query_parameters::{ListContainersOptions, RemoveContainerOptions};
 use clap::Args;
 use tokio::process::Command;
 
@@ -68,6 +70,7 @@ impl Prune {
             .map(|ws| {
                 let (_, proj) = config.project(Some(&ws.project))?;
                 Ok(Cleanup {
+                    docker,
                     repo_path: &proj.path,
                     path: &ws.path,
                     compose_name: super::up::compose_project_name(&ws.path),
@@ -109,6 +112,7 @@ impl Runnable for CleanupMany<'_> {
 }
 
 pub(super) struct Cleanup<'a> {
+    pub(super) docker: &'a Docker,
     pub(super) repo_path: &'a Path,
     pub(super) path: &'a Path,
     pub(super) compose_name: String,
@@ -140,6 +144,37 @@ impl Runnable for Cleanup<'_> {
             std::env::temp_dir().join(format!("{}-override.yml", self.compose_name));
         if override_file.exists() {
             std::fs::remove_file(&override_file)?;
+        }
+
+        // Remove any port-forward sidecar targeting this workspace
+        let mut filters = HashMap::new();
+        filters.insert(
+            "label".into(),
+            vec![format!("dev.dc.fwd.workspace={}", self.compose_name)],
+        );
+        if let Ok(containers) = self
+            .docker
+            .list_containers(Some(ListContainersOptions {
+                all: true,
+                filters: Some(filters),
+                ..Default::default()
+            }))
+            .await
+        {
+            for c in containers {
+                if let Some(id) = c.id {
+                    let _ = self
+                        .docker
+                        .remove_container(
+                            &id,
+                            Some(RemoveContainerOptions {
+                                force: true,
+                                ..Default::default()
+                            }),
+                        )
+                        .await;
+                }
+            }
         }
 
         if self.remove_worktree {

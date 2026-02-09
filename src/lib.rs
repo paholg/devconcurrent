@@ -11,3 +11,11 @@ pub mod runner;
 pub mod subscriber;
 pub mod workspace;
 pub mod worktree;
+
+#[cfg(test)]
+mod test {
+    // We need at least 1 test to make cargo-nextest happy. Remove when we have
+    // real tests.
+    #[test]
+    fn test() {}
+}

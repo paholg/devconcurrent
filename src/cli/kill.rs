@@ -27,7 +27,7 @@ pub struct Kill {
 }
 
 impl Kill {
-    pub async fn run(self, _docker: &Docker, config: &Config) -> eyre::Result<()> {
+    pub async fn run(self, docker: &Docker, config: &Config) -> eyre::Result<()> {
         let (_, project) = config.project(self.project.as_deref())?;
         let dc = DevContainer::load(project)?;
         let dc_options = dc.common.customizations.dc;
@@ -50,6 +50,7 @@ impl Kill {
         }
 
         let cleanup = Cleanup {
+            docker,
             repo_path: &project.path,
             path: &worktree_path,
             compose_name: super::up::compose_project_name(&worktree_path),
