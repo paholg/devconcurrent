@@ -30,7 +30,7 @@ pub struct Prune {
 impl Prune {
     pub async fn run(self, docker: &Docker, config: &Config) -> eyre::Result<()> {
         let (_, project) = config.project(self.project.as_deref())?;
-        let dc = DevContainer::load(&project)?;
+        let dc = DevContainer::load(project)?;
         let dc_options = dc.common.customizations.dc;
 
         let worktrees = list_worktrees(&project.path, &dc_options.workspace_dir()).await?;

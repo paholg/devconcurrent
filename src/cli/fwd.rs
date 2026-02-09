@@ -63,7 +63,7 @@ impl Fwd {
         };
 
         let (_, proj) = config.project(Some(&project))?;
-        let dc = DevContainer::load(&proj)?;
+        let dc = DevContainer::load(proj)?;
         let dc_options = dc.common.customizations.dc;
 
         let host_port = self

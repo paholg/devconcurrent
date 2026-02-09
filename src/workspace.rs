@@ -576,7 +576,7 @@ async fn list_with_filter(
     };
 
     for (proj_name, project) in &projects_to_scan {
-        let workspace_dir = DevContainer::load(&project)?
+        let workspace_dir = DevContainer::load(project)?
             .common
             .customizations
             .dc
