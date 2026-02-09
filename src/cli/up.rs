@@ -43,7 +43,7 @@ impl Up {
             .unwrap_or_else(|| worktree::generate_name(name));
 
         let worktree_path =
-            worktree::create(&project.path, &project.workspace_dir, &ws_name).await?;
+            worktree::create(&project.path, &project.options.workspace_dir(), &ws_name).await?;
 
         let dc = DevContainer::load(&worktree_path)?;
 

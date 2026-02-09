@@ -439,7 +439,7 @@ async fn list_with_filter(
     }
 
     // Phase 2: Git worktree discovery — merge in worktrees with no containers
-    let projects_to_scan: Vec<(&str, &crate::config::Project)> = match project_scope {
+    let projects_to_scan: Vec<(&str, crate::config::Project)> = match project_scope {
         Some(name) => {
             let (n, p) = config.project(Some(name))?;
             vec![(n, p)]
@@ -447,12 +447,13 @@ async fn list_with_filter(
         None => config
             .projects
             .iter()
-            .map(|(n, p)| (n.as_str(), p))
+            .map(|(n, p)| (n.as_str(), p.clone()))
             .collect(),
     };
 
     for (proj_name, project) in &projects_to_scan {
-        if let Ok(worktrees) = git_worktrees(&project.path, &project.workspace_dir).await {
+        if let Ok(worktrees) = git_worktrees(&project.path, &project.options.workspace_dir()).await
+        {
             for wt in worktrees {
                 groups.entry(wt).or_insert_with(|| WorktreeGroup {
                     project: proj_name.to_string(),

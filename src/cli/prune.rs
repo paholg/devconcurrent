@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -9,6 +10,8 @@ use tracing::warn;
 
 use crate::ansi::{CYAN, GREEN, RED, RESET, YELLOW};
 use crate::config::Config;
+use crate::runner::Runnable;
+use crate::runner::run_parallel;
 use crate::workspace::{Workspace, workspace_table};
 
 #[derive(Debug, Args)]
@@ -28,7 +31,7 @@ impl Prune {
     pub async fn run(self, docker: &Docker, config: &Config) -> eyre::Result<()> {
         let (_, project) = config.project(self.project.as_deref())?;
 
-        let worktrees = list_worktrees(&project.path, &project.workspace_dir).await?;
+        let worktrees = list_worktrees(&project.path, &project.options.workspace_dir()).await?;
         if worktrees.is_empty() {
             println!("Nothing to prune.");
             return Ok(());
@@ -62,7 +65,7 @@ impl Prune {
         }
 
         if !in_use.is_empty() {
-            println!("{GREEN}In use{RESET} ({CYAN}skipping{RESET}):");
+            println!("{GREEN}In Use{RESET} ({CYAN}skipping{RESET}):");
             print!("{}", workspace_table(in_use.iter().copied()));
             println!();
         }
@@ -76,7 +79,7 @@ impl Prune {
             return Ok(());
         }
 
-        println!("{YELLOW}Will remove{RESET}:");
+        println!("{YELLOW}Will Remove - DATA WILL BE LOST{RESET}:");
         if !to_clean_ws.is_empty() {
             print!("{}", workspace_table(to_clean_ws.iter().copied()));
         }
@@ -90,14 +93,28 @@ impl Prune {
             return Ok(());
         }
 
+        let mut cleanups: Vec<(String, Cleanup)> = Vec::new();
         for ws in &to_clean_ws {
-            let compose_name = super::up::compose_project_name(&ws.path);
-            cleanup(&project.path, &ws.path, &compose_name).await?;
+            cleanups.push((
+                ws.path.display().to_string(),
+                Cleanup {
+                    repo_path: &project.path,
+                    path: &ws.path,
+                    compose_name: super::up::compose_project_name(&ws.path),
+                },
+            ));
         }
         for path in &to_clean_orphans {
-            let compose_name = super::up::compose_project_name(path);
-            cleanup(&project.path, path, &compose_name).await?;
+            cleanups.push((
+                path.display().to_string(),
+                Cleanup {
+                    repo_path: &project.path,
+                    path,
+                    compose_name: super::up::compose_project_name(path),
+                },
+            ));
         }
+        run_parallel(cleanups.iter().map(|(l, c)| (l.as_str(), c))).await?;
 
         Ok(())
     }
@@ -128,45 +145,61 @@ async fn list_worktrees(repo_path: &Path, workspace_dir: &Path) -> eyre::Result<
     Ok(worktrees)
 }
 
-async fn cleanup(repo_path: &Path, path: &Path, compose_name: &str) -> eyre::Result<()> {
-    let down_result = Command::new("docker")
-        .args([
-            "compose",
-            "-p",
-            compose_name,
-            "down",
-            "-v",
-            "--remove-orphans",
-        ])
-        .status()
-        .await;
+struct Cleanup<'a> {
+    repo_path: &'a Path,
+    path: &'a Path,
+    compose_name: String,
+}
 
-    if let Err(e) = down_result {
-        warn!("docker compose down failed for {}: {e}", path.display());
+impl Runnable for Cleanup<'_> {
+    fn command(&self) -> Cow<'_, str> {
+        format!("prune {}", self.path.display()).into()
     }
 
-    let override_file = std::env::temp_dir().join(format!("{compose_name}-override.yml"));
-    if override_file.exists() {
-        let _ = std::fs::remove_file(&override_file);
+    async fn run(&self, _dir: Option<&Path>) -> eyre::Result<()> {
+        let down_result = Command::new("docker")
+            .args([
+                "compose",
+                "-p",
+                &self.compose_name,
+                "down",
+                "-v",
+                "--remove-orphans",
+            ])
+            .status()
+            .await;
+
+        if let Err(e) = down_result {
+            warn!(
+                "docker compose down failed for {}: {e}",
+                self.path.display()
+            );
+        }
+
+        let override_file =
+            std::env::temp_dir().join(format!("{}-override.yml", self.compose_name));
+        if override_file.exists() {
+            let _ = std::fs::remove_file(&override_file);
+        }
+
+        let force = !self.path.exists();
+        let mut args = vec!["worktree", "remove"];
+        if force {
+            args.push("--force");
+        }
+        let path_str = self.path.to_string_lossy();
+        args.push(&path_str);
+
+        let status = Command::new("git")
+            .args(&args)
+            .current_dir(self.repo_path)
+            .status()
+            .await?;
+        eyre::ensure!(status.success(), "git worktree remove failed");
+
+        println!("Removed {}", self.path.display());
+        Ok(())
     }
-
-    let force = !path.exists();
-    let mut args = vec!["worktree", "remove"];
-    if force {
-        args.push("--force");
-    }
-    let path_str = path.to_string_lossy();
-    args.push(&path_str);
-
-    let status = Command::new("git")
-        .args(&args)
-        .current_dir(repo_path)
-        .status()
-        .await?;
-    eyre::ensure!(status.success(), "git worktree remove failed");
-
-    println!("Removed {}", path.display());
-    Ok(())
 }
 
 fn confirm() -> eyre::Result<bool> {
