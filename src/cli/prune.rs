@@ -6,8 +6,7 @@ use std::path::{Path, PathBuf};
 use crate::ansi::{CYAN, GREEN, RED, RESET, YELLOW};
 use crate::config::Config;
 use crate::devcontainer::DevContainer;
-use crate::runner::Runnable;
-use crate::runner::run_parallel;
+use crate::runner::{self, Runnable};
 use crate::workspace::{Speed, Workspace, workspace_table};
 use bollard::Docker;
 use clap::Args;
@@ -96,28 +95,27 @@ impl Prune {
             return Ok(());
         }
 
-        let mut cleanups: Vec<(String, Cleanup)> = Vec::new();
+        let mut cleanups: Vec<Cleanup> = Vec::new();
         for ws in &to_clean_ws {
-            cleanups.push((
-                ws.path.display().to_string(),
-                Cleanup {
-                    repo_path: &project.path,
-                    path: &ws.path,
-                    compose_name: super::up::compose_project_name(&ws.path),
-                },
-            ));
+            cleanups.push(Cleanup {
+                repo_path: &project.path,
+                path: &ws.path,
+                compose_name: super::up::compose_project_name(&ws.path),
+                remove_worktree: true,
+                force: false,
+            });
         }
         for path in &to_clean_orphans {
-            cleanups.push((
-                path.display().to_string(),
-                Cleanup {
-                    repo_path: &project.path,
-                    path,
-                    compose_name: super::up::compose_project_name(path),
-                },
-            ));
+            cleanups.push(Cleanup {
+                repo_path: &project.path,
+                path,
+                compose_name: super::up::compose_project_name(path),
+                remove_worktree: true,
+                force: false,
+            });
         }
-        run_parallel(cleanups.iter().map(|(l, c)| (l.as_str(), c))).await?;
+        let cleanups = CleanupMany { cleanups };
+        runner::run("", &cleanups, None).await?;
 
         Ok(())
     }
@@ -147,10 +145,37 @@ async fn list_worktrees(repo_path: &Path, workspace_dir: &Path) -> eyre::Result<
     Ok(worktrees)
 }
 
-struct Cleanup<'a> {
-    repo_path: &'a Path,
-    path: &'a Path,
-    compose_name: String,
+struct CleanupMany<'a> {
+    cleanups: Vec<Cleanup<'a>>,
+}
+
+impl Runnable for CleanupMany<'_> {
+    fn command(&self) -> Cow<'_, str> {
+        let paths = self
+            .cleanups
+            .iter()
+            .map(|c| c.path.display().to_string())
+            .collect::<Vec<_>>();
+
+        paths.join(", ").into()
+    }
+
+    async fn run(&self, _dir: Option<&Path>) -> eyre::Result<()> {
+        let labeled: Vec<_> = self
+            .cleanups
+            .iter()
+            .map(|c| (c.path.display().to_string().into(), c))
+            .collect();
+        crate::runner::run_parallel(labeled).await
+    }
+}
+
+pub(super) struct Cleanup<'a> {
+    pub(super) repo_path: &'a Path,
+    pub(super) path: &'a Path,
+    pub(super) compose_name: String,
+    pub(super) remove_worktree: bool,
+    pub(super) force: bool,
 }
 
 impl Runnable for Cleanup<'_> {
@@ -179,27 +204,28 @@ impl Runnable for Cleanup<'_> {
             std::fs::remove_file(&override_file)?;
         }
 
-        let force = !self.path.exists();
-        let mut args = vec!["worktree", "remove"];
-        if force {
-            args.push("--force");
-        }
-        let path_str = self.path.to_string_lossy();
-        args.push(&path_str);
+        if self.remove_worktree {
+            let mut args = vec!["worktree", "remove"];
+            if self.force {
+                args.push("--force");
+            }
+            let path_str = self.path.to_string_lossy();
+            args.push(&path_str);
 
-        let status = Command::new("git")
-            .args(&args)
-            .current_dir(self.repo_path)
-            .status()
-            .await?;
-        eyre::ensure!(status.success(), "git worktree remove failed");
+            let status = Command::new("git")
+                .args(&args)
+                .current_dir(self.repo_path)
+                .status()
+                .await?;
+            eyre::ensure!(status.success(), "git worktree remove failed");
+        }
 
         println!("Removed {}", self.path.display());
         Ok(())
     }
 }
 
-fn confirm() -> eyre::Result<bool> {
+pub(super) fn confirm() -> eyre::Result<bool> {
     print!("Proceed? [y/N] ");
     std::io::stdout().flush()?;
     let mut line = String::new();

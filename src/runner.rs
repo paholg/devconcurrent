@@ -16,7 +16,8 @@ const LABEL_COLORS: &[SetForegroundColor] = &[CYAN, GREEN, YELLOW, BLUE, RED];
 
 pub trait Runnable: Sync {
     fn command(&self) -> Cow<'_, str>;
-    fn run(&self, dir: Option<&Path>) -> impl std::future::Future<Output = eyre::Result<()>> + Send;
+    fn run(&self, dir: Option<&Path>)
+    -> impl std::future::Future<Output = eyre::Result<()>> + Send;
 }
 
 pub async fn run(label: &str, runnable: &impl Runnable, dir: Option<&Path>) -> eyre::Result<()> {
@@ -37,7 +38,7 @@ pub async fn run(label: &str, runnable: &impl Runnable, dir: Option<&Path>) -> e
 
 pub async fn run_parallel<'a, I, R>(cmds: I) -> eyre::Result<()>
 where
-    I: IntoIterator<Item = (&'a str, &'a R)>,
+    I: IntoIterator<Item = (Cow<'a, str>, &'a R)>,
     R: Runnable + 'a,
 {
     let futures: Vec<_> = cmds

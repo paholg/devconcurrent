@@ -6,6 +6,7 @@ use crate::config::Config;
 mod copy;
 mod exec;
 mod fwd;
+mod kill;
 mod list;
 mod prune;
 pub(crate) mod up;
@@ -27,6 +28,7 @@ impl Cli {
             Commands::Fwd(fwd) => fwd.run(docker, config).await,
             Commands::List(list) => list.run(docker, config).await,
             Commands::Prune(prune) => prune.run(docker, config).await,
+            Commands::Kill(kill) => kill.run(docker, config).await,
             Commands::Copy(copy) => copy.run(docker, config).await,
         }
     }
@@ -49,6 +51,11 @@ pub enum Commands {
     /// will other running containers and delete their data.
     #[command()]
     Prune(prune::Prune),
+    /// Destroy a specific workspace by name.
+    ///
+    /// Unlike `prune`, this does not skip dirty or in-use workspaces.
+    #[command(visible_alias = "k")]
+    Kill(kill::Kill),
     #[command()]
     Copy(copy::Copy),
 }

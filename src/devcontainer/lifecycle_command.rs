@@ -52,7 +52,7 @@ impl LifecycleCommand {
                         )
                     })
                     .collect();
-                run_parallel(execs.iter().map(|(l, e)| (*l, e))).await
+                run_parallel(execs.iter().map(|(l, e)| ((*l).into(), e))).await
             }
         }
     }
@@ -75,7 +75,7 @@ impl Runnable for LifecycleCommand {
         match self {
             LifecycleCommand::Single(cmd) => cmd.run(dir).await,
             LifecycleCommand::Parallel(map) => {
-                run_parallel(map.iter().map(|(l, c)| (l.as_ref(), c))).await
+                run_parallel(map.iter().map(|(l, c)| (l.into(), c))).await
             }
         }
     }

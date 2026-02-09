@@ -138,7 +138,11 @@ impl Runnable for CopyVolumes<'_> {
     }
 
     async fn run(&self, _dir: Option<&Path>) -> eyre::Result<()> {
-        let labeled: Vec<_> = self.copies.iter().map(|c| (c.name.as_str(), c)).collect();
+        let labeled: Vec<_> = self
+            .copies
+            .iter()
+            .map(|c| (c.name.as_str().into(), c))
+            .collect();
         crate::runner::run_parallel(labeled).await
     }
 }
