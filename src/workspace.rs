@@ -21,7 +21,7 @@ pub enum Speed {
     Slow,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Stats {
     /// Current memory use in bytes.
     pub ram: u64,
@@ -29,13 +29,13 @@ pub struct Stats {
     pub cpu: Option<f32>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExecSession {
     pub pid: u32,
     pub command: Vec<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Workspace {
     pub path: PathBuf,
     pub project: String,
@@ -258,6 +258,39 @@ impl Render<PickerItem> for PickerItemRenderer {
 
     fn render<'a>(&self, item: &'a PickerItem) -> Self::Str<'a> {
         &item.rendered
+    }
+}
+
+pub fn pick_workspace_any(
+    workspaces: Vec<Workspace>,
+    empty_msg: &str,
+    // TODO: nucleo-picker doesn't support a title natively; we inject it as
+    // the first list item as a stopgap.
+    title: &str,
+) -> eyre::Result<Workspace> {
+    match workspaces.len() {
+        0 => Err(eyre!("{empty_msg}")),
+        1 => Ok(workspaces.into_iter().next().unwrap()),
+        _ => {
+            let items = picker_items(workspaces)?;
+            let mut picker = nucleo_picker::PickerOptions::new()
+                .sort_results(false)
+                .picker(nucleo_picker::render::StrRenderer);
+            let injector = picker.injector();
+            for item in &items {
+                injector.push(item.rendered.clone());
+            }
+            injector.push(title.to_string());
+            let selected = picker
+                .pick()
+                .map_err(|e| eyre!("{e}"))?
+                .ok_or_else(|| eyre!("no workspace selected"))?;
+            let idx = items
+                .iter()
+                .position(|it| it.rendered == *selected)
+                .ok_or_else(|| eyre!("selected item is not a workspace"))?;
+            Ok(items.into_iter().nth(idx).unwrap().workspace)
+        }
     }
 }
 
@@ -608,7 +641,10 @@ async fn list_with_filter(
         } else {
             Some(Stats {
                 ram: container_stats.iter().map(|s| s.ram).sum(),
-                cpu: container_stats.iter().filter_map(|s| s.cpu).reduce(|a, b| a + b),
+                cpu: container_stats
+                    .iter()
+                    .filter_map(|s| s.cpu)
+                    .reduce(|a, b| a + b),
             })
         };
 

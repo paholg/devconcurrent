@@ -30,6 +30,7 @@ pub struct DcOptions {
     pub forward_port: Option<u16>,
     /// Port inside the container to forward to. Defaults to `fwd_port` if unset.
     pub container_port: Option<u16>,
+    pub default_copy_volumes: Option<Vec<String>>,
 }
 
 impl DcOptions {

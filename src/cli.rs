@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 
 use crate::config::Config;
 
+mod copy;
 mod exec;
 mod fwd;
 mod list;
@@ -26,6 +27,7 @@ impl Cli {
             Commands::Fwd(fwd) => fwd.run(docker, config).await,
             Commands::List(list) => list.run(docker, config).await,
             Commands::Prune(prune) => prune.run(docker, config).await,
+            Commands::Copy(copy) => copy.run(docker, config).await,
         }
     }
 }
@@ -47,4 +49,6 @@ pub enum Commands {
     /// will other running containers and delete their data.
     #[command()]
     Prune(prune::Prune),
+    #[command()]
+    Copy(copy::Copy),
 }
