@@ -47,6 +47,7 @@ struct SpanTiming {
     name: Option<String>,
     description: Option<String>,
     message: Option<String>,
+    finish_message: Option<String>,
     start: Zoned,
     entered: AtomicBool,
 }
@@ -64,23 +65,19 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
 
         if visitor.indicatif_show {
             span.extensions_mut().insert(HasIndicatif);
+        }
 
-            if let Some(ref name) = visitor.name {
-                let has_indicatif_ancestor = span
-                    .scope()
-                    .skip(1)
-                    .any(|s| s.extensions().get::<HasIndicatif>().is_some());
-
-                if has_indicatif_ancestor {
-                    span.extensions_mut().insert(IndicatifName(name.clone()));
-                }
-            }
+        if span.name() == "parallel"
+            && let Some(ref name) = visitor.name
+        {
+            span.extensions_mut().insert(IndicatifName(name.clone()));
         }
 
         span.extensions_mut().insert(SpanTiming {
             name: visitor.name,
             description: visitor.description,
             message: visitor.message,
+            finish_message: visitor.finish_message,
             start: Zoned::now(),
             entered: AtomicBool::new(false),
         });
@@ -133,6 +130,10 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
             .round(Unit::Millisecond)
             .unwrap();
         let dur = SpanPrinter::new().duration_to_string(&dur);
+        if let Some(msg) = &timing.finish_message {
+            line.push(' ');
+            line.push_str(msg);
+        }
         line.push_str(&format!(" Took {GREEN}{dur}{RESET}"));
         let mut stderr = self.stderr_writer.clone();
         let _ = writeln!(stderr, "{line}");
@@ -144,7 +145,7 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
         event.record(&mut visitor);
         let msg = visitor.message.unwrap_or_default();
 
-        // Find parallel name from ancestor spans
+        // Find indicatif name from ancestor spans
         let name = ctx.event_span(event).and_then(|span| {
             span.scope()
                 .find_map(|s| s.extensions().get::<IndicatifName>().map(|n| n.0.clone()))
@@ -194,6 +195,7 @@ struct Visitor {
     name: Option<String>,
     description: Option<String>,
     message: Option<String>,
+    finish_message: Option<String>,
     indicatif_show: bool,
 }
 
@@ -203,6 +205,7 @@ impl Visit for Visitor {
             "name" => self.name = Some(format!("{value:?}")),
             "description" => self.description = Some(format!("{value:?}")),
             "message" => self.message = Some(format!("{value:?}")),
+            "finish_message" => self.finish_message = Some(format!("{value:?}")),
             _ => {}
         }
     }
@@ -218,6 +221,7 @@ impl Visit for Visitor {
             "name" => self.name = Some(value.to_string()),
             "description" => self.description = Some(value.to_string()),
             "message" => self.message = Some(value.to_string()),
+            "finish_message" => self.finish_message = Some(value.to_string()),
             _ => {}
         }
     }

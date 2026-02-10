@@ -5,7 +5,7 @@ use crossterm::style::SetForegroundColor;
 use tracing::{Instrument, Span, info_span};
 use tracing_indicatif::span_ext::IndicatifSpanExt;
 
-use crate::ansi::{BLUE, CYAN, GREEN, RED, RESET, YELLOW};
+use crate::ansi::{BLUE, CYAN, GREEN, RESET, YELLOW};
 
 pub mod cmd;
 pub mod docker_exec;
@@ -18,7 +18,7 @@ pub mod pty;
 pub struct Token(());
 
 const TOK: Token = Token(());
-const LABEL_COLORS: &[SetForegroundColor] = &[CYAN, GREEN, YELLOW, BLUE, RED];
+const LABEL_COLORS: &[SetForegroundColor] = &[YELLOW, GREEN, BLUE, CYAN];
 
 pub trait Runnable: Sync {
     fn name(&self) -> Cow<'_, str>;
@@ -38,7 +38,7 @@ pub struct Runner;
 fn run_span(name: &str, description: &str) -> Span {
     let name = name.magenta().to_string();
     let message = "Running".blue().to_string();
-    let span = info_span!("run", indicatif.pb_show = true, name, description, message,);
+    let span = info_span!("run", indicatif.pb_show = true, name, description, message);
     let pb_message = format!("[{name}] {message}");
     span.pb_set_message(&pb_message);
     span
@@ -85,9 +85,8 @@ impl Runner {
             })
             .collect();
 
-        let results = futures::future::join_all(futures).await;
+        futures::future::try_join_all(futures).await?;
 
-        results.into_iter().collect::<eyre::Result<Vec<_>>>()?;
         Ok(())
     }
 }

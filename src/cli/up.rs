@@ -2,8 +2,11 @@ use std::path::{Path, PathBuf};
 
 use clap::Args;
 use clap_complete::engine::ArgValueCompleter;
+use color_eyre::owo_colors::OwoColorize;
 use eyre::eyre;
 use serde_json::json;
+use tracing::info_span;
+use tracing_indicatif::span_ext::IndicatifSpanExt;
 
 use crate::cli::State;
 use crate::cli::copy::copy_volumes;
@@ -47,6 +50,26 @@ impl Up {
             }
             None => state.project.path.clone(),
         };
+
+        // Set up span.
+        let name = self.name.as_ref().unwrap_or(&state.project_name);
+        let colored_name = name.cyan().to_string();
+        let up = "up".cyan().to_string();
+        let path = worktree_path.display().to_string();
+        let description = &path;
+        let message = format!("Spinning up workspace {colored_name}");
+        let pb_message = format!("[{up}] Spinning up workspace {colored_name}");
+        let finish_message = format!("Workspace {colored_name} is available.");
+        let span = info_span!(
+            "up",
+            indicatif.pb_show = true,
+            name = up,
+            description,
+            message,
+            finish_message
+        );
+        span.pb_set_message(&pb_message);
+        let _guard = span.enter();
 
         let crate::devcontainer::Kind::Compose(ref compose) = dc.kind else {
             // This was handled at deserialize time already.
