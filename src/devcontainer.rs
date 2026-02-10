@@ -158,11 +158,11 @@ pub struct Common {
     /// A name for the dev container which can be displayed to the user.
     pub name: Option<String>,
     /// Features to add to the dev container.
-    #[serde(deserialize_with = "unsupported::features::error")]
+    #[serde(deserialize_with = "unsupported::features::warn")]
     pub features: serde_json::Value,
     /// Array consisting of the Feature id (without the semantic version) of Features in the order
     /// the user wants them to be installed.
-    #[serde(deserialize_with = "unsupported::overrideFeatureInstallOrder::error")]
+    #[serde(deserialize_with = "unsupported::overrideFeatureInstallOrder::warn")]
     pub override_feature_install_order: Vec<String>,
     #[serde(deserialize_with = "unsupported::secrets::warn")]
     pub secrets: serde_json::Value,
