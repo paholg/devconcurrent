@@ -1,7 +1,6 @@
 use serde::de::{self, Unexpected};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-// TODO: Fully support docker-compose's syntax
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PortMap {
     pub host: Option<u16>,
@@ -39,16 +38,10 @@ impl<'de> Deserialize<'de> for PortMap {
                     let container = container.parse::<u16>().map_err(|_| {
                         de::Error::invalid_value(Unexpected::Str(&s), &"a valid port mapping")
                     })?;
-                    Ok(PortMap {
-                        host: Some(host),
-                        container,
-                    })
+                    Ok(PortMap { host: Some(host), container })
                 } else {
                     let port = s.parse::<u16>().map_err(|_| {
-                        de::Error::invalid_value(
-                            Unexpected::Str(&s),
-                            &"a port number or \"host:container\" mapping",
-                        )
+                        de::Error::invalid_value(Unexpected::Str(&s), &"a port number or \"host:container\" mapping")
                     })?;
                     Ok(PortMap {
                         host: None,
@@ -67,37 +60,31 @@ mod tests {
     #[test]
     fn from_number() {
         let pm: PortMap = serde_json::from_str("3000").unwrap();
-        assert_eq!(
-            pm,
-            PortMap {
-                host: None,
-                container: 3000
-            }
-        );
+        assert_eq!(pm, PortMap { host: None, container: 3000 });
     }
 
     #[test]
     fn from_string_plain() {
         let pm: PortMap = serde_json::from_str("\"3000\"").unwrap();
-        assert_eq!(
-            pm,
-            PortMap {
-                host: None,
-                container: 3000
-            }
-        );
+        assert_eq!(pm, PortMap { host: None, container: 3000 });
     }
 
     #[test]
     fn from_string_mapping() {
         let pm: PortMap = serde_json::from_str("\"3000:3001\"").unwrap();
-        assert_eq!(
-            pm,
-            PortMap {
-                host: Some(3000),
-                container: 3001
-            }
-        );
+        assert_eq!(pm, PortMap { host: Some(3000), container: 3001 });
+    }
+
+    #[test]
+    fn serialize_plain() {
+        let pm = PortMap { host: None, container: 3000 };
+        assert_eq!(serde_json::to_string(&pm).unwrap(), "3000");
+    }
+
+    #[test]
+    fn serialize_mapping() {
+        let pm = PortMap { host: Some(3000), container: 3001 };
+        assert_eq!(serde_json::to_string(&pm).unwrap(), "\"3000:3001\"");
     }
 
     #[test]

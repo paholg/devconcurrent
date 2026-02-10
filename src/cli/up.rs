@@ -7,6 +7,7 @@ use serde_json::json;
 use crate::cli::State;
 use crate::cli::copy::copy_volumes;
 use crate::cli::exec::exec_interactive;
+use crate::cli::fwd::forward;
 use crate::devcontainer::{Common, Compose};
 use crate::run::Runner;
 use crate::run::cmd::{Cmd, NamedCmd};
@@ -15,15 +16,19 @@ use crate::worktree;
 /// Spin up a devcontainer, or restart an existing one
 #[derive(Debug, Args)]
 pub struct Up {
-    /// name of workspace [default: Root workspace for project]
+    /// Name of workspace [default: Root workspace for project]
     name: Option<String>,
 
-    /// copy named volumes from root workspace [default: Configured defaultCopyVolumes]
-    #[arg(short = 'c', long, num_args = 0..)]
+    /// Copy named volumes from root workspace [default: Configured defaultCopyVolumes]
+    #[arg(short, long, num_args = 0..)]
     copy: Option<Vec<String>>,
 
+    /// Foward configured port(s) once up.
+    #[arg(short, long)]
+    forward: bool,
+
     /// exec into it once up with the given command [default: Configured defaultExec]
-    #[arg(short = 'x', long, num_args = 0.., allow_hyphen_values = true, trailing_var_arg = true)]
+    #[arg(short = 'x', long, num_args = 0.., allow_hyphen_values = true)]
     exec: Option<Vec<String>>,
 }
 
@@ -125,6 +130,11 @@ impl Up {
         if let Some(ref cmd) = dc.common.post_start_command {
             cmd.run_in_container("postStartCommand", &container_id, user, workdir, remote_env)
                 .await?;
+        }
+
+        // Port forward if requested
+        if self.forward {
+            forward(&state, self.name.as_deref()).await?;
         }
 
         // Interactive exec if requested
