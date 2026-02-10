@@ -3,6 +3,7 @@
 pub mod ansi;
 pub mod bytes;
 pub mod cli;
+pub mod complete;
 pub mod config;
 pub mod devcontainer;
 pub mod docker;

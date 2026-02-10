@@ -7,10 +7,12 @@ use bollard::query_parameters::{
     RemoveContainerOptions,
 };
 use clap::Args;
+use clap_complete::engine::ArgValueCompleter;
 use eyre::eyre;
 use futures::StreamExt;
 
 use crate::cli::State;
+use crate::complete;
 use crate::workspace::Workspace;
 
 const SOCAT_IMAGE: &str = "docker.io/alpine/socat:latest";
@@ -22,6 +24,7 @@ const SOCAT_IMAGE: &str = "docker.io/alpine/socat:latest";
 #[command(verbatim_doc_comment)]
 pub struct Fwd {
     /// name of workspace [default: Root workspace for project]
+    #[arg(add = ArgValueCompleter::new(complete::complete_workspace))]
     name: Option<String>,
 }
 

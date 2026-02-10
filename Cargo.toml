@@ -9,6 +9,7 @@ homepage    = "https://github.com/paholg.dc"
 [dependencies]
 bollard              = "0.20.1"
 clap                 = { version = "4.5.57", features = ["derive"] }
+clap_complete        = { version = "4.5.65", features = ["unstable-dynamic"] }
 color-eyre           = "0.6.5"
 config               = "0.15.19"
 crossterm            = "0.29"

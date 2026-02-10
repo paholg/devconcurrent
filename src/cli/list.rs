@@ -7,10 +7,7 @@ use crate::{
 
 /// List active devcontainers
 #[derive(Debug, Args)]
-pub struct List {
-    #[arg(short, long, help = "name of project [default: all]")]
-    project: Option<String>,
-}
+pub struct List;
 
 impl List {
     pub async fn run(self, state: State) -> eyre::Result<()> {

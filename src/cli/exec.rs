@@ -3,9 +3,11 @@ use std::path::Path;
 
 use bollard::secret::ContainerSummaryStateEnum;
 use clap::Args;
+use clap_complete::engine::ArgValueCompleter;
 use eyre::eyre;
 
 use crate::cli::State;
+use crate::complete;
 use crate::run::cmd::Cmd;
 use crate::workspace::Workspace;
 
@@ -15,6 +17,7 @@ use crate::workspace::Workspace;
 #[derive(Debug, Args)]
 pub struct Exec {
     /// name of workspace [default: Root workspace for project]
+    #[arg(add = ArgValueCompleter::new(complete::complete_workspace))]
     name: Option<String>,
 
     /// command to run [default: Configured defaultExec]

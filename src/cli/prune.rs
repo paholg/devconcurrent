@@ -14,13 +14,7 @@ use clap::Args;
 use tokio::process::Command;
 
 #[derive(Debug, Args)]
-pub struct Prune {
-    #[arg(short, long, help = "name of project [default: all]")]
-    project: Option<String>,
-
-    #[arg(short, long, help = "skip confirmation prompt")]
-    yes: bool,
-}
+pub struct Prune;
 
 impl Prune {
     pub async fn run(self, state: State) -> eyre::Result<()> {
@@ -59,7 +53,7 @@ impl Prune {
         eprint!("{}", workspace_table(to_clean.iter().copied())?);
         eprintln!();
 
-        if !self.yes && !confirm()? {
+        if !confirm()? {
             eprintln!("Aborted.");
             return Ok(());
         }

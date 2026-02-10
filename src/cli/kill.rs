@@ -1,9 +1,12 @@
+use clap::Args;
+use clap_complete::engine::ArgValueCompleter;
+use eyre::eyre;
+
 use crate::ansi::{RED, RESET, YELLOW};
 use crate::cli::State;
+use crate::complete;
 use crate::run::Runner;
 use crate::workspace::Workspace;
-use clap::Args;
-use eyre::eyre;
 
 use super::prune::{Cleanup, confirm};
 
@@ -12,7 +15,7 @@ use super::prune::{Cleanup, confirm};
 /// Unlike `prune`, this does not skip dirty or in-use workspaces.
 #[derive(Debug, Args)]
 pub struct Kill {
-    #[arg(help = "name of the workspace to destroy")]
+    #[arg(help = "name of the workspace to destroy", add = ArgValueCompleter::new(complete::complete_workspace))]
     name: String,
 
     #[arg(short, long, help = "force remove worktrees")]

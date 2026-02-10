@@ -6,10 +6,12 @@ use bollard::query_parameters::{
     CreateContainerOptions, CreateImageOptionsBuilder, RemoveContainerOptions,
 };
 use clap::Args;
+use clap_complete::engine::ArgValueCompleter;
 use eyre::eyre;
 use futures::StreamExt;
 
 use crate::cli::State;
+use crate::complete;
 use crate::run::{Runnable, Runner};
 use crate::workspace::Workspace;
 
@@ -17,10 +19,10 @@ use crate::workspace::Workspace;
 #[derive(Debug, Args)]
 #[command(verbatim_doc_comment)]
 pub struct Copy {
-    #[arg(short, long)]
+    #[arg(short, long, add = ArgValueCompleter::new(complete::complete_workspace))]
     from: Option<String>,
 
-    #[arg(short, long)]
+    #[arg(short, long, add = ArgValueCompleter::new(complete::complete_workspace))]
     to: Option<String>,
 
     /// Volume names to copy [default: configured defaultCopyVolumes]

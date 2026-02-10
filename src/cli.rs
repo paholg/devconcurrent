@@ -1,8 +1,10 @@
 use std::env;
 
 use clap::{Parser, Subcommand};
+use clap_complete::engine::ArgValueCompleter;
 
 use crate::{
+    complete,
     config::{Config, Project},
     devcontainer::DevContainer,
     docker::DockerClient,
@@ -14,7 +16,6 @@ mod fwd;
 mod kill;
 mod list;
 mod prune;
-mod setup_shell;
 pub(crate) mod up;
 
 const ABOUT: &str = "TODO";
@@ -25,7 +26,8 @@ pub struct Cli {
     #[arg(
         short,
         long,
-        help = "name of project [default: The DC_PROJECT variable, falling back to the first configured project]"
+        help = "name of project [default: The DC_PROJECT variable, falling back to the first configured project]",
+        add = ArgValueCompleter::new(complete::complete_project),
     )]
     project: Option<String>,
 
@@ -66,7 +68,6 @@ impl Cli {
             Commands::Prune(prune) => prune.run(state).await,
             Commands::Kill(kill) => kill.run(state).await,
             Commands::Copy(copy) => copy.run(state).await,
-            Commands::SetupShell(setup_shell) => setup_shell.run(),
         }
     }
 }
@@ -95,6 +96,4 @@ pub enum Commands {
     Kill(kill::Kill),
     #[command()]
     Copy(copy::Copy),
-    #[command(hide = true)]
-    SetupShell(setup_shell::SetupShell),
 }

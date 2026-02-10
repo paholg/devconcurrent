@@ -18,22 +18,27 @@ without interrupting your workflow.
 
 ## Installation
 
-After install, I recommend you place the following in your shell. It currently
-does nothing, but will eventually provide completions and other goodies.
+After install, I recommend you place the following in your shell to get nice
+completions:
 
 **Bash**:
 ```bash
-souce <(dc setup-shell bash)
+souce <(COMPLETE=bash dc)
+```
+
+**Elvish**:
+```bash
+eval (E:COMPLETE=elvish dc | slurp)
 ```
 
 **Fish**:
 ```fish
-dc setup-shell fish | source
+COMPLETE=fish dc | source
 ```
 
 **Zsh**:
 ```zsh
-source <(dc setup-shell zsh)
+source <(COMLETE=zsh dc)
 ```
 
 ## Configuration
