@@ -10,6 +10,7 @@ up:
 
 fix:
     cargo clippy --fix --allow-staged
+    cargo fmt
 
 check: lint test
 

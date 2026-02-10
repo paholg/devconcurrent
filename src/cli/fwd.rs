@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::net::TcpListener;
 
 use bollard::Docker;
 use bollard::models::{ContainerCreateBody, HostConfig, PortBinding, PortMap};
@@ -11,158 +10,122 @@ use clap::Args;
 use eyre::eyre;
 use futures::StreamExt;
 
-use crate::config::Config;
-use crate::devcontainer::DevContainer;
-use crate::workspace::{Speed, Workspace};
-use bollard::secret::ContainerSummaryStateEnum;
+use crate::cli::State;
+use crate::workspace::Workspace;
 
 const SOCAT_IMAGE: &str = "docker.io/alpine/socat:latest";
 
-/// Forward a local TCP port to a running devcontainer
+/// Forward port(s) to a running devcontainer.
 ///
 /// Supply either project or name, or leave both blank to get a picker.
 #[derive(Debug, Args)]
 #[command(verbatim_doc_comment)]
 pub struct Fwd {
-    #[arg(short, long, conflicts_with = "name")]
-    project: Option<String>,
-
-    #[arg(short, long, conflicts_with = "project")]
+    /// name of workspace [default: Root workspace for project]
     name: Option<String>,
-
-    /// Host port to listen on (defaults to fwd_port in config)
-    port: Option<u16>,
 }
 
 impl Fwd {
-    pub async fn run(self, docker: &Docker, config: &Config) -> eyre::Result<()> {
-        let (container_id, project, ws) = if let Some(ref name) = self.name {
-            let workspaces = Workspace::list_project(docker, None, config, Speed::Fast).await?;
-            let ws = workspaces
-                .into_iter()
-                .find(|ws| {
-                    ws.path
-                        .file_name()
-                        .map(|f| f == name.as_str())
-                        .unwrap_or(false)
-                })
-                .ok_or_else(|| eyre!("no workspace found with name: {name}"))?;
-            if ws.status != ContainerSummaryStateEnum::RUNNING {
-                return Err(eyre!("workspace is not running: {}", ws.path.display()));
-            }
-            let cid = ws
-                .container_ids
-                .first()
-                .cloned()
-                .ok_or_else(|| eyre!("no containers for workspace"))?;
-            let project = ws.project.clone();
-            (cid, project, ws)
-        } else {
-            let mut workspaces =
-                Workspace::list_project(docker, self.project.as_deref(), config, Speed::Fast)
-                    .await?;
-            workspaces.retain(|ws| ws.status == ContainerSummaryStateEnum::RUNNING);
-            let (path, cid, project) = crate::workspace::pick_workspace(workspaces)?;
-            let all = Workspace::list_project(docker, Some(&project), config, Speed::Fast).await?;
-            let ws = all
-                .into_iter()
-                .find(|w| w.path == path)
-                .ok_or_else(|| eyre!("workspace disappeared"))?;
-            (cid, project, ws)
-        };
+    pub async fn run(self, state: State) -> eyre::Result<()> {
+        forward(&state, self.name.as_deref()).await
+    }
+}
 
-        let (_, proj) = config.project(Some(&project))?;
-        let dc = DevContainer::load(proj)?;
-        let dc_options = dc.common.customizations.dc;
+pub async fn forward(state: &State, name: Option<&str>) -> eyre::Result<()> {
+    let ws = Workspace::get(state, name).await?;
+    let cid = ws.service_container_id()?;
 
-        let host_port = self
-            .port
-            .or(dc_options.forward_port)
-            .ok_or_else(|| eyre!("no port specified and no fwdPort in devcontainer.json"))?;
+    let dc = state.devcontainer()?;
+    let dc_options = dc.common.customizations.dc;
 
-        let container_port = dc_options.container_port.unwrap_or(host_port);
+    let host_port = dc_options
+        .forward_port
+        .ok_or_else(|| eyre!("no forwardPort set in devcontainer.json"))?;
 
-        // Remove existing forwards in this project
-        remove_project_sidecars(docker, &project).await?;
+    let container_port = dc_options.container_port.unwrap_or(host_port);
 
-        // Check port availability among non-project containers
-        check_port_available(docker, &project, host_port).await?;
+    remove_sidecars(state).await?;
 
-        // Get container IP and network
-        let info = docker.inspect_container(&container_id, None).await?;
-        let networks = info
-            .network_settings
-            .and_then(|ns| ns.networks)
-            .ok_or_else(|| eyre!("container has no networks"))?;
-        let (network_name, ip) = networks
-            .into_iter()
-            .find_map(|(name, ep)| {
-                ep.ip_address.and_then(|ip| {
-                    if ip.is_empty() {
-                        None
-                    } else {
-                        Some((name, ip))
-                    }
-                })
+    // Get container IP and network
+    let info = state.docker.docker.inspect_container(cid, None).await?;
+    let networks = info
+        .network_settings
+        .and_then(|ns| ns.networks)
+        .ok_or_else(|| eyre!("container has no networks"))?;
+
+    let (network_name, ip) = networks
+        .into_iter()
+        .find_map(|(name, ep)| {
+            ep.ip_address.and_then(|ip| {
+                if ip.is_empty() {
+                    None
+                } else {
+                    Some((name, ip))
+                }
             })
-            .ok_or_else(|| eyre!("container has no IP address"))?;
+        })
+        .ok_or_else(|| eyre!("container has no IP address"))?;
 
-        // Ensure socat image is available
-        ensure_image(docker).await?;
+    ensure_image(&state.docker.docker).await?;
 
-        // Create and start sidecar
-        let sidecar_name = format!("dc-fwd-{}", ws.compose_project_name);
-        let port_key = format!("{host_port}/tcp");
+    // Create and start sidecar
+    let sidecar_name = format!("dc-fwd-{}", ws.compose_project_name);
+    let port_key = format!("{host_port}/tcp");
 
-        let mut port_bindings: PortMap = HashMap::new();
-        port_bindings.insert(
-            port_key.clone(),
-            Some(vec![PortBinding {
-                host_ip: Some("127.0.0.1".to_string()),
-                host_port: Some(host_port.to_string()),
-            }]),
-        );
+    let mut port_bindings: PortMap = HashMap::new();
+    port_bindings.insert(
+        port_key.clone(),
+        Some(vec![PortBinding {
+            host_ip: Some("127.0.0.1".to_string()),
+            host_port: Some(host_port.to_string()),
+        }]),
+    );
 
-        let mut labels = HashMap::new();
-        labels.insert("dev.dc.fwd".to_string(), "true".to_string());
-        labels.insert("dev.dc.fwd.project".to_string(), project.clone());
-        labels.insert(
-            "dev.dc.fwd.workspace".to_string(),
-            ws.compose_project_name.clone(),
-        );
+    let mut labels = HashMap::new();
+    labels.insert("dev.dc.fwd".to_string(), "true".to_string());
+    labels.insert("dev.dc.fwd.project".to_string(), state.project_name.clone());
+    labels.insert(
+        "dev.dc.fwd.workspace".to_string(),
+        ws.compose_project_name.clone(),
+    );
 
-        docker
-            .create_container(
-                Some(CreateContainerOptions {
-                    name: Some(sidecar_name.clone()),
+    state
+        .docker
+        .docker
+        .create_container(
+            Some(CreateContainerOptions {
+                name: Some(sidecar_name.clone()),
+                ..Default::default()
+            }),
+            ContainerCreateBody {
+                image: Some(SOCAT_IMAGE.to_string()),
+                cmd: Some(vec![
+                    format!("TCP-LISTEN:{host_port},fork,reuseaddr"),
+                    format!("TCP:{ip}:{container_port}"),
+                ]),
+                labels: Some(labels),
+                exposed_ports: Some(vec![port_key.clone()]),
+                host_config: Some(HostConfig {
+                    network_mode: Some(network_name),
+                    port_bindings: Some(port_bindings),
                     ..Default::default()
                 }),
-                ContainerCreateBody {
-                    image: Some(SOCAT_IMAGE.to_string()),
-                    cmd: Some(vec![
-                        format!("TCP-LISTEN:{host_port},fork,reuseaddr"),
-                        format!("TCP:{ip}:{container_port}"),
-                    ]),
-                    labels: Some(labels),
-                    exposed_ports: Some(vec![port_key.clone()]),
-                    host_config: Some(HostConfig {
-                        network_mode: Some(network_name),
-                        port_bindings: Some(port_bindings),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                },
-            )
-            .await?;
+                ..Default::default()
+            },
+        )
+        .await?;
 
-        docker.start_container(&sidecar_name, None).await?;
+    state
+        .docker
+        .docker
+        .start_container(&sidecar_name, None)
+        .await?;
 
-        eprintln!(
-            "Forwarding 127.0.0.1:{host_port} -> {ip}:{container_port} (sidecar: {sidecar_name})"
-        );
+    eprintln!(
+        "Forwarding 127.0.0.1:{host_port} -> {ip}:{container_port} (sidecar: {sidecar_name})"
+    );
 
-        Ok(())
-    }
+    Ok(())
 }
 
 async fn ensure_image(docker: &Docker) -> eyre::Result<()> {
@@ -184,7 +147,8 @@ async fn ensure_image(docker: &Docker) -> eyre::Result<()> {
     Ok(())
 }
 
-async fn remove_project_sidecars(docker: &Docker, project: &str) -> eyre::Result<()> {
+async fn remove_sidecars(state: &State) -> eyre::Result<()> {
+    let project = &state.project_name;
     let mut filters = HashMap::new();
     filters.insert(
         "label".into(),
@@ -193,16 +157,22 @@ async fn remove_project_sidecars(docker: &Docker, project: &str) -> eyre::Result
             format!("dev.dc.fwd.project={project}"),
         ],
     );
-    let containers = docker
+
+    let containers = state
+        .docker
+        .docker
         .list_containers(Some(ListContainersOptions {
             all: true,
             filters: Some(filters),
             ..Default::default()
         }))
         .await?;
+
     for c in containers {
         if let Some(id) = c.id {
-            let _ = docker
+            let _ = state
+                .docker
+                .docker
                 .remove_container(
                     &id,
                     Some(RemoveContainerOptions {
@@ -213,48 +183,5 @@ async fn remove_project_sidecars(docker: &Docker, project: &str) -> eyre::Result
                 .await;
         }
     }
-    Ok(())
-}
-
-async fn check_port_available(docker: &Docker, project: &str, host_port: u16) -> eyre::Result<()> {
-    // Check if another container (not our project's sidecar) has this port
-    let containers = docker
-        .list_containers(Some(ListContainersOptions {
-            all: false,
-            ..Default::default()
-        }))
-        .await?;
-    for c in containers {
-        let is_ours = c
-            .labels
-            .as_ref()
-            .and_then(|l| l.get("dev.dc.fwd.project"))
-            .map(|p| p == project)
-            .unwrap_or(false);
-        if is_ours {
-            continue;
-        }
-        if let Some(ports) = c.ports {
-            for p in ports {
-                if p.public_port == Some(host_port) {
-                    let name = c
-                        .names
-                        .as_ref()
-                        .and_then(|n| n.first())
-                        .map(|s| s.as_str())
-                        .unwrap_or("unknown");
-                    return Err(eyre!(
-                        "port {host_port} is already published by container {name}"
-                    ));
-                }
-            }
-        }
-    }
-
-    // Check if a host process holds the port
-    if TcpListener::bind(format!("127.0.0.1:{host_port}")).is_err() {
-        return Err(eyre!("port {host_port} is already in use on the host"));
-    }
-
     Ok(())
 }

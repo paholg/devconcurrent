@@ -4,9 +4,10 @@ use std::io::{BufRead, Write};
 use std::path::Path;
 
 use crate::ansi::{CYAN, GREEN, RED, RESET, YELLOW};
-use crate::config::Config;
+use crate::cli::State;
 use crate::run::{self, Runnable, Runner};
-use crate::workspace::{Speed, Workspace, workspace_table};
+use crate::workspace::Workspace;
+use crate::workspace::table::workspace_table;
 use bollard::Docker;
 use bollard::query_parameters::{ListContainersOptions, RemoveContainerOptions};
 use clap::Args;
@@ -22,17 +23,15 @@ pub struct Prune {
 }
 
 impl Prune {
-    pub async fn run(self, docker: &Docker, config: &Config) -> eyre::Result<()> {
-        let workspaces =
-            Workspace::list_project(docker, self.project.as_deref(), config, Speed::Slow).await?;
+    pub async fn run(self, state: State) -> eyre::Result<()> {
+        let workspaces = Workspace::list(&state).await?;
 
         let mut in_use = Vec::new();
         let mut dirty = Vec::new();
         let mut to_clean = Vec::new();
 
         for ws in &workspaces {
-            let (_, proj) = config.project(Some(&ws.project))?;
-            if ws.path == proj.path || !ws.execs.is_empty() {
+            if ws.path == state.project.path || !ws.execs.is_empty() {
                 in_use.push(ws);
             } else if ws.dirty {
                 dirty.push(ws);
@@ -68,10 +67,9 @@ impl Prune {
         let cleanups: Vec<Cleanup> = to_clean
             .iter()
             .map(|ws| {
-                let (_, proj) = config.project(Some(&ws.project))?;
                 Ok(Cleanup {
-                    docker,
-                    repo_path: &proj.path,
+                    docker: &state.docker.docker,
+                    repo_path: &state.project.path,
                     path: &ws.path,
                     compose_name: super::up::compose_project_name(&ws.path),
                     remove_worktree: ws.path.exists(),

@@ -2,7 +2,7 @@
 
 use clap::Parser;
 use color_eyre::config::HookBuilder;
-use dc::{self, cli::Cli, config::Config};
+use dc::{self, cli::Cli};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> eyre::Result<()> {
@@ -20,7 +20,5 @@ async fn main() -> eyre::Result<()> {
             std::process::exit(e.exit_code());
         }
     };
-    let docker = dc::preflight::check().await?;
-    let config = Config::load()?;
-    cli.run(&docker, &config).await
+    cli.run().await
 }

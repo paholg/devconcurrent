@@ -1,8 +1,9 @@
-use bollard::Docker;
 use clap::Args;
 
-use crate::config::Config;
-use crate::workspace::{Speed, Workspace, workspace_table};
+use crate::{
+    cli::State,
+    workspace::{Workspace, table::workspace_table},
+};
 
 /// List active devcontainers
 #[derive(Debug, Args)]
@@ -12,9 +13,8 @@ pub struct List {
 }
 
 impl List {
-    pub async fn run(self, docker: &Docker, config: &Config) -> eyre::Result<()> {
-        let project = self.project.as_deref();
-        let workspaces = Workspace::list_project(docker, project, config, Speed::Slow).await?;
+    pub async fn run(self, state: State) -> eyre::Result<()> {
+        let workspaces = Workspace::list(&state).await?;
         eprint!("{}", workspace_table(&workspaces)?);
         Ok(())
     }

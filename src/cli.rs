@@ -1,7 +1,12 @@
-use bollard::Docker;
+use std::env;
+
 use clap::{Parser, Subcommand};
 
-use crate::config::Config;
+use crate::{
+    config::{Config, Project},
+    devcontainer::DevContainer,
+    docker::DockerClient,
+};
 
 mod copy;
 mod exec;
@@ -17,20 +22,50 @@ const ABOUT: &str = "TODO";
 #[derive(Debug, Parser)]
 #[command(version, about = ABOUT)]
 pub struct Cli {
+    #[arg(
+        short,
+        long,
+        help = "name of project [default: The DC_PROJECT variable, falling back to the first configured project]"
+    )]
+    project: Option<String>,
+
     #[command(subcommand)]
     pub command: Commands,
 }
 
+pub struct State {
+    pub docker: DockerClient,
+    pub project_name: String,
+    pub project: Project,
+}
+
+impl State {
+    // TODO: We should just load this at start.
+    fn devcontainer(&self) -> eyre::Result<DevContainer> {
+        DevContainer::load(&self.project)
+    }
+}
+
 impl Cli {
-    pub async fn run(self, docker: &Docker, config: &Config) -> eyre::Result<()> {
+    pub async fn run(self) -> eyre::Result<()> {
+        let config = Config::load()?;
+        let project_name = self.project.or_else(|| env::var("DC_PROJECT").ok());
+        let (project_name, project) = config.project(project_name.as_deref())?;
+
+        let state = State {
+            docker: DockerClient::new().await?,
+            project_name,
+            project,
+        };
+
         match self.command {
-            Commands::Up(up) => up.run(docker, config).await,
-            Commands::Exec(exec) => exec.run(docker, config).await,
-            Commands::Fwd(fwd) => fwd.run(docker, config).await,
-            Commands::List(list) => list.run(docker, config).await,
-            Commands::Prune(prune) => prune.run(docker, config).await,
-            Commands::Kill(kill) => kill.run(docker, config).await,
-            Commands::Copy(copy) => copy.run(docker, config).await,
+            Commands::Up(up) => up.run(state).await,
+            Commands::Exec(exec) => exec.run(state).await,
+            Commands::Fwd(fwd) => fwd.run(state).await,
+            Commands::List(list) => list.run(state).await,
+            Commands::Prune(prune) => prune.run(state).await,
+            Commands::Kill(kill) => kill.run(state).await,
+            Commands::Copy(copy) => copy.run(state).await,
             Commands::SetupShell(setup_shell) => setup_shell.run(),
         }
     }

@@ -1,75 +1,60 @@
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 
-use bollard::Docker;
 use clap::Args;
 use eyre::eyre;
 use serde_json::json;
 
+use crate::cli::State;
 use crate::cli::copy::copy_volumes;
-use crate::config::Config;
-use crate::devcontainer::{Common, Compose, DevContainer};
+use crate::cli::exec::exec_interactive;
+use crate::devcontainer::{Common, Compose};
 use crate::run::Runner;
 use crate::run::cmd::{Cmd, NamedCmd};
 use crate::worktree;
 
-/// Spin up a devcontainer
+/// Spin up a devcontainer, or restart an existing one
 #[derive(Debug, Args)]
 pub struct Up {
-    #[arg(
-        short,
-        long,
-        help = "name of project [default: The first one configured]"
-    )]
-    project: Option<String>,
+    /// name of workspace [default: Root workspace for project]
+    name: Option<String>,
 
-    #[arg(help = "name of new workspace [default: Root workspace]")]
-    name: Option<PathBuf>,
-
-    #[arg(
-        short = 'x',
-        long,
-        num_args = 0..,
-        allow_hyphen_values = true,
-        help = "exec into it once up with the given command [default: conigured defaultExec]"
-    )]
-    exec: Option<Vec<String>>,
-
-    #[arg(
-        short = 'c',
-        long,
-        num_args = 0..,
-        help = "copy named volumes from root workspace [default: configured defaultCopyVolumes]"
-    )]
+    /// copy named volumes from root workspace [default: Configured defaultCopyVolumes]
+    #[arg(short = 'c', long, num_args = 0..)]
     copy: Option<Vec<String>>,
+
+    /// exec into it once up with the given command [default: Configured defaultExec]
+    #[arg(short = 'x', long, num_args = 0.., allow_hyphen_values = true, trailing_var_arg = true)]
+    exec: Option<Vec<String>>,
 }
 
 impl Up {
-    pub async fn run(self, docker: &Docker, config: &Config) -> eyre::Result<()> {
-        let (name, project) = config.project(self.project.as_deref())?;
-
-        let dc = DevContainer::load(project)?;
+    pub async fn run(self, state: State) -> eyre::Result<()> {
+        let dc = state.devcontainer()?;
         let dc_options = &dc.common.customizations.dc;
 
         let worktree_path = match self.name {
             Some(ref ws_name) => {
                 let workspace_dir = dc_options.workspace_dir();
-                let ws_name = ws_name.to_string_lossy();
-                worktree::create(&project.path, &workspace_dir, &ws_name).await?
+                worktree::create(&state.project.path, &workspace_dir, ws_name).await?
             }
-            None => project.path.clone(),
+            None => state.project.path.clone(),
         };
 
         let crate::devcontainer::Kind::Compose(ref compose) = dc.kind else {
             // This was handled at deserialize time already.
-            panic!();
+            unimplemented!();
         };
 
         let config_file = worktree_path
             .join(".devcontainer")
             .join("devcontainer.json");
-        let override_file =
-            write_compose_override(compose, &dc.common, &worktree_path, &config_file, name)?;
+        let override_file = write_compose_override(
+            compose,
+            &dc.common,
+            &worktree_path,
+            &config_file,
+            &state.project_name,
+        )?;
 
         // Check if the primary container already exists (re-up vs fresh creation)
         let _already_running = compose_ps_q(compose, &worktree_path, &override_file)
@@ -98,10 +83,10 @@ impl Up {
                     })?
             };
 
-            let root_project = compose_project_name(&project.path);
+            let root_project = compose_project_name(&state.project.path);
             let new_project = compose_project_name(&worktree_path);
 
-            copy_volumes(docker, &volumes, &root_project, &new_project).await?;
+            copy_volumes(&state.docker.docker, &volumes, &root_project, &new_project).await?;
         }
 
         compose_up(compose, &worktree_path, &override_file).await?;
@@ -171,8 +156,10 @@ pub(crate) fn compose_project_name(worktree_path: &Path) -> String {
         .collect()
 }
 
-/// Generate a compose override file that injects devcontainer labels onto the
-/// primary service so that VS Code and other tools can discover the container.
+/// Generate a compose override file with:
+/// * Our own identification labels
+/// * Devcontainer standard labels
+/// * Other devcontainer overrides
 fn write_compose_override(
     compose: &Compose,
     common: &Common,
@@ -184,8 +171,8 @@ fn write_compose_override(
         "{}-override.yml",
         compose_project_name(worktree_path)
     ));
-    let local_folder = worktree_path.to_string_lossy();
-    let config_file = config_file.to_string_lossy();
+    let local_folder = worktree_path.display();
+    let config_file = config_file.display();
 
     let mut service_obj = json!({
         "labels": [
@@ -306,42 +293,4 @@ async fn compose_ps_q(
         ));
     }
     Ok(id)
-}
-
-pub(crate) fn exec_interactive(
-    container_id: &str,
-    user: Option<&str>,
-    workdir: Option<&Path>,
-    cmd_args: &[String],
-    default_cmd: Option<&Cmd>,
-) -> eyre::Result<()> {
-    let mut args = vec!["exec".to_string(), "-it".into()];
-    if let Some(u) = user {
-        args.extend(["-u".into(), u.to_string()]);
-    }
-    if let Some(w) = workdir {
-        args.extend(["-w".into(), w.to_string_lossy().into_owned()]);
-    }
-    args.push(container_id.to_string());
-
-    if cmd_args.is_empty() {
-        args.extend(
-            default_cmd
-                .ok_or_else(|| eyre!("no command provided and no default configured"))?
-                .as_args()
-                .into_iter()
-                .map(ToString::to_string),
-        );
-    } else {
-        args.extend(cmd_args.iter().cloned());
-    }
-
-    // Restore cursor visibility — indicatif hides it for spinners and exec()
-    // replaces the process before indicatif's cleanup can run.
-    let _ = crossterm::execute!(std::io::stderr(), crossterm::cursor::Show);
-
-    Err(std::process::Command::new("docker")
-        .args(&args)
-        .exec()
-        .into())
 }

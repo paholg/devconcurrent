@@ -1,76 +1,85 @@
-use bollard::Docker;
+use std::os::unix::process::CommandExt;
+use std::path::Path;
+
 use bollard::secret::ContainerSummaryStateEnum;
 use clap::Args;
 use eyre::eyre;
 
-use crate::config::Config;
-use crate::devcontainer::DevContainer;
-use crate::workspace::{Speed, Workspace};
+use crate::cli::State;
+use crate::run::cmd::Cmd;
+use crate::workspace::Workspace;
 
 /// Exec into a running devcontainer
 ///
 /// Supply either project or name, or leave both blank to get a picker.
 #[derive(Debug, Args)]
-#[command(verbatim_doc_comment)]
 pub struct Exec {
-    #[arg(short, long, conflicts_with = "name")]
-    project: Option<String>,
-
-    #[arg(short, long, conflicts_with = "project")]
+    /// name of workspace [default: Root workspace for project]
     name: Option<String>,
 
-    #[arg(
-        num_args = 0..,
-        allow_hyphen_values = true,
-        trailing_var_arg = true,
-    )]
+    /// command to run [default: Configured defaultExec]
+    #[arg(num_args = 0.., allow_hyphen_values = true, trailing_var_arg = true)]
     cmd: Vec<String>,
 }
 
 impl Exec {
-    pub async fn run(self, docker: &Docker, config: &Config) -> eyre::Result<()> {
-        let (_path, container_id, project_name) = if let Some(ref name) = self.name {
-            let workspaces = Workspace::list_project(docker, None, config, Speed::Fast).await?;
-            let ws = workspaces
-                .into_iter()
-                .find(|ws| {
-                    ws.path
-                        .file_name()
-                        .map(|f| f == name.as_str())
-                        .unwrap_or(false)
-                })
-                .ok_or_else(|| eyre!("no workspace found with name: {name}"))?;
-            if ws.status != ContainerSummaryStateEnum::RUNNING {
-                return Err(eyre!("workspace is not running: {}", ws.path.display()));
-            }
-            let cid = ws
-                .container_ids
-                .into_iter()
-                .next()
-                .ok_or_else(|| eyre!("no containers for workspace"))?;
-            (ws.path, cid, ws.project)
-        } else {
-            let mut workspaces =
-                Workspace::list_project(docker, self.project.as_deref(), config, Speed::Fast)
-                    .await?;
-            workspaces.retain(|ws| ws.status == ContainerSummaryStateEnum::RUNNING);
-            let (path, cid, project) = crate::workspace::pick_workspace(workspaces)?;
-            (path, cid, project)
-        };
-
-        let (_, project) = config.project(Some(&project_name))?;
-        let dc = DevContainer::load(project)?;
-        let crate::devcontainer::Kind::Compose(ref compose) = dc.kind else {
-            panic!();
-        };
+    pub async fn run(self, state: State) -> eyre::Result<()> {
+        let ws = Workspace::get(&state, self.name.as_deref()).await?;
+        if ws.status() != ContainerSummaryStateEnum::RUNNING {
+            return Err(eyre!("workspace is not running: {}", ws.path.display()));
+        }
+        let dc = state.devcontainer()?;
         let dc_options = dc.common.customizations.dc;
+        let crate::devcontainer::Kind::Compose(ref compose) = dc.kind else {
+            // This was handled at deserialize time already.
+            unimplemented!();
+        };
+        let cid = ws.service_container_id()?;
 
-        super::up::exec_interactive(
-            &container_id,
+        exec_interactive(
+            cid,
             dc.common.remote_user.as_deref(),
             Some(compose.workspace_folder.as_path()),
             &self.cmd,
             dc_options.default_exec.as_ref(),
         )
     }
+}
+
+pub fn exec_interactive(
+    container_id: &str,
+    user: Option<&str>,
+    workdir: Option<&Path>,
+    cmd_args: &[String],
+    default_cmd: Option<&Cmd>,
+) -> eyre::Result<()> {
+    let mut args = vec!["exec".to_string(), "-it".into()];
+    if let Some(u) = user {
+        args.extend(["-u".into(), u.to_string()]);
+    }
+    if let Some(w) = workdir {
+        args.extend(["-w".into(), w.to_string_lossy().into_owned()]);
+    }
+    args.push(container_id.to_string());
+
+    if cmd_args.is_empty() {
+        args.extend(
+            default_cmd
+                .ok_or_else(|| eyre!("no command provided and no default configured"))?
+                .as_args()
+                .into_iter()
+                .map(ToString::to_string),
+        );
+    } else {
+        args.extend(cmd_args.iter().cloned());
+    }
+
+    // Restore cursor visibility — indicatif hides it for spinners and exec()
+    // replaces the process before indicatif's cleanup can run.
+    let _ = crossterm::execute!(std::io::stderr(), crossterm::cursor::Show);
+
+    Err(std::process::Command::new("docker")
+        .args(&args)
+        .exec()
+        .into())
 }

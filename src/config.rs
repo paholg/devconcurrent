@@ -32,18 +32,16 @@ impl Config {
         Ok(cfg.try_deserialize()?)
     }
 
-    pub fn project<'a>(&'a self, name: Option<&'a str>) -> eyre::Result<(&'a str, &'a Project)> {
+    pub fn project(mut self, name: Option<&str>) -> eyre::Result<(String, Project)> {
         match name {
             Some(name) => self
                 .projects
-                .get(name)
-                .map(|p| (name, p))
+                .swap_remove_entry(name)
                 .ok_or_else(|| eyre!("no project configured with name: {name}")),
             None => self
                 .projects
-                .iter()
+                .into_iter()
                 .next()
-                .map(|(n, p)| (n.as_ref(), p))
                 .ok_or_else(|| eyre!("no projects configured")),
         }
     }

@@ -7,13 +7,15 @@ description = "Worktree aware devcontainer manager"
 homepage    = "https://github.com/paholg.dc"
 
 [dependencies]
+bollard              = "0.20.1"
 clap                 = { version = "4.5.57", features = ["derive"] }
 color-eyre           = "0.6.5"
 config               = "0.15.19"
 crossterm            = "0.29"
+derive_more          = { version = "2.1.1", features = ["add", "add_assign", "sum"] }
 directories          = "6.0.0"
-nucleo-picker        = "0.11"
 eyre                 = "0.6.12"
+futures              = "0.3.31"
 gix                  = "0.78.0"
 indexmap             = { version = "2.13.0", features = ["serde"] }
 indicatif            = "0.18"
@@ -24,14 +26,12 @@ serde-inline-default = "1.0.1"
 serde_json           = { version = "1.0.149", features = ["preserve_order"] }
 serde_with           = "3"
 shellexpand          = "3.1.1"
+tabular              = { version = "0.2.0", features = ["ansi-cell"] }
+tokio                = { version = "1.49.0", features = ["full"] }
 tracing              = "0.1"
 tracing-indicatif    = "0.3"
 tracing-subscriber   = { version = "0.3", features = ["registry"] }
 vec1                 = { version = "1.12.1", features = ["serde"] }
-bollard              = "0.20.1"
-tokio                = { version = "1.49.0", features = ["full"] }
-futures              = "0.3.31"
-tabular              = { version = "0.2.0", features = ["ansi-cell"] }
 
 # The profile that 'dist' will build with
 [profile.dist]

@@ -9,64 +9,33 @@ use clap::Args;
 use eyre::eyre;
 use futures::StreamExt;
 
-use crate::config::Config;
-use crate::devcontainer::DevContainer;
+use crate::cli::State;
 use crate::run::{Runnable, Runner};
-use crate::workspace::Speed::Fast;
-use crate::workspace::{Workspace, pick_workspace_any};
+use crate::workspace::Workspace;
 
 /// Copy named volumes from one workspace to another
-///
-/// Useful for sharing expensive-to-rebuild caches (e.g. cargo registry,
-/// node_modules) between workspaces.
 #[derive(Debug, Args)]
 #[command(verbatim_doc_comment)]
 pub struct Copy {
     #[arg(short, long)]
-    project: Option<String>,
-
-    #[arg(long)]
     from: Option<String>,
 
-    #[arg(long)]
+    #[arg(short, long)]
     to: Option<String>,
 
     /// Volume names to copy [default: configured defaultCopyVolumes]
     volumes: Vec<String>,
 }
 
-fn find_workspace(workspaces: Vec<Workspace>, name: &str) -> eyre::Result<Workspace> {
-    workspaces
-        .into_iter()
-        .find(|ws| ws.path.file_name().map(|f| f == name).unwrap_or(false))
-        .ok_or_else(|| eyre!("no workspace found with name: {name}"))
-}
-
 impl Copy {
-    pub async fn run(self, docker: &Docker, config: &Config) -> eyre::Result<()> {
-        let workspaces =
-            Workspace::list_project(docker, self.project.as_deref(), config, Fast).await?;
-
-        let from_ws = if let Some(ref name) = self.from {
-            find_workspace(workspaces.clone(), name)?
-        } else {
-            pick_workspace_any(workspaces.clone(), "no workspaces found", "Copy from:")?
-        };
-
-        let mut remaining = workspaces;
-        remaining.retain(|w| w.compose_project_name != from_ws.compose_project_name);
-
-        let to_ws = if let Some(ref name) = self.to {
-            find_workspace(remaining, name)?
-        } else {
-            pick_workspace_any(remaining, "no other workspaces found", "Copy to:")?
-        };
+    pub async fn run(self, state: State) -> eyre::Result<()> {
+        let from_ws = Workspace::get(&state, self.from.as_deref()).await?;
+        let to_ws = Workspace::get(&state, self.to.as_deref()).await?;
 
         let volumes = if !self.volumes.is_empty() {
             self.volumes
         } else {
-            let (_, project) = config.project(self.project.as_deref())?;
-            let dc = DevContainer::load(project)?;
+            let dc = state.devcontainer()?;
             dc.common
                 .customizations
                 .dc
@@ -75,7 +44,7 @@ impl Copy {
         };
 
         copy_volumes(
-            docker,
+            &state.docker.docker,
             &volumes,
             &from_ws.compose_project_name,
             &to_ws.compose_project_name,

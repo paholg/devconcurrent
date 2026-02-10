@@ -1,8 +1,7 @@
 use crate::ansi::{RED, RESET, YELLOW};
-use crate::config::Config;
-use crate::devcontainer::DevContainer;
+use crate::cli::State;
 use crate::run::Runner;
-use bollard::Docker;
+use crate::workspace::Workspace;
 use clap::Args;
 use eyre::eyre;
 
@@ -16,29 +15,17 @@ pub struct Kill {
     #[arg(help = "name of the workspace to destroy")]
     name: String,
 
-    #[arg(
-        short,
-        long,
-        help = "name of project [default: The first one configured]"
-    )]
-    project: Option<String>,
-
     #[arg(short, long, help = "force remove worktrees")]
     force: bool,
 }
 
 impl Kill {
-    pub async fn run(self, docker: &Docker, config: &Config) -> eyre::Result<()> {
-        let (_, project) = config.project(self.project.as_deref())?;
-        let dc = DevContainer::load(project)?;
-        let dc_options = dc.common.customizations.dc;
-        let workspace_dir = dc_options.workspace_dir();
+    pub async fn run(self, state: State) -> eyre::Result<()> {
+        let workspace = Workspace::get(&state, Some(&self.name)).await?;
 
-        let worktree_path = workspace_dir.join(&self.name);
+        let is_root = workspace.path == state.project.path;
 
-        let is_root = worktree_path == project.path;
-
-        if !is_root && !worktree_path.exists() {
+        if !workspace.path.exists() {
             return Err(eyre!("no workspace named '{}' found", self.name));
         }
 
@@ -53,10 +40,10 @@ impl Kill {
         }
 
         let cleanup = Cleanup {
-            docker,
-            repo_path: &project.path,
-            path: &worktree_path,
-            compose_name: super::up::compose_project_name(&worktree_path),
+            docker: &state.docker.docker,
+            repo_path: &state.project.path,
+            path: &workspace.path,
+            compose_name: super::up::compose_project_name(&workspace.path),
             remove_worktree: !is_root,
             force: self.force,
         };

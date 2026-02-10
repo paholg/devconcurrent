@@ -31,7 +31,7 @@ pub fn init_subscriber() {
 
     let dc_layer = DcLayer { stderr_writer }.with_filter(filter_fn(|meta| {
         // Filter out verbose (TRACE) output from dependencies.
-        *meta.level() < tracing::Level::TRACE || meta.target().starts_with("dc")
+        *meta.level() < tracing::Level::DEBUG || meta.target().starts_with("dc")
     }));
 
     tracing_subscriber::registry()
