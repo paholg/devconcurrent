@@ -23,18 +23,19 @@ const SOCAT_IMAGE: &str = "docker.io/alpine/socat:latest";
 #[derive(Debug, Args)]
 #[command(verbatim_doc_comment)]
 pub struct Fwd {
-    /// name of workspace [default: Root workspace for project]
+    /// name of workspace [default: current working directory]
     #[arg(add = ArgValueCompleter::new(complete::complete_workspace))]
     name: Option<String>,
 }
 
 impl Fwd {
     pub async fn run(self, state: State) -> eyre::Result<()> {
-        forward(&state, self.name.as_deref()).await
+        let name = state.resolve_name(self.name).await?;
+        forward(&state, &name).await
     }
 }
 
-pub async fn forward(state: &State, name: Option<&str>) -> eyre::Result<()> {
+pub async fn forward(state: &State, name: &str) -> eyre::Result<()> {
     let ws = Workspace::get(state, name).await?;
     let cid = ws.service_container_id()?;
 

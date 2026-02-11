@@ -21,10 +21,10 @@ use crate::workspace::Workspace;
 #[command(verbatim_doc_comment)]
 pub struct Copy {
     #[arg(short, long, add = ArgValueCompleter::new(complete::complete_workspace))]
-    from: Option<String>,
+    from: String,
 
     #[arg(short, long, add = ArgValueCompleter::new(complete::complete_workspace))]
-    to: Option<String>,
+    to: String,
 
     /// Volume names to copy [default: configured defaultCopyVolumes]
     volumes: Vec<String>,
@@ -32,8 +32,8 @@ pub struct Copy {
 
 impl Copy {
     pub async fn run(self, state: State) -> eyre::Result<()> {
-        let from_ws = Workspace::get(&state, self.from.as_deref()).await?;
-        let to_ws = Workspace::get(&state, self.to.as_deref()).await?;
+        let from_ws = Workspace::get(&state, &self.from).await?;
+        let to_ws = Workspace::get(&state, &self.to).await?;
         copy_volumes(
             &state,
             self.volumes,

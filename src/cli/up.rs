@@ -21,7 +21,7 @@ use crate::worktree;
 /// Spin up a devcontainer, or restart an existing one
 #[derive(Debug, Args)]
 pub struct Up {
-    /// Name of workspace [default: Root workspace for project]
+    /// name of workspace [default: current working directory]
     #[arg(add = ArgValueCompleter::new(complete::complete_workspace))]
     name: Option<String>,
 
@@ -47,17 +47,17 @@ impl Up {
         let dc = state.devcontainer()?;
         let dc_options = &dc.common.customizations.dc;
 
-        let is_root = state.is_root(self.name.as_deref());
+        let name = state.resolve_name(self.name).await?;
+        let is_root = state.is_root(&name);
         let worktree_path = if is_root {
             state.project.path.clone()
         } else {
-            let ws_name = self.name.as_ref().unwrap();
             let workspace_dir = dc_options.workspace_dir(&state.project.path);
-            worktree::create(&state.project.path, &workspace_dir, ws_name, self.detach).await?
+            worktree::create(&state.project.path, &workspace_dir, &name, self.detach).await?
         };
 
         // Set up span.
-        let name = self.name.as_ref().unwrap_or(&state.project_name);
+        let name = &name;
         let colored_name = name.cyan().to_string();
         let up = "up".cyan().to_string();
         let path = worktree_path.display().to_string();
@@ -109,7 +109,7 @@ impl Up {
         }
 
         if let Some(copy_args) = self.copy
-            && self.name.is_some()
+            && !is_root
         {
             let root_project = compose_project_name(&state.project.path);
             let new_project = compose_project_name(&worktree_path);
@@ -157,7 +157,7 @@ impl Up {
 
         // Port forward if requested
         if self.forward {
-            forward(&state, self.name.as_deref()).await?;
+            forward(&state, name).await?;
         }
 
         // Interactive exec if requested

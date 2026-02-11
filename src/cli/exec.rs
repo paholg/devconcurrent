@@ -16,7 +16,7 @@ use crate::workspace::Workspace;
 /// Supply either project or name, or leave both blank to get a picker.
 #[derive(Debug, Args)]
 pub struct Exec {
-    /// name of workspace [default: Root workspace for project]
+    /// name of workspace [default: current working directory]
     #[arg(add = ArgValueCompleter::new(complete::complete_workspace))]
     name: Option<String>,
 
@@ -27,7 +27,8 @@ pub struct Exec {
 
 impl Exec {
     pub async fn run(self, state: State) -> eyre::Result<()> {
-        let ws = Workspace::get(&state, self.name.as_deref()).await?;
+        let name = state.resolve_name(self.name).await?;
+        let ws = Workspace::get(&state, &name).await?;
         if ws.status() != ContainerSummaryStateEnum::RUNNING {
             return Err(eyre!("workspace is not running: {}", ws.path.display()));
         }

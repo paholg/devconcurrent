@@ -8,6 +8,7 @@ use crate::{
     config::{Config, Project},
     devcontainer::DevContainer,
     docker::DockerClient,
+    worktree,
 };
 
 mod copy;
@@ -47,15 +48,32 @@ impl State {
         DevContainer::load(&self.project)
     }
 
-    pub fn is_root(&self, name: Option<&str>) -> bool {
-        match name {
-            Some(name) => self
-                .project
-                .path
-                .file_name()
-                .is_some_and(|root| name == root),
-            None => true,
+    pub fn is_root(&self, name: &str) -> bool {
+        self.project
+            .path
+            .file_name()
+            .is_some_and(|root| name == root)
+    }
+
+    /// If a name was given, return it. Otherwise, return the name of the
+    /// worktree we're currently inside.
+    pub async fn resolve_name(&self, name: Option<String>) -> eyre::Result<String> {
+        if let Some(n) = name {
+            return Ok(n);
         }
+
+        let cwd = env::current_dir()?;
+        let worktrees = worktree::list(&self.project.path).await?;
+
+        worktrees.into_iter().find(|wt| wt == &cwd).ok_or_else(|| {
+            eyre::eyre!("not inside a worktree of project '{}'", self.project_name)
+        })?;
+
+        Ok(cwd
+            .file_name()
+            .expect("worktree path has no basename")
+            .to_string_lossy()
+            .into_owned())
     }
 }
 

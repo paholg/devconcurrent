@@ -24,7 +24,7 @@ pub struct Kill {
 
 impl Kill {
     pub async fn run(self, state: State) -> eyre::Result<()> {
-        let workspace = Workspace::get(&state, Some(&self.name)).await?;
+        let workspace = Workspace::get(&state, &self.name).await?;
 
         let is_root = workspace.path == state.project.path;
 

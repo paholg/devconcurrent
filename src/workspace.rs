@@ -28,30 +28,18 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    /// Get the given workspace or the root workspace if no name is supplied.
-    pub async fn get(state: &State, name: Option<&str>) -> eyre::Result<Workspace> {
+    pub async fn get(state: &State, name: &str) -> eyre::Result<Workspace> {
         let (groups, fwd_ports) = ContainerGroup::list(state).await?;
 
-        let is_root = state.is_root(name);
-        let group = if is_root {
+        let group = if state.is_root(name) {
             groups
                 .into_iter()
                 .find(|g| g.path == state.project.path)
                 .ok_or_else(|| eyre!("root workspace not found"))?
         } else {
-            // We can only get here if name.is_some().
-            let name = name.unwrap();
             groups
                 .into_iter()
-                .find(|g| {
-                    if let Some(f) = g.path.file_name()
-                        && f == name
-                    {
-                        true
-                    } else {
-                        false
-                    }
-                })
+                .find(|g| g.path.file_name().is_some_and(|f| f == name))
                 .ok_or_else(|| eyre!("no workspace found for name {name}"))?
         };
         group.into_workspace(state, &fwd_ports).await
