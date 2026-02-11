@@ -25,9 +25,9 @@ pub struct Up {
     #[arg(add = ArgValueCompleter::new(complete::complete_workspace))]
     name: Option<String>,
 
-    /// Copy named volumes from root workspace [default: Configured defaultCopyVolumes]
-    #[arg(short, long, num_args = 0..)]
-    copy: Option<Vec<String>>,
+    /// Copy defaultCopyVolumes from root workspace
+    #[arg(short, long)]
+    copy: bool,
 
     /// Foward configured port(s) once up.
     #[arg(short, long)]
@@ -108,13 +108,11 @@ impl Up {
                 .await?;
         }
 
-        if let Some(copy_args) = self.copy
-            && !is_root
-        {
+        if self.copy && !is_root {
             let root_project = compose_project_name(&state.project.path);
             let new_project = compose_project_name(&worktree_path);
 
-            copy_volumes(&state, copy_args, &root_project, &new_project).await?;
+            copy_volumes(&state, Vec::new(), &root_project, &new_project).await?;
         }
 
         compose_up(compose, &worktree_path, &override_file).await?;
