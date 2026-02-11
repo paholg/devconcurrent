@@ -78,6 +78,9 @@
               pandoc
             ]
             ++ [ rust ];
+          env = {
+            RUST_BACKTRACE = 1;
+          };
         };
       }
     );

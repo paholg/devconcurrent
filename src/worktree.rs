@@ -16,18 +16,18 @@ pub async fn create(repo_path: &Path, workspace_dir: &Path, name: &str) -> eyre:
         // Verify the existing directory is a worktree of the expected repo
         let worktree =
             gix::open(&worktree_path).wrap_err("existing file or directory in the way")?;
-        let wt_common = worktree.common_dir().to_owned();
-        let repo_common = repo.common_dir().to_owned();
+        let wt_common = worktree.common_dir().canonicalize()?;
+        let repo_common = repo.common_dir().canonicalize()?;
         if wt_common != repo_common {
             eyre::bail!("existing repository at {worktree_path_str}");
         }
+    } else {
+        run_in_pty(
+            &["git", "worktree", "add", &worktree_path_str],
+            Some(repo_path),
+        )
+        .await?;
     }
-
-    run_in_pty(
-        &["git", "worktree", "add", &worktree_path_str],
-        Some(repo_path),
-    )
-    .await?;
 
     Ok(worktree_path)
 }
