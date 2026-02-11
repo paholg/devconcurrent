@@ -4,7 +4,7 @@ use tabular::{Row, Table};
 
 use crate::{bytes::format_bytes, workspace::Workspace};
 
-const TABLE_SPEC: &str = "{:<}  {:<}  {:>}  {:>}  {:>}";
+const TABLE_SPEC: &str = "{:<}  {:<}  {:>}  {:>}  {:>}  {:<}";
 
 fn format_age(created: Option<i64>) -> String {
     let ts = match created {
@@ -37,6 +37,7 @@ struct WsFields {
     status: String,
     created: String,
     mem: String,
+    ports: String,
 }
 
 fn ws_fields(ws: &Workspace) -> WsFields {
@@ -61,11 +62,22 @@ fn ws_fields(ws: &Workspace) -> WsFields {
         0 => String::new(),
         ram => format_bytes(ram),
     };
+    let ports = {
+        let mut parts: Vec<String> = Vec::new();
+        for p in &ws.fwd_ports {
+            parts.push(p.blue().to_string());
+        }
+        for p in &ws.docker_ports {
+            parts.push(p.to_string());
+        }
+        parts.join(",")
+    };
     WsFields {
         name,
         status,
         created: format_age(ws.created()),
         mem,
+        ports,
     }
 }
 
@@ -82,6 +94,7 @@ fn ws_row(ws: &Workspace) -> Row {
         .with_cell(f.created)
         .with_ansi_cell(f.mem)
         .with_cell(execs)
+        .with_ansi_cell(f.ports)
 }
 
 /// Full table with header row, for `list` output.
@@ -96,7 +109,8 @@ pub fn workspace_table<'a>(workspaces: impl IntoIterator<Item = &'a Workspace>) 
             .with_cell("STATUS")
             .with_cell("CREATED")
             .with_cell("MEM")
-            .with_cell("EXECS"),
+            .with_cell("EXECS")
+            .with_cell("PORTS"),
     );
     for ws in workspaces {
         table.add_row(ws_row(ws));

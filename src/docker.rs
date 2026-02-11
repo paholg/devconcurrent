@@ -8,6 +8,7 @@ use bollard::{
 use derive_more::{Add, Sum};
 use eyre::{WrapErr, eyre};
 use futures::{StreamExt, future::try_join_all};
+use itertools::Itertools;
 
 #[derive(Debug)]
 pub struct ContainerInfo {
@@ -16,6 +17,7 @@ pub struct ContainerInfo {
     pub local_folder: PathBuf,
     pub dc_project: Option<String>,
     pub created: Option<i64>,
+    pub host_ports: Vec<u16>,
 }
 
 #[derive(Debug, Clone)]
@@ -68,12 +70,20 @@ impl DockerClient {
             let id = c.id.ok_or_else(|| eyre!("container missing id"))?;
             let state = c.state.ok_or_else(|| eyre!("container missing state"))?;
 
+            let host_ports: Vec<u16> = c
+                .ports
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|p| p.public_port)
+                .collect();
+
             result.push(ContainerInfo {
                 id,
                 state,
                 local_folder,
                 dc_project,
                 created: c.created,
+                host_ports,
             });
         }
 
@@ -100,6 +110,36 @@ impl DockerClient {
             Some(Err(e)) => Err(e.into()),
             None => Err(eyre!("no stats response for container {container_id}")),
         }
+    }
+
+    /// Ports forwarded by `dc fwd`.
+    pub async fn forwarded_ports(&self, project: &str) -> eyre::Result<HashMap<String, Vec<u16>>> {
+        let mut filters = HashMap::new();
+        filters.insert(
+            "label".into(),
+            vec![
+                "dev.dc.fwd=true".to_string(),
+                format!("dev.dc.fwd.project={project}"),
+            ],
+        );
+        let containers = self
+            .docker
+            .list_containers(Some(ListContainersOptions {
+                all: false,
+                filters: Some(filters),
+                ..Default::default()
+            }))
+            .await?;
+
+        let result = containers
+            .into_iter()
+            .filter_map(|c| {
+                let ws = c.labels?.get("dev.dc.fwd.workspace")?.clone();
+                let port = c.ports?.into_iter().find_map(|p| p.public_port)?;
+                Some((ws, port))
+            })
+            .into_group_map();
+        Ok(result)
     }
 
     pub async fn execs(&self, container_id: &str) -> eyre::Result<Vec<ExecSession>> {

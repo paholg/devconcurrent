@@ -23,12 +23,14 @@ pub struct Workspace {
     pub dirty: bool,
     pub execs: Vec<ExecSession>,
     pub stats: Stats,
+    pub fwd_ports: Vec<u16>,
+    pub docker_ports: Vec<u16>,
 }
 
 impl Workspace {
     /// Get the given workspace or the root workspace if no name is supplied.
     pub async fn get(state: &State, name: Option<&str>) -> eyre::Result<Workspace> {
-        let groups = ContainerGroup::list(state).await?;
+        let (groups, fwd_ports) = ContainerGroup::list(state).await?;
 
         let is_root = state.is_root(name);
         let group = if is_root {
@@ -52,12 +54,14 @@ impl Workspace {
                 })
                 .ok_or_else(|| eyre!("no workspace found for name {name}"))?
         };
-        group.into_workspace(state).await
+        group.into_workspace(state, &fwd_ports).await
     }
 
     pub async fn list(state: &State) -> eyre::Result<Vec<Workspace>> {
-        let groups = ContainerGroup::list(state).await?;
-        let futures = groups.into_iter().map(|g| g.into_workspace(state));
+        let (groups, fwd_ports) = ContainerGroup::list(state).await?;
+        let futures = groups
+            .into_iter()
+            .map(|g| g.into_workspace(state, &fwd_ports));
 
         try_join_all(futures).await
     }
@@ -91,9 +95,12 @@ struct ContainerGroup {
 }
 
 impl ContainerGroup {
-    async fn list(state: &State) -> eyre::Result<Vec<Self>> {
+    async fn list(state: &State) -> eyre::Result<(Vec<Self>, HashMap<String, Vec<u16>>)> {
         let worktree_paths = worktree::list(&state.project.path).await?;
-        let containers = state.docker.container_info().await?;
+        let (containers, fwd_ports) = tokio::try_join!(
+            state.docker.container_info(),
+            state.docker.forwarded_ports(&state.project_name),
+        )?;
 
         let mut groups: HashMap<PathBuf, ContainerGroup> = HashMap::new();
         for c in containers {
@@ -123,10 +130,14 @@ impl ContainerGroup {
                     containers: Vec::new(),
                 });
         }
-        Ok(groups.into_values().collect())
+        Ok((groups.into_values().collect(), fwd_ports))
     }
 
-    async fn into_workspace(self, state: &State) -> eyre::Result<Workspace> {
+    async fn into_workspace(
+        self,
+        state: &State,
+        fwd_ports: &HashMap<String, Vec<u16>>,
+    ) -> eyre::Result<Workspace> {
         let dirty = if self.path.exists() {
             !Command::new("git")
                 .args(["status", "--porcelain"])
@@ -153,8 +164,25 @@ impl ContainerGroup {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
 
+        let compose_project_name = compose_project_name(&self.path);
+        let mut fwd_ports = fwd_ports
+            .get(&compose_project_name)
+            .cloned()
+            .unwrap_or_default();
+        fwd_ports.sort();
+        fwd_ports.dedup();
+
+        let mut docker_ports: Vec<u16> = self
+            .containers
+            .iter()
+            .flat_map(|c| &c.host_ports)
+            .copied()
+            .collect();
+        docker_ports.sort();
+        docker_ports.dedup();
+
         Ok(Workspace {
-            compose_project_name: compose_project_name(&self.path),
+            compose_project_name,
             path: self.path,
             name,
             root,
@@ -162,6 +190,8 @@ impl ContainerGroup {
             dirty,
             execs,
             stats,
+            fwd_ports,
+            docker_ports,
         })
     }
 }
