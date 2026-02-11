@@ -33,6 +33,10 @@ pub struct Up {
     #[arg(short, long)]
     forward: bool,
 
+    /// Detach worktree rather than creating a branch.
+    #[arg(short, long)]
+    detach: bool,
+
     /// exec into it once up with the given command [default: Configured defaultExec]
     #[arg(short = 'x', long, num_args = 0.., allow_hyphen_values = true)]
     exec: Option<Vec<String>>,
@@ -49,7 +53,7 @@ impl Up {
         } else {
             let ws_name = self.name.as_ref().unwrap();
             let workspace_dir = dc_options.workspace_dir(&state.project.path);
-            worktree::create(&state.project.path, &workspace_dir, ws_name).await?
+            worktree::create(&state.project.path, &workspace_dir, ws_name, self.detach).await?
         };
 
         // Set up span.

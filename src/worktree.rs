@@ -6,7 +6,12 @@ use tokio::process::Command;
 
 use crate::run::pty::run_in_pty;
 
-pub async fn create(repo_path: &Path, workspace_dir: &Path, name: &str) -> eyre::Result<PathBuf> {
+pub async fn create(
+    repo_path: &Path,
+    workspace_dir: &Path,
+    name: &str,
+    detach: bool,
+) -> eyre::Result<PathBuf> {
     if Path::new(name).file_name().is_none_or(|f| f != name) {
         eyre::bail!("invalid workspace name: {name:?}");
     }
@@ -26,11 +31,11 @@ pub async fn create(repo_path: &Path, workspace_dir: &Path, name: &str) -> eyre:
             eyre::bail!("existing repository at {worktree_path_str}");
         }
     } else {
-        run_in_pty(
-            &["git", "worktree", "add", &worktree_path_str],
-            Some(repo_path),
-        )
-        .await?;
+        let mut args = vec!["git", "worktree", "add", &worktree_path_str];
+        if detach {
+            args.push("--detach");
+        }
+        run_in_pty(&args, Some(repo_path)).await?;
     }
 
     Ok(worktree_path)

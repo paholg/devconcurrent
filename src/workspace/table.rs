@@ -74,7 +74,7 @@ fn ws_row(ws: &Workspace) -> Row {
     let execs = if ws.execs.is_empty() {
         String::new()
     } else {
-        ws.execs.iter().count().to_string()
+        ws.execs.len().to_string()
     };
     Row::new()
         .with_cell(f.name)
