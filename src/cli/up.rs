@@ -57,7 +57,10 @@ impl Up {
         let up = "up".cyan().to_string();
         let path = worktree_path.display().to_string();
         let description = &path;
-        let message = format!("Spinning up workspace {colored_name}");
+        let message = format!(
+            "Spinning up workspace {colored_name} from root {}",
+            state.project.path.display()
+        );
         let pb_message = format!("[{up}] Spinning up workspace {colored_name}");
         let finish_message = format!("Workspace {colored_name} is available.");
         let span = info_span!(

@@ -7,17 +7,27 @@ use tokio::process::Command;
 use crate::run::pty::run_in_pty;
 
 pub async fn create(repo_path: &Path, workspace_dir: &Path, name: &str) -> eyre::Result<PathBuf> {
-    // Validate it's a git repo
-    gix::open(repo_path)
+    let repo = gix::open(repo_path)
         .wrap_err_with(|| format!("failed to open git repo at {}", repo_path.display()))?;
 
     let worktree_path = workspace_dir.join(name);
+    let worktree_path_str = worktree_path.to_string_lossy();
     if worktree_path.exists() {
-        return Ok(worktree_path);
+        // Verify the existing directory is a worktree of the expected repo
+        let worktree =
+            gix::open(&worktree_path).wrap_err("existing file or directory in the way")?;
+        let wt_common = worktree.common_dir().to_owned();
+        let repo_common = repo.common_dir().to_owned();
+        if wt_common != repo_common {
+            eyre::bail!("existing repository at {worktree_path_str}");
+        }
     }
-    let path = worktree_path.to_string_lossy();
 
-    run_in_pty(&["git", "worktree", "add", &path], Some(repo_path)).await?;
+    run_in_pty(
+        &["git", "worktree", "add", &worktree_path_str],
+        Some(repo_path),
+    )
+    .await?;
 
     Ok(worktree_path)
 }

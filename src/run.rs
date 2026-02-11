@@ -84,9 +84,7 @@ impl Runner {
                 let pb_message = format!("[{name}] {message}");
                 span.pb_set_message(&pb_message);
                 let ctx = runnable.name().into_owned();
-                async move {
-                    runnable.run(TOK).await.wrap_err(ctx)
-                }.instrument(span)
+                async move { runnable.run(TOK).await.wrap_err(ctx) }.instrument(span)
             })
             .collect();
 
