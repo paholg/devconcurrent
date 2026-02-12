@@ -127,7 +127,7 @@ impl Runnable for Cleanup<'_> {
         let mut filters = HashMap::new();
         filters.insert(
             "label".into(),
-            vec![format!("dev.dc.fwd.workspace={}", self.compose_name)],
+            vec![format!("dev.dc.workspace={}", self.compose_name)],
         );
         if let Ok(containers) = self
             .docker

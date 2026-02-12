@@ -3,16 +3,13 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PortMap {
-    pub host: Option<u16>,
+    pub host: u16,
     pub container: u16,
 }
 
 impl Serialize for PortMap {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self.host {
-            Some(host) => serializer.serialize_str(&format!("{}:{}", host, self.container)),
-            None => serializer.serialize_u16(self.container),
-        }
+        serializer.serialize_str(&format!("{}:{}", self.host, self.container))
     }
 }
 
@@ -27,7 +24,7 @@ impl<'de> Deserialize<'de> for PortMap {
 
         match Raw::deserialize(deserializer)? {
             Raw::Number(port) => Ok(PortMap {
-                host: None,
+                host: port,
                 container: port,
             }),
             Raw::String(s) => {
@@ -38,13 +35,19 @@ impl<'de> Deserialize<'de> for PortMap {
                     let container = container.parse::<u16>().map_err(|_| {
                         de::Error::invalid_value(Unexpected::Str(&s), &"a valid port mapping")
                     })?;
-                    Ok(PortMap { host: Some(host), container })
+                    Ok(PortMap {
+                        host: host,
+                        container,
+                    })
                 } else {
                     let port = s.parse::<u16>().map_err(|_| {
-                        de::Error::invalid_value(Unexpected::Str(&s), &"a port number or \"host:container\" mapping")
+                        de::Error::invalid_value(
+                            Unexpected::Str(&s),
+                            &"a port number or \"host:container\" mapping",
+                        )
                     })?;
                     Ok(PortMap {
-                        host: None,
+                        host: port,
                         container: port,
                     })
                 }
@@ -60,30 +63,45 @@ mod tests {
     #[test]
     fn from_number() {
         let pm: PortMap = serde_json::from_str("3000").unwrap();
-        assert_eq!(pm, PortMap { host: None, container: 3000 });
+        assert_eq!(
+            pm,
+            PortMap {
+                host: 3000,
+                container: 3000
+            }
+        );
     }
 
     #[test]
     fn from_string_plain() {
         let pm: PortMap = serde_json::from_str("\"3000\"").unwrap();
-        assert_eq!(pm, PortMap { host: None, container: 3000 });
+        assert_eq!(
+            pm,
+            PortMap {
+                host: 3000,
+                container: 3000
+            }
+        );
     }
 
     #[test]
     fn from_string_mapping() {
         let pm: PortMap = serde_json::from_str("\"3000:3001\"").unwrap();
-        assert_eq!(pm, PortMap { host: Some(3000), container: 3001 });
-    }
-
-    #[test]
-    fn serialize_plain() {
-        let pm = PortMap { host: None, container: 3000 };
-        assert_eq!(serde_json::to_string(&pm).unwrap(), "3000");
+        assert_eq!(
+            pm,
+            PortMap {
+                host: 3000,
+                container: 3001
+            }
+        );
     }
 
     #[test]
     fn serialize_mapping() {
-        let pm = PortMap { host: Some(3000), container: 3001 };
+        let pm = PortMap {
+            host: 3000,
+            container: 3001,
+        };
         assert_eq!(serde_json::to_string(&pm).unwrap(), "\"3000:3001\"");
     }
 

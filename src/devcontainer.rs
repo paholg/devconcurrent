@@ -8,6 +8,7 @@ use serde_with::{OneOrMany, serde_as};
 
 pub mod dc_options;
 pub mod lifecycle_command;
+pub mod port_map;
 mod unsupported;
 
 use crate::{config::Project, devcontainer::dc_options::DcOptions};

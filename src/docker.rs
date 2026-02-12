@@ -119,7 +119,7 @@ impl DockerClient {
             "label".into(),
             vec![
                 "dev.dc.fwd=true".to_string(),
-                format!("dev.dc.fwd.project={project}"),
+                format!("dev.dc.project={project}"),
             ],
         );
         let containers = self
@@ -134,7 +134,7 @@ impl DockerClient {
         let result = containers
             .into_iter()
             .filter_map(|c| {
-                let ws = c.labels?.get("dev.dc.fwd.workspace")?.clone();
+                let ws = c.labels?.get("dev.dc.workspace")?.clone();
                 let port = c.ports?.into_iter().find_map(|p| p.public_port)?;
                 Some((ws, port))
             })

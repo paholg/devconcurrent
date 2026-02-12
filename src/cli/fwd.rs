@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use bollard::Docker;
-use bollard::models::{ContainerCreateBody, HostConfig, PortBinding, PortMap};
+use bollard::models::{ContainerCreateBody, HostConfig, PortBinding};
 use bollard::query_parameters::{
     CreateContainerOptions, CreateImageOptionsBuilder, ListContainersOptions,
     RemoveContainerOptions,
@@ -13,6 +13,7 @@ use futures::StreamExt;
 
 use crate::cli::State;
 use crate::complete;
+use crate::devcontainer::port_map::PortMap;
 use crate::workspace::Workspace;
 
 const SOCAT_IMAGE: &str = "docker.io/alpine/socat:latest";
@@ -42,11 +43,9 @@ pub async fn forward(state: &State, name: &str) -> eyre::Result<()> {
     let dc = state.devcontainer()?;
     let dc_options = dc.common.customizations.dc;
 
-    let host_port = dc_options
-        .forward_port
-        .ok_or_else(|| eyre!("no forwardPort set in devcontainer.json"))?;
-
-    let container_port = dc_options.container_port.unwrap_or(host_port);
+    let ports = dc_options
+        .ports
+        .ok_or_else(|| eyre!("no ports set in devcontainer.json"))?;
 
     remove_sidecars(state).await?;
 
@@ -77,25 +76,38 @@ pub async fn forward(state: &State, name: &str) -> eyre::Result<()> {
 
     ensure_image(&state.docker.docker).await?;
 
-    // Create and start sidecar
-    let sidecar_name = format!("dc-fwd-{}", ws.compose_project_name);
-    let port_key = format!("{host_port}/tcp");
+    for port in &ports {
+        create_sidecar(state, &ws.compose_project_name, &network_name, &ip, port).await?;
+    }
 
-    let mut port_bindings: PortMap = HashMap::new();
+    Ok(())
+}
+
+async fn create_sidecar(
+    state: &State,
+    compose_project_name: &str,
+    network_name: &str,
+    ip: &str,
+    port: &PortMap,
+) -> eyre::Result<()> {
+    let sidecar_name = format!("dc-fwd-{compose_project_name}-{}", port.host);
+    let port_key = format!("{}/tcp", port.host);
+
+    let mut port_bindings: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
     port_bindings.insert(
         port_key.clone(),
         Some(vec![PortBinding {
             host_ip: Some("127.0.0.1".to_string()),
-            host_port: Some(host_port.to_string()),
+            host_port: Some(port.host.to_string()),
         }]),
     );
 
     let mut labels = HashMap::new();
     labels.insert("dev.dc.fwd".to_string(), "true".to_string());
-    labels.insert("dev.dc.fwd.project".to_string(), state.project_name.clone());
+    labels.insert("dev.dc.project".to_string(), state.project_name.clone());
     labels.insert(
-        "dev.dc.fwd.workspace".to_string(),
-        ws.compose_project_name.clone(),
+        "dev.dc.workspace".to_string(),
+        compose_project_name.to_string(),
     );
 
     state
@@ -109,13 +121,13 @@ pub async fn forward(state: &State, name: &str) -> eyre::Result<()> {
             ContainerCreateBody {
                 image: Some(SOCAT_IMAGE.to_string()),
                 cmd: Some(vec![
-                    format!("TCP-LISTEN:{host_port},fork,reuseaddr"),
-                    format!("TCP:{ip}:{container_port}"),
+                    format!("TCP-LISTEN:{},fork,reuseaddr", port.host),
+                    format!("TCP:{ip}:{}", port.container),
                 ]),
                 labels: Some(labels),
                 exposed_ports: Some(vec![port_key.clone()]),
                 host_config: Some(HostConfig {
-                    network_mode: Some(network_name),
+                    network_mode: Some(network_name.to_string()),
                     port_bindings: Some(port_bindings),
                     ..Default::default()
                 }),
@@ -131,7 +143,8 @@ pub async fn forward(state: &State, name: &str) -> eyre::Result<()> {
         .await?;
 
     eprintln!(
-        "Forwarding 127.0.0.1:{host_port} -> {ip}:{container_port} (sidecar: {sidecar_name})"
+        "Forwarding 127.0.0.1:{} -> {ip}:{} (sidecar: {sidecar_name})",
+        port.host, port.container
     );
 
     Ok(())
@@ -163,7 +176,7 @@ async fn remove_sidecars(state: &State) -> eyre::Result<()> {
         "label".into(),
         vec![
             "dev.dc.fwd=true".to_string(),
-            format!("dev.dc.fwd.project={project}"),
+            format!("dev.dc.project={project}"),
         ],
     );
 

@@ -2,7 +2,9 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_inline_default::serde_inline_default;
+use serde_with::{OneOrMany, serde_as};
 
+use crate::devcontainer::port_map::PortMap;
 use crate::run::cmd::Cmd;
 
 fn deserialize_shell_path_opt<'de, D: serde::Deserializer<'de>>(
@@ -12,6 +14,7 @@ fn deserialize_shell_path_opt<'de, D: serde::Deserializer<'de>>(
         .map(|o| o.map(|s| PathBuf::from(shellexpand::tilde(&s).as_ref())))
 }
 
+#[serde_as]
 #[serde_inline_default]
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
@@ -19,11 +22,8 @@ pub struct DcOptions {
     pub default_exec: Option<Cmd>,
     #[serde(default, deserialize_with = "deserialize_shell_path_opt")]
     worktree_folder: Option<PathBuf>,
-    /// If set, this port will be used automatically by the `dc fwd` command, to
-    /// map a static host port to the container of your choice.
-    pub forward_port: Option<u16>,
-    /// Port inside the container to forward to. Defaults to `fwd_port` if unset.
-    pub container_port: Option<u16>,
+    #[serde_as(as = "Option<OneOrMany<_>>")]
+    pub ports: Option<Vec<PortMap>>,
     /// The default volumes to be copied with `dc copy` and `dc up --copy`.
     pub default_copy_volumes: Option<Vec<String>>,
     /// Whether to mount the project's git directory into each workspace's devcontainer.
