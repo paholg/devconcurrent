@@ -16,10 +16,12 @@ pub struct Show {
 
 #[derive(Debug, Subcommand)]
 enum ShowCommands {
+    /// Show currently-forwarded ports for a workspace.
     Ports(Ports),
+    /// Print the current workspace name, or exit 1 if not in one.
+    Workspace(ShowWorkspace),
 }
 
-/// Show currently-forwarded ports for a workspace.
 #[derive(Debug, Args)]
 struct Ports {
     /// name of workspace [default: current working directory]
@@ -27,10 +29,14 @@ struct Ports {
     name: Option<String>,
 }
 
+#[derive(Debug, Args)]
+struct ShowWorkspace;
+
 impl Show {
     pub async fn run(self, state: State) -> eyre::Result<()> {
         match self.command {
             ShowCommands::Ports(ports) => ports.run(state).await,
+            ShowCommands::Workspace(ws) => ws.run(state).await,
         }
     }
 }
@@ -47,5 +53,17 @@ impl Ports {
             .join(",");
         println!("{ports}");
         Ok(())
+    }
+}
+
+impl ShowWorkspace {
+    async fn run(self, state: State) -> eyre::Result<()> {
+        match state.resolve_name(None).await {
+            Ok(name) => {
+                println!("{name}");
+                Ok(())
+            }
+            Err(_) => std::process::exit(1),
+        }
     }
 }
