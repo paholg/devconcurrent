@@ -25,6 +25,7 @@ pub struct Workspace {
     pub stats: Stats,
     pub fwd_ports: Vec<u16>,
     pub docker_ports: Vec<u16>,
+    pub dc_managed: bool,
 }
 
 impl Workspace {
@@ -172,6 +173,8 @@ impl ContainerGroup {
         docker_ports.sort();
         docker_ports.dedup();
 
+        let dc_managed = self.containers.iter().any(|c| c.dc_project.is_some());
+
         Ok(Workspace {
             compose_project_name,
             path: self.path,
@@ -183,6 +186,7 @@ impl ContainerGroup {
             stats,
             fwd_ports,
             docker_ports,
+            dc_managed,
         })
     }
 }

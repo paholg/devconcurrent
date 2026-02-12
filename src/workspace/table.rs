@@ -4,7 +4,7 @@ use tabular::{Row, Table};
 
 use crate::{bytes::format_bytes, workspace::Workspace};
 
-const TABLE_SPEC: &str = "{:<}  {:<}  {:>}  {:>}  {:>}  {:<}";
+const TABLE_SPEC: &str = "{:<}  {:<}  {:<}  {:>}  {:>}  {:>}  {:<}";
 
 fn format_age(created: Option<i64>) -> String {
     let ts = match created {
@@ -88,9 +88,11 @@ fn ws_row(ws: &Workspace) -> Row {
     } else {
         ws.execs.len().to_string()
     };
+    let dc = if ws.dc_managed { "\u{2713}" } else { "" };
     Row::new()
         .with_cell(f.name)
         .with_ansi_cell(f.status)
+        .with_cell(dc)
         .with_cell(f.created)
         .with_ansi_cell(f.mem)
         .with_cell(execs)
@@ -107,6 +109,7 @@ pub fn workspace_table<'a>(workspaces: impl IntoIterator<Item = &'a Workspace>) 
         Row::new()
             .with_cell("NAME")
             .with_cell("STATUS")
+            .with_cell("DC")
             .with_cell("CREATED")
             .with_cell("MEM")
             .with_cell("EXECS")
