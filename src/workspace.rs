@@ -92,7 +92,10 @@ impl ContainerGroup {
 
         let mut groups: HashMap<PathBuf, ContainerGroup> = HashMap::new();
         for c in containers {
-            if c.dc_project.as_ref() != Some(&state.project_name) {
+            if c.dc_project
+                .as_ref()
+                .is_some_and(|p| p != &state.project_name)
+            {
                 // This is a dc-managed container for a different project.
                 continue;
             }
