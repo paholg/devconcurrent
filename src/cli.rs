@@ -56,8 +56,9 @@ pub enum Commands {
     Compose(compose::Compose),
     #[command()]
     Destroy(destroy::Destroy),
-    #[command()]
-    Copy(copy::Copy),
+    // Temporarily disabled as we try to copy while running.
+    // #[command()]
+    // Copy(copy::Copy),
     Show(show::Show),
 }
 
@@ -121,7 +122,7 @@ impl Cli {
             Commands::Fwd(fwd) => fwd.run(state).await,
             Commands::List(list) => list.run(state).await,
             Commands::Compose(compose) => compose.run(state).await,
-            Commands::Copy(copy) => copy.run(state).await,
+            // Commands::Copy(copy) => copy.run(state).await,
             Commands::Show(show) => show.run(state).await,
             Commands::Destroy(destroy) => destroy.run(state).await,
         }

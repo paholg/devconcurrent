@@ -28,7 +28,7 @@ pub struct Copy {
 }
 
 impl Copy {
-    pub async fn run(self, state: State) -> eyre::Result<()> {
+    pub async fn _run(self, state: State) -> eyre::Result<()> {
         let to = state.resolve_workspace().await?;
 
         let from_ws = Workspace::get(&state, &self.from).await?;
