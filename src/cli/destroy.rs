@@ -3,93 +3,65 @@ use std::collections::HashMap;
 use std::io::{BufRead, Write};
 use std::path::Path;
 
-use eyre::WrapErr;
-
-use crate::ansi::{CYAN, GREEN, RED, RESET, YELLOW};
-use crate::cli::State;
-use crate::run::run_cmd;
-use crate::run::{self, Runnable, Runner};
-use crate::workspace::Workspace;
-use crate::workspace::table::workspace_table;
 use bollard::Docker;
 use bollard::query_parameters::{ListContainersOptions, RemoveContainerOptions};
 use clap::Args;
+use eyre::{Context, eyre};
 
-/// Clean up any workspaces not actively in use.
-///
-/// Here, "actively in use" means you have it open in vscode or a `docker exec`
-/// session, or that you have uncommited git changes -- this will remove running
-/// containers and delete their data.
+use crate::ansi::{RED, RESET, YELLOW};
+use crate::cli::State;
+use crate::run::{self, Runnable, Runner, run_cmd};
+use crate::workspace::Workspace;
+
+/// Fully destroy the workspace; equivalent to `docker compose down -v --remove-orphans && git worktree remove`
 #[derive(Debug, Args)]
-pub struct Prune;
+pub struct Destroy {
+    /// force remove the worktree, even if dirty
+    #[arg(short, long)]
+    force: bool,
+}
 
-impl Prune {
+impl Destroy {
     pub async fn run(self, state: State) -> eyre::Result<()> {
-        let workspaces = Workspace::list(&state).await?;
+        let name = state.resolve_workspace().await?;
+        let workspace = Workspace::get(&state, &name).await?;
 
-        let mut in_use = Vec::new();
-        let mut dirty = Vec::new();
-        let mut to_clean = Vec::new();
+        let is_root = workspace.path == state.project.path;
 
-        for ws in &workspaces {
-            if ws.path == state.project.path || !ws.execs.is_empty() {
-                in_use.push(ws);
-            } else if ws.is_dirty() {
-                dirty.push(ws);
-            } else {
-                to_clean.push(ws);
+        if !workspace.path.exists() {
+            return Err(eyre!("no workspace named '{}' found", name));
+        }
+
+        if is_root {
+            eprintln!(
+                "{YELLOW}Will destroy {RED}root{YELLOW} workspace — DATA WILL BE LOST{RESET}",
+            );
+            if !confirm()? {
+                eprintln!("Aborted.");
+                return Ok(());
             }
         }
 
-        if !in_use.is_empty() {
-            eprintln!("{GREEN}In Use{RESET} ({CYAN}skipping{RESET}):");
-            eprint!("{}", workspace_table(in_use.iter().copied()));
-            eprintln!();
-        }
-        if !dirty.is_empty() {
-            eprintln!("{RED}Dirty{RESET} ({CYAN}skipping{RESET}):");
-            eprint!("{}", workspace_table(dirty.iter().copied()));
-            eprintln!();
-        }
+        let cleanup = Cleanup {
+            docker: &state.docker.docker,
+            repo_path: &state.project.path,
+            path: &workspace.path,
+            compose_name: super::up::compose_project_name(&workspace.path),
+            remove_worktree: !is_root,
+            force: self.force,
+        };
 
-        if to_clean.is_empty() {
-            return Ok(());
-        }
-
-        eprintln!("{YELLOW}Will Remove - DATA WILL BE LOST{RESET}:");
-        eprint!("{}", workspace_table(to_clean.iter().copied()));
-        eprintln!();
-
-        if !confirm()? {
-            eprintln!("Aborted.");
-            return Ok(());
-        }
-
-        let cleanups: Vec<Cleanup> = to_clean
-            .iter()
-            .map(|ws| {
-                Ok(Cleanup {
-                    docker: &state.docker.docker,
-                    repo_path: &state.project.path,
-                    path: &ws.path,
-                    compose_name: super::up::compose_project_name(&ws.path),
-                    remove_worktree: ws.path.exists(),
-                    force: false,
-                })
-            })
-            .collect::<eyre::Result<Vec<_>>>()?;
-
-        Runner::run_parallel("prune", cleanups).await
+        Runner::run(cleanup).await
     }
 }
 
-pub(super) struct Cleanup<'a> {
-    pub(super) docker: &'a Docker,
-    pub(super) repo_path: &'a Path,
-    pub(super) path: &'a Path,
-    pub(super) compose_name: String,
-    pub(super) remove_worktree: bool,
-    pub(super) force: bool,
+struct Cleanup<'a> {
+    docker: &'a Docker,
+    repo_path: &'a Path,
+    path: &'a Path,
+    compose_name: String,
+    remove_worktree: bool,
+    force: bool,
 }
 
 impl Runnable for Cleanup<'_> {
@@ -101,7 +73,7 @@ impl Runnable for Cleanup<'_> {
     }
 
     fn description(&self) -> Cow<'_, str> {
-        format!("prune {}", self.path.display()).into()
+        format!("destroy {}", self.path.display()).into()
     }
 
     async fn run(self, _: run::Token) -> eyre::Result<()> {

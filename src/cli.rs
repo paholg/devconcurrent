@@ -14,11 +14,10 @@ use crate::{
 
 mod compose;
 mod copy;
+mod destroy;
 mod exec;
 mod fwd;
-mod kill;
 mod list;
-mod prune;
 mod show;
 pub(crate) mod up;
 
@@ -56,9 +55,7 @@ pub enum Commands {
     #[command(visible_alias = "c")]
     Compose(compose::Compose),
     #[command()]
-    Prune(prune::Prune),
-    #[command()]
-    Kill(kill::Kill),
+    Destroy(destroy::Destroy),
     #[command()]
     Copy(copy::Copy),
     Show(show::Show),
@@ -124,10 +121,9 @@ impl Cli {
             Commands::Fwd(fwd) => fwd.run(state).await,
             Commands::List(list) => list.run(state).await,
             Commands::Compose(compose) => compose.run(state).await,
-            Commands::Prune(prune) => prune.run(state).await,
-            Commands::Kill(kill) => kill.run(state).await,
             Commands::Copy(copy) => copy.run(state).await,
             Commands::Show(show) => show.run(state).await,
+            Commands::Destroy(destroy) => destroy.run(state).await,
         }
     }
 }
