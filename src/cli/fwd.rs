@@ -7,10 +7,12 @@ use bollard::query_parameters::{
     RemoveContainerOptions,
 };
 use clap::Args;
+use clap_complete::ArgValueCompleter;
 use eyre::{WrapErr, eyre};
 use futures::StreamExt;
 
 use crate::cli::State;
+use crate::complete::complete_workspace;
 use crate::devcontainer::forward_port::ForwardPort;
 use crate::workspace::Workspace;
 
@@ -18,11 +20,18 @@ const SOCAT_IMAGE: &str = "docker.io/alpine/socat:latest";
 
 /// Forward configured `forwardPorts` to a running workspace
 #[derive(Debug, Args)]
-pub struct Fwd {}
+pub struct Fwd {
+    /// Workspace name [default: current working directory]
+    #[arg(short, long, add = ArgValueCompleter::new(complete_workspace))]
+    workspace: Option<String>,
+}
 
 impl Fwd {
     pub async fn run(self, state: State) -> eyre::Result<()> {
-        let name = state.resolve_workspace().await?;
+        let name = match self.workspace {
+            Some(name) => name,
+            None => state.resolve_workspace().await?,
+        };
         forward(&state, &name).await
     }
 }

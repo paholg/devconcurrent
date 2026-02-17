@@ -12,7 +12,7 @@ use eyre::eyre;
 use futures::StreamExt;
 
 use crate::cli::State;
-use crate::complete;
+use crate::complete::complete_workspace;
 use crate::run::{Runnable, Runner};
 use crate::workspace::Workspace;
 
@@ -20,8 +20,13 @@ use crate::workspace::Workspace;
 #[derive(Debug, Args)]
 #[command(verbatim_doc_comment)]
 pub struct Copy {
-    #[arg(short, long, add = ArgValueCompleter::new(complete::complete_workspace))]
+    /// Workspace to copy from
+    #[arg(add = ArgValueCompleter::new(complete_workspace))]
     from: String,
+
+    /// Workspace to copy to [default: current working directory]
+    #[arg(add = ArgValueCompleter::new(complete_workspace))]
+    to: Option<String>,
 
     /// Volume names to copy [default: configured defaultCopyVolumes]
     volumes: Vec<String>,
@@ -29,7 +34,10 @@ pub struct Copy {
 
 impl Copy {
     pub async fn _run(self, state: State) -> eyre::Result<()> {
-        let to = state.resolve_workspace().await?;
+        let to = match self.to {
+            Some(name) => name,
+            None => state.resolve_workspace().await?,
+        };
 
         let from_ws = Workspace::get(&state, &self.from).await?;
         let to_ws = Workspace::get(&state, &to).await?;

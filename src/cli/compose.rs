@@ -4,12 +4,16 @@ use clap::Args;
 use clap_complete::engine::ArgValueCompleter;
 
 use crate::cli::State;
-use crate::cli::up::compose_base_args;
-use crate::complete;
+use crate::cli::new::compose_base_args;
+use crate::complete::{self, complete_workspace};
 
 /// Run `docker compose` against the given workspace
 #[derive(Debug, Args)]
 pub struct Compose {
+    /// Workspace name [default: current working directory]
+    #[arg(short, long, add = ArgValueCompleter::new(complete_workspace))]
+    workspace: Option<String>,
+
     /// Arguments to provide to `docker compose`
     #[arg(trailing_var_arg = true, allow_hyphen_values = true, add = ArgValueCompleter::new(complete::complete_compose))]
     pub args: Vec<String>,
@@ -17,7 +21,11 @@ pub struct Compose {
 
 impl Compose {
     pub async fn run(self, state: State) -> eyre::Result<()> {
-        let name = state.resolve_workspace().await?;
+        let name = match self.workspace {
+            Some(name) => name,
+            None => state.resolve_workspace().await?,
+        };
+
         let dc = state.devcontainer()?;
         let crate::devcontainer::Kind::Compose(ref compose) = dc.kind else {
             unimplemented!();

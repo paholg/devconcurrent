@@ -16,27 +16,17 @@ pub async fn create(
         eyre::bail!("invalid workspace name: {name:?}");
     }
 
-    let repo = gix::open(repo_path)
-        .wrap_err_with(|| format!("failed to open git repo at {}", repo_path.display()))?;
-
     let worktree_path = workspace_dir.join(name);
     let worktree_path_str = worktree_path.to_string_lossy();
     if worktree_path.exists() {
-        // Verify the existing directory is a worktree of the expected repo
-        let worktree =
-            gix::open(&worktree_path).wrap_err("existing file or directory in the way")?;
-        let wt_common = worktree.common_dir().canonicalize()?;
-        let repo_common = repo.common_dir().canonicalize()?;
-        if wt_common != repo_common {
-            eyre::bail!("existing repository at {worktree_path_str}");
-        }
-    } else {
-        let mut args = vec!["git", "worktree", "add", &worktree_path_str];
-        if detach {
-            args.push("--detach");
-        }
-        run_cmd(&args, Some(repo_path)).await?;
+        eyre::bail!("directory exits: {}", worktree_path.display());
     }
+
+    let mut args = vec!["git", "worktree", "add", &worktree_path_str];
+    if detach {
+        args.push("--detach");
+    }
+    run_cmd(&args, Some(repo_path)).await?;
 
     Ok(worktree_path)
 }

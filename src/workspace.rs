@@ -6,8 +6,7 @@ use eyre::eyre;
 use futures::future::try_join_all;
 
 use crate::cli::State;
-use crate::cli::up::compose_project_name;
-use crate::docker::{ContainerInfo, ExecSession, Stats};
+use crate::docker::{ContainerInfo, ExecSession, Stats, compose_project_name};
 use crate::worktree;
 
 pub mod git_status;

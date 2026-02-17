@@ -18,8 +18,8 @@ mod destroy;
 mod exec;
 mod fwd;
 mod list;
+mod new;
 mod show;
-pub(crate) mod up;
 
 const ABOUT: &str =
     "A tool for managing devcontainers, especially when combined with git worktrees";
@@ -35,10 +35,6 @@ pub struct Cli {
     )]
     pub project: Option<String>,
 
-    /// workspace, not used for all commands [default: current working directory]
-    #[arg(short, long, add = ArgValueCompleter::new(complete::complete_workspace))]
-    workspace: Option<String>,
-
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -46,7 +42,7 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Commands {
     #[command()]
-    Up(up::Up),
+    New(new::New),
     #[command(visible_alias = "x")]
     Exec(exec::Exec),
     #[command()]
@@ -67,7 +63,6 @@ pub struct State {
     pub docker: DockerClient,
     pub project_name: String,
     pub project: Project,
-    pub workspace: Option<String>,
 }
 
 impl State {
@@ -83,13 +78,8 @@ impl State {
             .is_some_and(|root| name == root)
     }
 
-    /// If a name was given, return it. Otherwise, return the name of the
-    /// worktree we're currently inside.
+    /// Find the workspace name from the current directroy.
     pub async fn resolve_workspace(&self) -> eyre::Result<String> {
-        if let Some(n) = &self.workspace {
-            return Ok(n.clone());
-        }
-
         let cwd = env::current_dir()?;
         let worktrees = worktree::list(&self.project.path).await?;
 
@@ -117,11 +107,10 @@ impl Cli {
             docker: DockerClient::new().await?,
             project_name,
             project,
-            workspace: self.workspace,
         };
 
         match self.command {
-            Commands::Up(up) => up.run(state).await,
+            Commands::New(up) => up.run(state).await,
             Commands::Exec(exec) => exec.run(state).await,
             Commands::Fwd(fwd) => fwd.run(state).await,
             Commands::List(list) => list.run(state).await,

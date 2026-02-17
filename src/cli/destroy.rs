@@ -6,24 +6,31 @@ use std::path::Path;
 use bollard::Docker;
 use bollard::query_parameters::{ListContainersOptions, RemoveContainerOptions};
 use clap::Args;
+use clap_complete::ArgValueCompleter;
 use eyre::{Context, eyre};
 
 use crate::ansi::{RED, RESET, YELLOW};
 use crate::cli::State;
+use crate::complete::complete_workspace;
+use crate::docker::compose_project_name;
 use crate::run::{self, Runnable, Runner, run_cmd};
 use crate::workspace::Workspace;
 
 /// Fully destroy the workspace; equivalent to `docker compose down -v --remove-orphans && git worktree remove`
 #[derive(Debug, Args)]
 pub struct Destroy {
-    /// force remove the worktree, even if dirty
+    /// Workspace name
+    #[arg(add = ArgValueCompleter::new(complete_workspace))]
+    workspace: String,
+
+    /// Force remove the worktree, even if dirty
     #[arg(short, long)]
     force: bool,
 }
 
 impl Destroy {
     pub async fn run(self, state: State) -> eyre::Result<()> {
-        let name = state.resolve_workspace().await?;
+        let name = self.workspace;
         let workspace = Workspace::get(&state, &name).await?;
 
         let is_root = workspace.path == state.project.path;
@@ -46,7 +53,7 @@ impl Destroy {
             docker: &state.docker.docker,
             repo_path: &state.project.path,
             path: &workspace.path,
-            compose_name: super::up::compose_project_name(&workspace.path),
+            compose_name: compose_project_name(&workspace.path),
             remove_worktree: !is_root,
             force: self.force,
         };

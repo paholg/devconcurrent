@@ -1,4 +1,7 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use bollard::{
     Docker,
@@ -36,6 +39,20 @@ pub struct DockerClient {
     // TODO: Instead of making this public, we should move all docker functionality we need to this
     // module.
     pub docker: Docker,
+}
+
+/// Match the devcontainer CLI convention: `{basename}_devcontainer`, lowercased,
+/// keeping only `[a-z0-9-_]`.
+pub fn compose_project_name(worktree_path: &Path) -> String {
+    let basename = worktree_path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy();
+    let raw = format!("{basename}_devcontainer");
+    raw.to_lowercase()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect()
 }
 
 impl DockerClient {

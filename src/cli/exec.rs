@@ -3,15 +3,21 @@ use std::path::Path;
 
 use bollard::secret::ContainerSummaryStateEnum;
 use clap::Args;
+use clap_complete::ArgValueCompleter;
 use eyre::eyre;
 
 use crate::cli::State;
+use crate::complete::complete_workspace;
 use crate::run::cmd::Cmd;
 use crate::workspace::Workspace;
 
 /// Exec into a running devcontainer
 #[derive(Debug, Args)]
 pub struct Exec {
+    /// Workspace name [default: current working directory]
+    #[arg(short, long, add = ArgValueCompleter::new(complete_workspace))]
+    workspace: Option<String>,
+
     /// command to run [default: Configured defaultExec]
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     cmd: Vec<String>,
@@ -19,7 +25,10 @@ pub struct Exec {
 
 impl Exec {
     pub async fn run(self, state: State) -> eyre::Result<()> {
-        let name = state.resolve_workspace().await?;
+        let name = match self.workspace {
+            Some(name) => name,
+            None => state.resolve_workspace().await?,
+        };
         let ws = Workspace::get(&state, &name).await?;
         if ws.status() != ContainerSummaryStateEnum::RUNNING {
             return Err(eyre!("workspace is not running: {}", ws.path.display()));
