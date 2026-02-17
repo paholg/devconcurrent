@@ -19,9 +19,9 @@ use crate::run::Runner;
 use crate::run::cmd::{Cmd, NamedCmd};
 use crate::worktree;
 
-/// Create a new workspace
+/// Bring up a workspace, creating it if it does not exist
 #[derive(Debug, Args)]
-pub struct New {
+pub struct Up {
     /// Copy configured `defaultCopyVolumes` from root workspace
     #[arg(short, long)]
     copy: bool,
@@ -36,44 +36,43 @@ pub struct New {
 
     /// Workspace name
     #[arg(add = ArgValueCompleter::new(complete_workspace))]
-    workspace: String,
+    workspace: Option<String>,
 
     /// Exec once up with the given command [default: configured defaultExec]
     #[arg(short = 'x', long, num_args = 0.., allow_hyphen_values = true)]
     exec: Option<Vec<String>>,
 }
 
-impl New {
+impl Up {
     pub async fn run(self, state: State) -> eyre::Result<()> {
         let dc = state.devcontainer()?;
         let dc_options = &dc.common.customizations.dc;
 
-        let name = self.workspace;
+        let name = state.resolve_workspace(self.workspace).await?;
         let is_root = state.is_root(&name);
-        if is_root {
-            eyre::bail!("cannot create a workspace with the same name as the root: {name}");
-        }
-
-        let workspace_dir = dc_options.workspace_dir(&state.project.path);
-        let worktree_path =
-            worktree::create(&state.project.path, &workspace_dir, &name, self.detach).await?;
+        let worktree_path = if is_root {
+            state.project.path.clone()
+        } else {
+            let workspace_dir = dc_options.workspace_dir(&state.project.path);
+            worktree::create(&state.project.path, &workspace_dir, &name, self.detach).await?
+        };
 
         // Set up span.
         let name = &name;
         let colored_name = name.cyan().to_string();
-        let new = "new".cyan().to_string();
+        let up = "up".cyan().to_string();
         let path = worktree_path.display().to_string();
         let description = &path;
         let message = format!(
             "Spinning up workspace {colored_name} from root {}",
             state.project.path.display()
         );
-        let pb_message = format!("[{new}] Spinning up workspace {colored_name}");
+        let pb_message = format!("[{up}] Spinning up workspace {colored_name}");
         let finish_message = format!("Workspace {colored_name} is available.");
         let span = info_span!(
-            "new",
+            "up",
             indicatif.pb_show = true,
-            name = new,
+            name = up,
             description,
             message,
             finish_message

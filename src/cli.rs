@@ -18,8 +18,8 @@ mod destroy;
 mod exec;
 mod fwd;
 mod list;
-mod new;
 mod show;
+mod up;
 
 const ABOUT: &str =
     "A tool for managing devcontainers, especially when combined with git worktrees";
@@ -42,7 +42,7 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Commands {
     #[command()]
-    New(new::New),
+    Up(up::Up),
     #[command(visible_alias = "x")]
     Exec(exec::Exec),
     #[command()]
@@ -78,8 +78,16 @@ impl State {
             .is_some_and(|root| name == root)
     }
 
-    /// Find the workspace name from the current directroy.
-    pub async fn resolve_workspace(&self) -> eyre::Result<String> {
+    /// Find the workspace name.
+    ///
+    /// If no name is given, or if it's ".", we derive it from the current working direcory.
+    pub async fn resolve_workspace(&self, name: Option<String>) -> eyre::Result<String> {
+        if let Some(workspace_name) = name
+            && workspace_name != "."
+        {
+            return Ok(workspace_name);
+        }
+
         let cwd = env::current_dir()?;
         let worktrees = worktree::list(&self.project.path).await?;
 
@@ -110,7 +118,7 @@ impl Cli {
         };
 
         match self.command {
-            Commands::New(up) => up.run(state).await,
+            Commands::Up(up) => up.run(state).await,
             Commands::Exec(exec) => exec.run(state).await,
             Commands::Fwd(fwd) => fwd.run(state).await,
             Commands::List(list) => list.run(state).await,

@@ -37,7 +37,7 @@ impl Show {
 
 impl Ports {
     async fn run(self, state: State) -> eyre::Result<()> {
-        let name = state.resolve_workspace().await?;
+        let name = state.resolve_workspace(None).await?;
         let cpn = compose_project_name(Path::new(&name));
         let ports = state
             .docker
@@ -52,7 +52,7 @@ impl Ports {
 
 impl ShowWorkspace {
     async fn run(self, state: State) -> eyre::Result<()> {
-        match state.resolve_workspace().await {
+        match state.resolve_workspace(None).await {
             Ok(name) => {
                 println!("{name}");
                 Ok(())

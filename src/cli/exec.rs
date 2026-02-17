@@ -25,10 +25,7 @@ pub struct Exec {
 
 impl Exec {
     pub async fn run(self, state: State) -> eyre::Result<()> {
-        let name = match self.workspace {
-            Some(name) => name,
-            None => state.resolve_workspace().await?,
-        };
+        let name = state.resolve_workspace(self.workspace).await?;
         let ws = Workspace::get(&state, &name).await?;
         if ws.status() != ContainerSummaryStateEnum::RUNNING {
             return Err(eyre!("workspace is not running: {}", ws.path.display()));

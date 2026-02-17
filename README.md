@@ -59,11 +59,11 @@ path = "~/src/second/"
 We also add a customization to `devcontainer.json`. It is recommended that you
 add a `dc` field with these properties, though none are required.
 
-* `defaultExec` - The command to run on `dc exec` and `dc new --exec` if none is
+* `defaultExec` - The command to run on `dc exec` and `dc up --exec` if none is
  specified.
 * `worktreeFolder` - The directory to place `dc`-generated worktrees. Defaults
   to `/tmp/`.
-* `defaultCopyVolumes` - The volumes to copy with `dc copy` and `dc new --copy`
+* `defaultCopyVolumes` - The volumes to copy with `dc copy` and `dc up --copy`
   if none are specified.
 * `mountGit` [default `true`]- Whether to mount your project's git directory in
   workspace devcontainers. Git worktrees have a simple `.git` file that just
