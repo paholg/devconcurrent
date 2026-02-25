@@ -13,6 +13,8 @@ use crate::cli::copy::copy_volumes;
 use crate::cli::exec::exec_interactive;
 use crate::cli::fwd::forward;
 use crate::complete::complete_workspace;
+use crate::config::Project;
+
 use crate::devcontainer::{Common, Compose};
 use crate::docker::compose_project_name;
 use crate::run::Runner;
@@ -95,7 +97,7 @@ impl Up {
             &config_file,
             &state.project_name,
             dc_options.mount_git,
-            &state.project.path,
+            &state.project,
         )?;
 
         // Check if the primary container already exists (re-up vs fresh creation)
@@ -185,7 +187,7 @@ fn write_compose_override(
     config_file: &Path,
     project_name: &str,
     mount_git: bool,
-    project_path: &Path,
+    project: &Project,
 ) -> eyre::Result<PathBuf> {
     let override_path = std::env::temp_dir().join(format!(
         "{}-override.yml",
@@ -203,8 +205,15 @@ fn write_compose_override(
         ]
     });
 
-    if !common.container_env.is_empty() {
-        service_obj["environment"] = json!(common.container_env);
+    let mut env = project.environment.clone();
+    env.extend(
+        common
+            .container_env
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone())),
+    );
+    if !env.is_empty() {
+        service_obj["environment"] = json!(env);
     }
 
     if let Some(init) = common.init {
@@ -223,8 +232,8 @@ fn write_compose_override(
         service_obj["user"] = json!(user);
     }
 
-    if mount_git && worktree_path != project_path {
-        let git_dir = project_path.join(".git");
+    if mount_git && worktree_path != project.path {
+        let git_dir = project.path.join(".git");
         let mount = format!("{}:{}", git_dir.display(), git_dir.display());
         service_obj["volumes"] = json!([mount]);
     }

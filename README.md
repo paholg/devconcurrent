@@ -56,6 +56,11 @@ path = "~/src/best/"
 path = "~/src/second/"
 ```
 
+You may also specify an `projects.PROJECT.environment` if you want to set
+environment variables here that will get injected into docker-compose when
+running `dc up`. This is useful if there is per-user config you want for a
+project.
+
 We also add a customization to `devcontainer.json`. It is recommended that you
 add a `dc` field with these properties, though none are required.
 

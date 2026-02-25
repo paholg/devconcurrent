@@ -19,6 +19,8 @@ pub struct Config {
 pub struct Project {
     #[serde(deserialize_with = "deserialize_shell_path")]
     pub path: PathBuf,
+    #[serde(default)]
+    pub environment: IndexMap<String, String>,
 }
 
 impl Config {
