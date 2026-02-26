@@ -25,7 +25,7 @@ pub struct Project {
 
 impl Config {
     pub fn load() -> eyre::Result<Self> {
-        let dirs = directories::ProjectDirs::from("", "", "dc")
+        let dirs = directories::ProjectDirs::from("", "", "devconcurrent")
             .ok_or_else(|| eyre::eyre!("could not determine config directory"))?;
         let path = dirs.config_dir().join("config.toml");
         let cfg = config::Config::builder()

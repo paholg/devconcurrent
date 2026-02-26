@@ -1,10 +1,11 @@
 use std::borrow::Cow;
 use std::time::Duration;
 
-use dc::run::cmd::{Cmd, NamedCmd};
-use dc::run::{self, Runnable, Runner};
+use devconcurrent::ansi::{CYAN, RESET};
+use devconcurrent::run::cmd::{Cmd, NamedCmd};
+use devconcurrent::run::{self, Runnable, Runner};
 
-use dc::ansi::{CYAN, RESET};
+use devconcurrent::subscriber::init_subscriber;
 use tokio::time::sleep;
 
 struct PrintRunnable {
@@ -31,7 +32,7 @@ impl Runnable for PrintRunnable {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> eyre::Result<()> {
-    dc::subscriber::init_subscriber();
+    init_subscriber();
 
     let parallel = [
         NamedCmd {

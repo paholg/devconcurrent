@@ -1,6 +1,7 @@
 use std::ffi::OsStr;
 
 use clap::{CommandFactory, Parser};
+use clap_complete::Shell;
 use clap_complete::engine::CompletionCandidate;
 
 use crate::cli::{Cli, Commands};
@@ -98,4 +99,40 @@ fn compose_prior_args() -> eyre::Result<Vec<String>> {
     };
 
     Ok(compose.args)
+}
+
+/// Return a shell wrapper function for `dc go`.
+///
+/// The wrapper intercepts `dc go` and `eval`s the output so the `cd` takes effect in the
+/// calling shell.
+pub fn shell_function(shell: &Shell, binary: &str) -> eyre::Result<String> {
+    let quoted = shlex::try_quote(binary)?;
+    let function = match shell {
+        Shell::Bash | Shell::Zsh => format!(
+            r#"
+dc() {{
+    if [ "$1" = "go" ]; then
+        local result
+        result="$({quoted} "$@")" && eval "$result"
+    else
+        {quoted} "$@"
+    fi
+}}
+"#
+        ),
+        Shell::Fish => format!(
+            r#"
+function dc --wraps {quoted}
+    if test "$argv[1]" = "go"
+        set -l result ({quoted} $argv)
+        and eval "$result"
+    else
+        {quoted} $argv
+    end
+end
+"#
+        ),
+        shell => eyre::bail!("unsupported shell {shell}"),
+    };
+    Ok(function)
 }

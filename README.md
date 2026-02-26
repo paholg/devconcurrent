@@ -1,4 +1,4 @@
-# dc - a worktree aware devcontainer manager
+# devconcurrent - a worktree aware devcontainer manager
 
 **NOTE:** This is brand new, experimental software. It is missing many features
 of devcontainers, and likely has bugs. Use at your own risk!
@@ -19,26 +19,22 @@ without interrupting your workflow.
 ## Installation
 
 After install, I recommend you place the following in your shell to get nice
-completions:
+completions. For bash, fish, and zsh this will also register the function `dc`
+with additional functionality. For the sake of this README, we will assume you've
+done that, and illustrate all commands as `dc`.
 
-**Bash**:
-```bash
-souce <(COMPLETE=bash dc)
-```
+```sh
+# bash:
+source <(COMPLETE=bash devconcurrent)
 
-**Elvish**:
-```bash
-eval (E:COMPLETE=elvish dc | slurp)
-```
+# elvish:
+eval (E:COMPLETE=elvish devconcurrent | slurp)
 
-**Fish**:
-```fish
-COMPLETE=fish dc | source
-```
+# fish:
+COMPLETE=fish devconcurrent | source
 
-**Zsh**:
-```zsh
-source <(COMLETE=zsh dc)
+# zsh:
+source <(COMPLETE=zsh devconcurrent)
 ```
 
 ## Configuration
@@ -46,7 +42,7 @@ source <(COMLETE=zsh dc)
 In order to give you a nice experience, we require a very simple confuration
 file that just lists your projects.
 
-In `~/.config/dc/config.toml` place a file like this:
+In `~/.config/devconcurrent/config.toml` place a file like this:
 
 ```toml
 [projects.best_project]

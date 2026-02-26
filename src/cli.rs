@@ -17,6 +17,7 @@ mod copy;
 mod destroy;
 mod exec;
 mod fwd;
+mod go;
 mod list;
 mod show;
 mod up;
@@ -57,6 +58,8 @@ pub enum Commands {
     // #[command()]
     // Copy(copy::Copy),
     Show(show::Show),
+    #[command()]
+    Go(go::Go),
 }
 
 pub struct State {
@@ -126,6 +129,7 @@ impl Cli {
             // Commands::Copy(copy) => copy.run(state).await,
             Commands::Show(show) => show.run(state).await,
             Commands::Destroy(destroy) => destroy.run(state).await,
+            Commands::Go(go) => go.run(state).await,
         }
     }
 }

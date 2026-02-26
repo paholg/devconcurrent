@@ -1,18 +1,43 @@
 #![forbid(unsafe_code)]
 
 use clap::{CommandFactory, Parser};
-use clap_complete::CompleteEnv;
+use clap_complete::env::Shells;
+use clap_complete::{CompleteEnv, Shell};
 use color_eyre::config::HookBuilder;
-use dc::{self, cli::Cli};
+use devconcurrent::{self, cli::Cli, complete, subscriber::init_subscriber};
+use eyre::eyre;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> eyre::Result<()> {
-    CompleteEnv::with_factory(Cli::command).complete();
-
     HookBuilder::default()
         .display_env_section(false)
         .install()?;
-    dc::subscriber::init_subscriber();
+    init_subscriber();
+
+    let shell_str = std::env::var("COMPLETE").ok();
+
+    let completer = CompleteEnv::with_factory(Cli::command);
+    let args = std::env::args_os();
+    let current_dir = std::env::current_dir().ok();
+    let completion = completer
+        .try_complete(args, current_dir.as_deref())
+        .unwrap_or_else(|e| e.exit());
+
+    if completion {
+        // When completion is triggered with no arguments, we're running the
+        // initial shell registration.
+        if std::env::args_os().len() == 1 {
+            // Inject our `dc` wrapper function and register completions for the
+            // `dc` alias too.
+            if let Some(ref shell_str) = shell_str
+                && let Err(e) = register_shell_function(shell_str)
+            {
+                tracing::warn!("Failed to generate shell wrapper: {e}");
+            }
+        }
+
+        return Ok(());
+    }
 
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
@@ -23,4 +48,30 @@ async fn main() -> eyre::Result<()> {
         }
     };
     cli.run().await
+}
+
+fn register_shell_function(shell_str: &str) -> eyre::Result<()> {
+    let shell = shell_str.parse::<Shell>().map_err(|e| eyre!("{e}"))?;
+    let function = shell_function(&shell)?;
+    println!("{function}");
+
+    let shells = Shells::builtins();
+    let Some(completer) = shells.completer(shell_str) else {
+        eyre::bail!("unsupported shell {shell_str}");
+    };
+
+    // Now, register completions for the `dc` wrapper function too.
+    completer.write_registration("COMPLETE", "dc", "dc", "dc", &mut std::io::stdout())?;
+
+    Ok(())
+}
+
+fn shell_function(shell: &Shell) -> eyre::Result<String> {
+    let bin_os = std::env::args_os()
+        .next()
+        .unwrap_or_else(|| "devconcurrent".into());
+    let bin = bin_os.to_string_lossy();
+
+    let func = complete::shell_function(shell, &bin)?;
+    Ok(func)
 }

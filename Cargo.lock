@@ -580,40 +580,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dc"
-version = "0.0.10"
-dependencies = [
- "bollard",
- "clap",
- "clap_complete",
- "color-eyre",
- "config",
- "crossterm",
- "derive_more",
- "directories",
- "eyre",
- "futures",
- "gix",
- "indexmap 2.13.0",
- "indicatif",
- "itertools",
- "jiff",
- "owo-colors",
- "serde",
- "serde-inline-default",
- "serde_json",
- "serde_path_to_error",
- "serde_with",
- "shellexpand",
- "tabular",
- "tokio",
- "tracing",
- "tracing-indicatif",
- "tracing-subscriber",
- "vec1",
-]
-
-[[package]]
 name = "deranged"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -643,6 +609,41 @@ dependencies = [
  "quote",
  "rustc_version",
  "syn",
+]
+
+[[package]]
+name = "devconcurrent"
+version = "0.0.10"
+dependencies = [
+ "bollard",
+ "clap",
+ "clap_complete",
+ "color-eyre",
+ "config",
+ "crossterm",
+ "derive_more",
+ "directories",
+ "eyre",
+ "futures",
+ "gix",
+ "indexmap 2.13.0",
+ "indicatif",
+ "itertools",
+ "jiff",
+ "owo-colors",
+ "serde",
+ "serde-inline-default",
+ "serde_json",
+ "serde_path_to_error",
+ "serde_with",
+ "shellexpand",
+ "shlex",
+ "tabular",
+ "tokio",
+ "tracing",
+ "tracing-indicatif",
+ "tracing-subscriber",
+ "vec1",
 ]
 
 [[package]]
