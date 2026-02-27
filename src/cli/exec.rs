@@ -31,7 +31,7 @@ impl Exec {
             return Err(eyre!("workspace is not running: {}", ws.path.display()));
         }
         let dc = state.devcontainer()?;
-        let dc_options = dc.common.customizations.dc;
+        let dc_options = dc.common.customizations.devconcurrent;
         let crate::devcontainer::Kind::Compose(ref compose) = dc.kind else {
             // This was handled at deserialize time already.
             unimplemented!();

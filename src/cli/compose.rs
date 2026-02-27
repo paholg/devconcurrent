@@ -31,7 +31,7 @@ impl Compose {
         let worktree_path = if state.is_root(&name) {
             state.project.path.clone()
         } else {
-            let dc_options = &dc.common.customizations.dc;
+            let dc_options = &dc.common.customizations.devconcurrent;
             dc_options.workspace_dir(&state.project.path).join(&name)
         };
 

@@ -228,7 +228,7 @@ pub struct Common {
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 pub struct Customizations {
     #[serde(default)]
-    pub dc: DcOptions,
+    pub devconcurrent: DcOptions,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]

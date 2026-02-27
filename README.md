@@ -58,7 +58,7 @@ running `dc up`. This is useful if there is per-user config you want for a
 project.
 
 We also add a customization to `devcontainer.json`. It is recommended that you
-add a `dc` field with these properties, though none are required.
+add a `devconcurrent` field with these properties, though none are required.
 
 * `defaultExec` - The command to run on `dc exec` and `dc up --exec` if none is
  specified.

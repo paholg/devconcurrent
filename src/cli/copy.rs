@@ -60,7 +60,7 @@ pub(crate) async fn copy_volumes(
         let dc = state.devcontainer()?;
         dc.common
             .customizations
-            .dc
+            .devconcurrent
             .default_copy_volumes
             .ok_or_else(|| eyre!("no volumes specified and no defaultCopyVolumes configured"))?
     };

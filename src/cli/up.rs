@@ -48,7 +48,7 @@ pub struct Up {
 impl Up {
     pub async fn run(self, state: State) -> eyre::Result<()> {
         let dc = state.devcontainer()?;
-        let dc_options = &dc.common.customizations.dc;
+        let dc_options = &dc.common.customizations.devconcurrent;
 
         let name = state.resolve_workspace(self.workspace).await?;
         let is_root = state.is_root(&name);
