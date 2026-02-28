@@ -7,7 +7,7 @@ use eyre::OptionExt;
 use crate::{
     complete,
     config::{Config, Project},
-    devcontainer::DevContainer,
+    devcontainer::Devcontainer,
     docker::DockerClient,
     worktree,
 };
@@ -70,8 +70,8 @@ pub struct State {
 
 impl State {
     // TODO: We should just load this at start.
-    fn devcontainer(&self) -> eyre::Result<DevContainer> {
-        DevContainer::load(&self.project)
+    fn devcontainer(&self) -> eyre::Result<Devcontainer> {
+        Devcontainer::load(&self.project)
     }
 
     pub fn is_root(&self, name: &str) -> bool {

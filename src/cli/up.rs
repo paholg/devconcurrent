@@ -1,10 +1,9 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use clap::Args;
 use clap_complete::ArgValueCompleter;
 use color_eyre::owo_colors::OwoColorize;
-use eyre::{WrapErr, eyre};
-use serde_json::json;
+use eyre::eyre;
 use tracing::info_span;
 use tracing_indicatif::span_ext::IndicatifSpanExt;
 
@@ -13,10 +12,9 @@ use crate::cli::copy::copy_volumes;
 use crate::cli::exec::exec_interactive;
 use crate::cli::fwd::forward;
 use crate::complete::complete_workspace;
-use crate::config::Project;
 
-use crate::devcontainer::{Common, Compose};
-use crate::docker::compose_project_name;
+use crate::devcontainer::Compose;
+use crate::docker::{compose_project_name, write_compose_override};
 use crate::run::Runner;
 use crate::run::cmd::{Cmd, NamedCmd};
 use crate::worktree;
@@ -47,8 +45,8 @@ pub struct Up {
 
 impl Up {
     pub async fn run(self, state: State) -> eyre::Result<()> {
-        let dc = state.devcontainer()?;
-        let dc_options = &dc.common.customizations.devconcurrent;
+        let devcontainer = state.devcontainer()?;
+        let dc_options = &devcontainer.common.customizations.devconcurrent;
 
         let name = state.resolve_workspace(self.workspace).await?;
         let is_root = state.is_root(&name);
@@ -82,7 +80,7 @@ impl Up {
         span.pb_set_message(&pb_message);
         let _guard = span.enter();
 
-        let crate::devcontainer::Kind::Compose(ref compose) = dc.kind else {
+        let crate::devcontainer::Kind::Compose(ref compose) = devcontainer.kind else {
             // This was handled at deserialize time already.
             unimplemented!();
         };
@@ -91,8 +89,7 @@ impl Up {
             .join(".devcontainer")
             .join("devcontainer.json");
         let override_file = write_compose_override(
-            compose,
-            &dc.common,
+            &devcontainer,
             &worktree_path,
             &config_file,
             &state.project_name,
@@ -106,7 +103,7 @@ impl Up {
             .is_ok();
 
         // initializeCommand runs on the host, from the worktree
-        if let Some(ref cmd) = dc.common.initialize_command {
+        if let Some(ref cmd) = devcontainer.common.initialize_command {
             cmd.run_on_host("initializeCommand", Some(&worktree_path))
                 .await?;
         }
@@ -121,17 +118,17 @@ impl Up {
         compose_up(compose, &worktree_path, &override_file).await?;
 
         let container_id = compose_ps_q(compose, &worktree_path, &override_file).await?;
-        let user = dc.common.remote_user.as_deref();
+        let user = devcontainer.common.remote_user.as_deref();
         let workdir = Some(compose.workspace_folder.as_path());
-        let remote_env = &dc.common.remote_env;
+        let remote_env = &devcontainer.common.remote_env;
 
         // Lifecycle commands: create-only commands run only on first creation
         // For now, though, we always recreate.
-        if let Some(ref cmd) = dc.common.on_create_command {
+        if let Some(ref cmd) = devcontainer.common.on_create_command {
             cmd.run_in_container("onCreateCommand", &container_id, user, workdir, remote_env)
                 .await?;
         }
-        if let Some(ref cmd) = dc.common.update_content_command {
+        if let Some(ref cmd) = devcontainer.common.update_content_command {
             cmd.run_in_container(
                 "updateContentCommand",
                 &container_id,
@@ -141,7 +138,7 @@ impl Up {
             )
             .await?;
         }
-        if let Some(ref cmd) = dc.common.post_create_command {
+        if let Some(ref cmd) = devcontainer.common.post_create_command {
             cmd.run_in_container(
                 "postCreateCommand",
                 &container_id,
@@ -151,7 +148,7 @@ impl Up {
             )
             .await?;
         }
-        if let Some(ref cmd) = dc.common.post_start_command {
+        if let Some(ref cmd) = devcontainer.common.post_start_command {
             cmd.run_in_container("postStartCommand", &container_id, user, workdir, remote_env)
                 .await?;
         }
@@ -174,91 +171,6 @@ impl Up {
 
         Ok(())
     }
-}
-
-/// Generate a compose override file with:
-/// * Our own identification labels
-/// * Devcontainer standard labels
-/// * Other devcontainer overrides
-fn write_compose_override(
-    compose: &Compose,
-    common: &Common,
-    worktree_path: &Path,
-    config_file: &Path,
-    project_name: &str,
-    mount_git: bool,
-    project: &Project,
-) -> eyre::Result<PathBuf> {
-    let override_path = std::env::temp_dir().join(format!(
-        "{}-override.yml",
-        compose_project_name(worktree_path)
-    ));
-    let local_folder = worktree_path.display();
-    let config_file = config_file.display();
-
-    let mut service_obj = json!({
-        "labels": [
-            format!("devcontainer.local_folder={local_folder}"),
-            format!("devcontainer.config_file={config_file}"),
-            "dev.dc.managed=true".to_string(),
-            format!("dev.dc.project={project_name}"),
-        ]
-    });
-
-    let mut env = project.environment.clone();
-    env.extend(
-        common
-            .container_env
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone())),
-    );
-    if !env.is_empty() {
-        service_obj["environment"] = json!(env);
-    }
-
-    if let Some(init) = common.init {
-        service_obj["init"] = json!(init);
-    }
-    if let Some(privileged) = common.privileged {
-        service_obj["privileged"] = json!(privileged);
-    }
-    if !common.cap_add.is_empty() {
-        service_obj["cap_add"] = json!(common.cap_add);
-    }
-    if !common.security_opt.is_empty() {
-        service_obj["security_opt"] = json!(common.security_opt);
-    }
-    if let Some(ref user) = common.container_user {
-        service_obj["user"] = json!(user);
-    }
-
-    if mount_git && worktree_path != project.path {
-        let git_dir = project.path.join(".git");
-        let mount = format!("{}:{}", git_dir.display(), git_dir.display());
-        service_obj["volumes"] = json!([mount]);
-    }
-
-    if compose.override_command {
-        service_obj["entrypoint"] = json!([
-            "/bin/sh",
-            "-c",
-            r#"echo Container started
- trap "exit 0" 15
-
- exec "$@"
- while sleep 1 & wait $!; do :; done"#,
-            "-"
-        ]);
-        service_obj["command"] = json!([]);
-    }
-
-    let content = serde_json::to_string_pretty(&json!({
-        "services": { &compose.service: service_obj }
-    }))?;
-
-    std::fs::write(&override_path, content)
-        .wrap_err_with(|| format!("failed to write {}", override_path.display()))?;
-    Ok(override_path)
 }
 
 pub(crate) fn compose_base_args(

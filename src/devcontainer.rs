@@ -20,11 +20,21 @@ use unsupported::Unsupported;
 
 /// Devcontainer config from devcontainer.json.
 #[derive(Deserialize, Serialize, Clone, Debug)]
-pub struct DevContainer {
+pub struct Devcontainer {
     #[serde(flatten)]
     pub common: Common,
     #[serde(flatten)]
     pub kind: Kind,
+}
+
+impl Devcontainer {
+    pub fn compose(&self) -> &Compose {
+        match &self.kind {
+            Kind::Compose(compose) => compose,
+            // This is already handled during deserialize.
+            _ => unimplemented!(),
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -37,7 +47,7 @@ pub enum Kind {
     Dockerfile(Box<Dockerfile>),
 }
 
-impl DevContainer {
+impl Devcontainer {
     /// Load the appropriate devcontainer.json file from the given root directory.
     ///
     /// The given `dir` should be the directory containing `.devcontainer/`.
@@ -88,7 +98,7 @@ impl DevContainer {
                 .wrap_err_with(|| format!("failed to parse {label} in {}", path.display()))
         }
 
-        Ok(DevContainer {
+        Ok(Devcontainer {
             common: parse(&json, "common properties", &path)?,
             kind: parse(&json, "container type properties", &path)?,
         })

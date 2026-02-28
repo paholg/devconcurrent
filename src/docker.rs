@@ -12,6 +12,11 @@ use derive_more::{Add, Sum};
 use eyre::{WrapErr, eyre};
 use futures::{StreamExt, future::try_join_all};
 use itertools::Itertools;
+use serde_json::json;
+
+use crate::{config::Project, devcontainer::Devcontainer};
+
+pub mod container_group;
 
 #[derive(Debug)]
 pub struct ContainerInfo {
@@ -227,4 +232,89 @@ impl DockerClient {
         let execs = try_join_all(futures).await?.into_iter().flatten().collect();
         Ok(execs)
     }
+}
+
+/// Generate a compose override file with:
+/// * Our own identification labels
+/// * Devcontainer standard labels
+/// * Other devcontainer overrides
+pub fn write_compose_override(
+    devcontainer: &Devcontainer,
+    worktree_path: &Path,
+    config_file: &Path,
+    project_name: &str,
+    mount_git: bool,
+    project: &Project,
+) -> eyre::Result<PathBuf> {
+    let override_path = std::env::temp_dir().join(format!(
+        "{}-override.yml",
+        compose_project_name(worktree_path)
+    ));
+    let local_folder = worktree_path.display();
+    let config_file = config_file.display();
+
+    let mut service_obj = json!({
+        "labels": [
+            format!("devcontainer.local_folder={local_folder}"),
+            format!("devcontainer.config_file={config_file}"),
+            "dev.dc.managed=true".to_string(),
+            format!("dev.dc.project={project_name}"),
+        ]
+    });
+
+    let mut env = project.environment.clone();
+    env.extend(
+        devcontainer
+            .common
+            .container_env
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone())),
+    );
+    if !env.is_empty() {
+        service_obj["environment"] = json!(env);
+    }
+
+    if let Some(init) = devcontainer.common.init {
+        service_obj["init"] = json!(init);
+    }
+    if let Some(privileged) = devcontainer.common.privileged {
+        service_obj["privileged"] = json!(privileged);
+    }
+    if !devcontainer.common.cap_add.is_empty() {
+        service_obj["cap_add"] = json!(devcontainer.common.cap_add);
+    }
+    if !devcontainer.common.security_opt.is_empty() {
+        service_obj["security_opt"] = json!(devcontainer.common.security_opt);
+    }
+    if let Some(ref user) = devcontainer.common.container_user {
+        service_obj["user"] = json!(user);
+    }
+
+    if mount_git && worktree_path != project.path {
+        let git_dir = project.path.join(".git");
+        let mount = format!("{}:{}", git_dir.display(), git_dir.display());
+        service_obj["volumes"] = json!([mount]);
+    }
+
+    if devcontainer.compose().override_command {
+        service_obj["entrypoint"] = json!([
+            "/bin/sh",
+            "-c",
+            r#"echo Container started
+ trap "exit 0" 15
+
+ exec "$@"
+ while sleep 1 & wait $!; do :; done"#,
+            "-"
+        ]);
+        service_obj["command"] = json!([]);
+    }
+
+    let content = serde_json::to_string_pretty(&json!({
+        "services": { &devcontainer.compose().service: service_obj }
+    }))?;
+
+    std::fs::write(&override_path, content)
+        .wrap_err_with(|| format!("failed to write {}", override_path.display()))?;
+    Ok(override_path)
 }
