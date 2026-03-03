@@ -1,3 +1,4 @@
+use std::io::IsTerminal;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 
@@ -55,7 +56,10 @@ pub fn exec_interactive(
     cmd_args: &[String],
     default_cmd: Option<&Cmd>,
 ) -> eyre::Result<()> {
-    let mut args = vec!["exec".to_string(), "-it".into()];
+    let mut args = vec!["exec".to_string()];
+    if std::io::stdin().is_terminal() {
+        args.push("-it".into());
+    }
     if let Some(u) = user {
         args.extend(["-u".into(), u.to_string()]);
     }
