@@ -290,10 +290,13 @@ pub fn write_compose_override(
         service_obj["user"] = json!(user);
     }
 
+    let mut volumes = project.volumes.clone();
     if mount_git && worktree_path != project.path {
         let git_dir = project.path.join(".git");
-        let mount = format!("{}:{}", git_dir.display(), git_dir.display());
-        service_obj["volumes"] = json!([mount]);
+        volumes.push(format!("{}:{}", git_dir.display(), git_dir.display()));
+    }
+    if !volumes.is_empty() {
+        service_obj["volumes"] = json!(volumes);
     }
 
     if devcontainer.compose().override_command {

@@ -21,6 +21,8 @@ pub struct Project {
     pub path: PathBuf,
     #[serde(default)]
     pub environment: IndexMap<String, String>,
+    #[serde(default)]
+    pub volumes: Vec<String>,
 }
 
 impl Config {
