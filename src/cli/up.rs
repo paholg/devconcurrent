@@ -166,6 +166,7 @@ impl Up {
                 workdir,
                 &cmd_args,
                 dc_options.default_exec.as_ref(),
+                &state.project.exec.environment,
             )?;
         }
 

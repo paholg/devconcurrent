@@ -6,6 +6,7 @@ use bollard::secret::ContainerSummaryStateEnum;
 use clap::Args;
 use clap_complete::ArgValueCompleter;
 use eyre::eyre;
+use indexmap::IndexMap;
 
 use crate::cli::State;
 use crate::complete::complete_workspace;
@@ -45,6 +46,7 @@ impl Exec {
             Some(compose.workspace_folder.as_path()),
             &self.cmd,
             dc_options.default_exec.as_ref(),
+            &state.project.exec.environment,
         )
     }
 }
@@ -55,6 +57,7 @@ pub fn exec_interactive(
     workdir: Option<&Path>,
     cmd_args: &[String],
     default_cmd: Option<&Cmd>,
+    env: &IndexMap<String, String>,
 ) -> eyre::Result<()> {
     let mut args = vec!["exec".to_string()];
     if std::io::stdin().is_terminal() {
@@ -65,6 +68,10 @@ pub fn exec_interactive(
     }
     if let Some(w) = workdir {
         args.extend(["-w".into(), w.to_string_lossy().into_owned()]);
+    }
+    for (k, v) in env {
+        let expanded = shellexpand::env(v)?;
+        args.extend(["-e".into(), format!("{k}={expanded}")]);
     }
     args.push(container_id.to_string());
 

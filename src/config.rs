@@ -23,6 +23,14 @@ pub struct Project {
     pub environment: IndexMap<String, String>,
     #[serde(default)]
     pub volumes: Vec<String>,
+    #[serde(default)]
+    pub exec: Exec,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+pub struct Exec {
+    pub environment: IndexMap<String, String>,
 }
 
 impl Config {
