@@ -1,4 +1,4 @@
-use clap::Args;
+use clap::{Args, Subcommand};
 use clap_complete::ArgValueCompleter;
 use eyre::eyre;
 use tokio::process::Command;
@@ -18,12 +18,26 @@ pub struct Fwd {
     /// Workspace name [default: current working directory]
     #[arg(short, long, add = ArgValueCompleter::new(complete_workspace))]
     workspace: Option<String>,
+
+    #[command(subcommand)]
+    command: Option<FwdCommands>,
+}
+
+#[derive(Debug, Subcommand)]
+enum FwdCommands {
+    /// Stop forwarding ports (remove sidecar containers)
+    Stop,
 }
 
 impl Fwd {
     pub async fn run(self, state: State) -> eyre::Result<()> {
-        let name = state.resolve_workspace(self.workspace).await?;
-        forward(&state, &name).await
+        match self.command {
+            Some(FwdCommands::Stop) => remove_sidecars(&state).await,
+            None => {
+                let name = state.resolve_workspace(self.workspace).await?;
+                forward(&state, &name).await
+            }
+        }
     }
 }
 
