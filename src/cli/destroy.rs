@@ -12,7 +12,7 @@ use eyre::{Context, eyre};
 use crate::ansi::{RED, RESET, YELLOW};
 use crate::cli::State;
 use crate::complete::complete_workspace;
-use crate::docker::compose_project_name;
+use crate::docker::compose::compose_project_name;
 use crate::run::{self, Runnable, Runner, run_cmd};
 use crate::workspace::Workspace;
 

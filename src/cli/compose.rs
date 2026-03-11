@@ -4,7 +4,7 @@ use clap::Args;
 use clap_complete::engine::ArgValueCompleter;
 
 use crate::cli::State;
-use crate::cli::up::compose_base_args;
+use crate::docker::compose::compose_args;
 use crate::complete::{self, complete_workspace};
 
 /// Run `docker compose` against the given workspace
@@ -35,7 +35,7 @@ impl Compose {
             dc_options.workspace_dir(&state.project.path).join(&name)
         };
 
-        let mut args = compose_base_args(compose, &worktree_path, None);
+        let mut args = compose_args(&dc, compose, &worktree_path, &state.project_name, &state.project)?;
         args.extend(self.args);
 
         Err(std::process::Command::new("docker")

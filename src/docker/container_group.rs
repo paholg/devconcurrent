@@ -4,7 +4,7 @@ use futures::future::try_join_all;
 
 use crate::{
     cli::State,
-    docker::{ContainerInfo, compose_project_name},
+    docker::{ContainerInfo, compose::compose_project_name},
     workspace::{Workspace, git_status},
     worktree,
 };

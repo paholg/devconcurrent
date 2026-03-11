@@ -3,7 +3,7 @@ use std::path::Path;
 use clap::{Args, Subcommand};
 use itertools::Itertools;
 
-use crate::{cli::State, docker::compose_project_name};
+use crate::{cli::State, docker::compose::compose_project_name};
 
 /// Show some value
 #[derive(Debug, Args)]

@@ -1,9 +1,6 @@
-use std::path::Path;
-
 use clap::Args;
 use clap_complete::ArgValueCompleter;
 use color_eyre::owo_colors::OwoColorize;
-use eyre::eyre;
 use tracing::info_span;
 use tracing_indicatif::span_ext::IndicatifSpanExt;
 
@@ -12,9 +9,7 @@ use crate::cli::copy::copy_volumes;
 use crate::cli::exec::exec_interactive;
 use crate::cli::fwd::forward;
 use crate::complete::complete_workspace;
-
-use crate::devcontainer::Compose;
-use crate::docker::{compose_project_name, write_compose_override};
+use crate::docker::compose::{compose_args, compose_project_name, compose_ps_q, compose_up_args};
 use crate::run::Runner;
 use crate::run::cmd::{Cmd, NamedCmd};
 use crate::worktree;
@@ -85,22 +80,13 @@ impl Up {
             unimplemented!();
         };
 
-        let config_file = worktree_path
-            .join(".devcontainer")
-            .join("devcontainer.json");
-        let override_file = write_compose_override(
+        let base_args = compose_args(
             &devcontainer,
+            compose,
             &worktree_path,
-            &config_file,
             &state.project_name,
-            dc_options.mount_git,
             &state.project,
         )?;
-
-        // Check if the primary container already exists (re-up vs fresh creation)
-        let _already_running = compose_ps_q(compose, &worktree_path, &override_file)
-            .await
-            .is_ok();
 
         // initializeCommand runs on the host, from the worktree
         if let Some(ref cmd) = devcontainer.common.initialize_command {
@@ -115,9 +101,15 @@ impl Up {
             copy_volumes(&state, Vec::new(), &root_project, &new_project).await?;
         }
 
-        compose_up(compose, &worktree_path, &override_file).await?;
+        let up_args = compose_up_args(compose, &base_args);
+        let cmd = NamedCmd {
+            name: "docker compose up",
+            cmd: &Cmd::Args(up_args),
+            dir: None,
+        };
+        Runner::run(cmd).await?;
 
-        let container_id = compose_ps_q(compose, &worktree_path, &override_file).await?;
+        let container_id = compose_ps_q(compose, &base_args).await?;
         let user = devcontainer.common.remote_user.as_deref();
         let workdir = Some(compose.workspace_folder.as_path());
         let remote_env = &devcontainer.common.remote_env;
@@ -174,82 +166,3 @@ impl Up {
     }
 }
 
-pub(crate) fn compose_base_args(
-    compose: &Compose,
-    worktree_path: &Path,
-    override_file: Option<&Path>,
-) -> Vec<String> {
-    let mut args = vec![
-        "compose".into(),
-        "-p".into(),
-        compose_project_name(worktree_path),
-    ];
-    for f in &compose.docker_compose_file {
-        args.push("-f".into());
-        args.push(
-            worktree_path
-                .join(".devcontainer")
-                .join(f)
-                .to_string_lossy()
-                .into_owned(),
-        );
-    }
-    if let Some(override_file) = override_file {
-        args.push("-f".into());
-        args.push(override_file.to_string_lossy().into_owned());
-    }
-    args
-}
-
-async fn compose_up(
-    compose: &Compose,
-    worktree_path: &Path,
-    override_file: &Path,
-) -> eyre::Result<()> {
-    let mut args = vec1::vec1!["docker".into()];
-    args.extend(compose_base_args(
-        compose,
-        worktree_path,
-        Some(override_file),
-    ));
-    args.extend(["up".into(), "-d".into(), "--build".into()]);
-
-    if let Some(ref services) = compose.run_services {
-        let mut to_start: Vec<String> = services.clone();
-        if !to_start.contains(&compose.service) {
-            to_start.push(compose.service.clone());
-        }
-        args.extend(to_start);
-    }
-
-    let cmd = NamedCmd {
-        name: "docker compose up",
-        cmd: &Cmd::Args(args),
-        dir: None,
-    };
-    Runner::run(cmd).await
-}
-
-async fn compose_ps_q(
-    compose: &Compose,
-    worktree_path: &Path,
-    override_file: &Path,
-) -> eyre::Result<String> {
-    let mut args = compose_base_args(compose, worktree_path, Some(override_file));
-    args.extend(["ps".into(), "-q".into(), compose.service.clone()]);
-
-    let out = tokio::process::Command::new("docker")
-        .args(&args)
-        .output()
-        .await?;
-    eyre::ensure!(out.status.success(), "docker compose ps failed");
-    let output = String::from_utf8(out.stdout)?;
-    let id = output.lines().next().unwrap_or("").trim().to_string();
-    if id.is_empty() {
-        return Err(eyre!(
-            "no container found for service '{}'",
-            compose.service
-        ));
-    }
-    Ok(id)
-}
