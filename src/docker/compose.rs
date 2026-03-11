@@ -58,7 +58,9 @@ pub fn compose_args(
     project: &Project,
 ) -> eyre::Result<Vec<String>> {
     let dc_options = &devcontainer.common.customizations.devconcurrent;
-    let config_file = worktree_path.join(".devcontainer").join("devcontainer.json");
+    let config_file = worktree_path
+        .join(".devcontainer")
+        .join("devcontainer.json");
     let override_file = write_compose_override(
         devcontainer,
         worktree_path,
@@ -67,7 +69,11 @@ pub fn compose_args(
         dc_options.mount_git,
         project,
     )?;
-    Ok(compose_base_args(compose, worktree_path, Some(&override_file)))
+    Ok(compose_base_args(
+        compose,
+        worktree_path,
+        Some(&override_file),
+    ))
 }
 
 pub fn compose_up_args(compose: &Compose, base_args: &[String]) -> vec1::Vec1<String> {

@@ -82,8 +82,14 @@ pub async fn forward(state: &State, name: &str) -> eyre::Result<()> {
         ])
         .await?;
 
-        create_inner_sidecar(state, &ws.compose_project_name, cid, &volume_name, &available)
-            .await?;
+        create_inner_sidecar(
+            state,
+            &ws.compose_project_name,
+            cid,
+            &volume_name,
+            &available,
+        )
+        .await?;
         create_outer_sidecar(
             state,
             &ws.compose_project_name,
@@ -107,13 +113,16 @@ pub async fn forward(state: &State, name: &str) -> eyre::Result<()> {
 
 async fn container_network(cid: &str) -> eyre::Result<String> {
     let out = Command::new("docker")
-        .args(["inspect", "-f", "{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}", cid])
+        .args([
+            "inspect",
+            "-f",
+            "{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}",
+            cid,
+        ])
         .output()
         .await?;
     eyre::ensure!(out.status.success(), "failed to inspect container {cid}");
-    let name = String::from_utf8(out.stdout)?
-        .trim()
-        .to_string();
+    let name = String::from_utf8(out.stdout)?.trim().to_string();
     if name.is_empty() {
         return Err(eyre!("container {cid} has no networks"));
     }
@@ -241,7 +250,7 @@ async fn ensure_image() -> eyre::Result<()> {
 
 async fn remove_sidecars(state: &State) -> eyre::Result<()> {
     let project = &state.project_name;
-    let filter = format!("label=dev.dc.fwd=true");
+    let filter = "label=dev.dc.fwd=true".to_string();
     let filter2 = format!("label=dev.dc.project={project}");
 
     let out = Command::new("docker")

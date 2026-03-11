@@ -9,7 +9,6 @@ use derive_more::{Add, Sum};
 use eyre::{WrapErr, eyre};
 use futures::{StreamExt, future::try_join_all};
 
-
 pub mod compose;
 pub mod container_group;
 
