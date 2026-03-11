@@ -3,6 +3,8 @@ use clap_complete::ArgValueCompleter;
 use eyre::eyre;
 use tokio::process::Command;
 
+use color_eyre::owo_colors::OwoColorize;
+
 use crate::cli::State;
 use crate::complete::complete_workspace;
 use crate::devcontainer::forward_port::ForwardPort;
@@ -35,34 +37,55 @@ pub async fn forward(state: &State, name: &str) -> eyre::Result<()> {
         return Ok(());
     }
 
-    remove_sidecars(state).await?;
+    let free: Vec<bool> = ports.iter().map(|p| port_is_free(p.port)).collect();
+    let available: Vec<ForwardPort> = ports
+        .iter()
+        .zip(&free)
+        .filter(|(_, ok)| **ok)
+        .map(|(p, _)| p.clone())
+        .collect();
 
-    // Get container's network name for the outer sidecar
-    let network_name = container_network(cid).await?;
+    if !available.is_empty() {
+        remove_sidecars(state).await?;
 
-    ensure_image().await?;
+        // Get container's network name for the outer sidecar
+        let network_name = container_network(cid).await?;
 
-    let volume_name = format!("dc-fwd-{}", ws.compose_project_name);
+        ensure_image().await?;
 
-    docker(&[
-        "volume",
-        "create",
-        "--label",
-        "dev.dc.fwd=true",
-        "--label",
-        &format!("dev.dc.project={}", state.project_name),
-        "--label",
-        &format!("dev.dc.workspace={}", ws.compose_project_name),
-        &volume_name,
-    ])
-    .await?;
+        let volume_name = format!("dc-fwd-{}", ws.compose_project_name);
 
-    create_inner_sidecar(state, &ws.compose_project_name, cid, &volume_name, &ports).await?;
-    create_outer_sidecar(state, &ws.compose_project_name, &network_name, &volume_name, &ports)
+        docker(&[
+            "volume",
+            "create",
+            "--label",
+            "dev.dc.fwd=true",
+            "--label",
+            &format!("dev.dc.project={}", state.project_name),
+            "--label",
+            &format!("dev.dc.workspace={}", ws.compose_project_name),
+            &volume_name,
+        ])
         .await?;
 
-    for port in &ports {
-        eprintln!("Forwarding to {port}");
+        create_inner_sidecar(state, &ws.compose_project_name, cid, &volume_name, &available)
+            .await?;
+        create_outer_sidecar(
+            state,
+            &ws.compose_project_name,
+            &network_name,
+            &volume_name,
+            &available,
+        )
+        .await?;
+    }
+
+    for (port, &ok) in ports.iter().zip(&free) {
+        if ok {
+            eprintln!("{} {port}", "✓".green());
+        } else {
+            eprintln!("{} {port} (already in use)", "✗".red());
+        }
     }
 
     Ok(())
@@ -237,6 +260,10 @@ async fn remove_sidecars(state: &State) -> eyre::Result<()> {
     }
 
     Ok(())
+}
+
+fn port_is_free(port: u16) -> bool {
+    std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
 }
 
 async fn docker(args: &[&str]) -> eyre::Result<()> {
