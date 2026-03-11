@@ -42,6 +42,8 @@ impl Fwd {
 }
 
 pub async fn forward(state: &State, name: &str) -> eyre::Result<()> {
+    remove_sidecars(state).await?;
+
     let ws = Workspace::get(state, name).await?;
     let cid = ws.service_container_id()?;
     let dc = state.devcontainer()?;
@@ -60,8 +62,6 @@ pub async fn forward(state: &State, name: &str) -> eyre::Result<()> {
         .collect();
 
     if !available.is_empty() {
-        remove_sidecars(state).await?;
-
         // Get container's network name for the outer sidecar
         let network_name = container_network(cid).await?;
 
