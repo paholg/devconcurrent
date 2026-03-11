@@ -1,15 +1,7 @@
-use std::collections::HashMap;
-
-use bollard::Docker;
-use bollard::models::{ContainerCreateBody, HostConfig, PortBinding};
-use bollard::query_parameters::{
-    CreateContainerOptions, CreateImageOptionsBuilder, ListContainersOptions,
-    RemoveContainerOptions,
-};
 use clap::Args;
 use clap_complete::ArgValueCompleter;
-use eyre::{WrapErr, eyre};
-use futures::StreamExt;
+use eyre::eyre;
+use tokio::process::Command;
 
 use crate::cli::State;
 use crate::complete::complete_workspace;
@@ -36,173 +28,222 @@ impl Fwd {
 pub async fn forward(state: &State, name: &str) -> eyre::Result<()> {
     let ws = Workspace::get(state, name).await?;
     let cid = ws.service_container_id()?;
-
     let dc = state.devcontainer()?;
-
     let ports = dc.common.forward_ports;
+
+    if ports.is_empty() {
+        return Ok(());
+    }
 
     remove_sidecars(state).await?;
 
-    // Get container IP and network
-    let info = state
-        .docker
-        .docker
-        .inspect_container(cid, None)
-        .await
-        .wrap_err_with(|| format!("failed to inspect container {cid}"))?;
-    let networks = info
-        .network_settings
-        .and_then(|ns| ns.networks)
-        .ok_or_else(|| eyre!("container has no networks"))?;
+    // Get container's network name for the outer sidecar
+    let network_name = container_network(cid).await?;
 
-    let (network_name, ip) = networks
-        .into_iter()
-        .find_map(|(name, ep)| {
-            ep.ip_address.and_then(|ip| {
-                if ip.is_empty() {
-                    None
-                } else {
-                    Some((name, ip))
-                }
-            })
-        })
-        .ok_or_else(|| eyre!("container has no IP address"))?;
+    ensure_image().await?;
 
-    ensure_image(&state.docker.docker).await?;
+    let volume_name = format!("dc-fwd-{}", ws.compose_project_name);
+
+    docker(&[
+        "volume",
+        "create",
+        "--label",
+        "dev.dc.fwd=true",
+        "--label",
+        &format!("dev.dc.project={}", state.project_name),
+        "--label",
+        &format!("dev.dc.workspace={}", ws.compose_project_name),
+        &volume_name,
+    ])
+    .await?;
+
+    create_inner_sidecar(state, &ws.compose_project_name, cid, &volume_name, &ports).await?;
+    create_outer_sidecar(state, &ws.compose_project_name, &network_name, &volume_name, &ports)
+        .await?;
 
     for port in &ports {
-        create_sidecar(state, &ws.compose_project_name, &network_name, &ip, port).await?;
+        eprintln!("Forwarding to {port}");
     }
 
     Ok(())
 }
 
-async fn create_sidecar(
+async fn container_network(cid: &str) -> eyre::Result<String> {
+    let out = Command::new("docker")
+        .args(["inspect", "-f", "{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}", cid])
+        .output()
+        .await?;
+    eyre::ensure!(out.status.success(), "failed to inspect container {cid}");
+    let name = String::from_utf8(out.stdout)?
+        .trim()
+        .to_string();
+    if name.is_empty() {
+        return Err(eyre!("container {cid} has no networks"));
+    }
+    Ok(name)
+}
+
+/// Inner sidecar: shares the target container's network namespace.
+/// For each port, listens on a Unix socket and connects to 127.0.0.1:<port>.
+async fn create_inner_sidecar(
+    state: &State,
+    compose_project_name: &str,
+    cid: &str,
+    volume_name: &str,
+    ports: &[ForwardPort],
+) -> eyre::Result<()> {
+    let name = format!("dc-fwd-inner-{compose_project_name}");
+
+    let socat_cmds: Vec<String> = ports
+        .iter()
+        .map(|p| {
+            let target = p.service.as_deref().unwrap_or("127.0.0.1");
+            format!(
+                "socat UNIX-LISTEN:/socks/{}.sock,fork,reuseaddr TCP:{target}:{}",
+                p.port, p.port
+            )
+        })
+        .collect();
+    let shell_cmd = join_background(&socat_cmds);
+
+    let args = vec![
+        "run".to_string(),
+        "-d".to_string(),
+        "--name".to_string(),
+        name.clone(),
+        format!("--network=container:{cid}"),
+        format!("--volume={volume_name}:/socks"),
+        "--label".to_string(),
+        "dev.dc.fwd=true".to_string(),
+        "--label".to_string(),
+        format!("dev.dc.project={}", state.project_name),
+        "--label".to_string(),
+        format!("dev.dc.workspace={compose_project_name}"),
+        "--entrypoint".to_string(),
+        "sh".to_string(),
+        SOCAT_IMAGE.to_string(),
+        "-c".to_string(),
+        shell_cmd,
+    ];
+
+    docker(&args.iter().map(|s| s.as_str()).collect::<Vec<_>>()).await?;
+    Ok(())
+}
+
+/// Outer sidecar: on the Docker network with host port bindings.
+/// For each port, listens on TCP and connects via the Unix socket.
+async fn create_outer_sidecar(
     state: &State,
     compose_project_name: &str,
     network_name: &str,
-    ip: &str,
-    fwd_port: &ForwardPort,
+    volume_name: &str,
+    ports: &[ForwardPort],
 ) -> eyre::Result<()> {
-    let name = match &fwd_port.service {
-        Some(host) => format!("{host}_{}", fwd_port.port),
-        None => format!("{}", fwd_port.port),
-    };
-    let sidecar_name = format!("dc-fwd-{compose_project_name}-{name}");
-    let port_key = format!("{}/tcp", fwd_port.port);
+    let name = format!("dc-fwd-{compose_project_name}");
 
-    let mut port_bindings: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
-    port_bindings.insert(
-        port_key.clone(),
-        Some(vec![PortBinding {
-            host_ip: Some("127.0.0.1".to_string()),
-            host_port: Some(fwd_port.port.to_string()),
-        }]),
-    );
+    let socat_cmds: Vec<String> = ports
+        .iter()
+        .map(|p| {
+            format!(
+                "socat TCP-LISTEN:{},fork,reuseaddr UNIX:/socks/{}.sock",
+                p.port, p.port
+            )
+        })
+        .collect();
+    let shell_cmd = join_background(&socat_cmds);
 
-    let mut labels = HashMap::new();
-    labels.insert("dev.dc.fwd".to_string(), "true".to_string());
-    labels.insert("dev.dc.project".to_string(), state.project_name.clone());
-    labels.insert(
-        "dev.dc.workspace".to_string(),
-        compose_project_name.to_string(),
-    );
+    let mut args = vec![
+        "run".to_string(),
+        "-d".to_string(),
+        "--name".to_string(),
+        name.clone(),
+        format!("--network={network_name}"),
+        format!("--volume={volume_name}:/socks"),
+        "--label".to_string(),
+        "dev.dc.fwd=true".to_string(),
+        "--label".to_string(),
+        format!("dev.dc.project={}", state.project_name),
+        "--label".to_string(),
+        format!("dev.dc.workspace={compose_project_name}"),
+    ];
 
-    state
-        .docker
-        .docker
-        .create_container(
-            Some(CreateContainerOptions {
-                name: Some(sidecar_name.clone()),
-                ..Default::default()
-            }),
-            ContainerCreateBody {
-                image: Some(SOCAT_IMAGE.to_string()),
-                cmd: Some(vec![
-                    format!("TCP-LISTEN:{},fork,reuseaddr", fwd_port.port),
-                    format!(
-                        "TCP:{}:{}",
-                        fwd_port.service.as_deref().unwrap_or(ip),
-                        fwd_port.port
-                    ),
-                ]),
-                labels: Some(labels),
-                exposed_ports: Some(vec![port_key.clone()]),
-                host_config: Some(HostConfig {
-                    network_mode: Some(network_name.to_string()),
-                    port_bindings: Some(port_bindings),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            },
-        )
-        .await?;
+    for p in ports {
+        args.push("-p".to_string());
+        args.push(format!("127.0.0.1:{}:{}", p.port, p.port));
+    }
 
-    state
-        .docker
-        .docker
-        .start_container(&sidecar_name, None)
-        .await?;
+    args.push("--entrypoint".to_string());
+    args.push("sh".to_string());
+    args.push(SOCAT_IMAGE.to_string());
+    args.push("-c".to_string());
+    args.push(shell_cmd);
 
-    eprintln!("Forwarding to {fwd_port}");
-
+    docker(&args.iter().map(|s| s.as_str()).collect::<Vec<_>>()).await?;
     Ok(())
 }
 
-async fn ensure_image(docker: &Docker) -> eyre::Result<()> {
-    if docker.inspect_image(SOCAT_IMAGE).await.is_ok() {
-        return Ok(());
+/// Build a shell command that runs all socat processes in the background then waits.
+fn join_background(cmds: &[String]) -> String {
+    let mut parts: Vec<String> = cmds.iter().map(|c| format!("{c} &")).collect();
+    parts.push("wait".to_string());
+    parts.join(" ")
+}
+
+async fn ensure_image() -> eyre::Result<()> {
+    let out = Command::new("docker")
+        .args(["image", "inspect", SOCAT_IMAGE])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .await?;
+    if !out.success() {
+        docker(&["pull", SOCAT_IMAGE]).await?;
     }
-    docker
-        .create_image(
-            Some(
-                CreateImageOptionsBuilder::new()
-                    .from_image(SOCAT_IMAGE)
-                    .build(),
-            ),
-            None,
-            None,
-        )
-        .collect::<Vec<_>>()
-        .await;
     Ok(())
 }
 
 async fn remove_sidecars(state: &State) -> eyre::Result<()> {
     let project = &state.project_name;
-    let mut filters = HashMap::new();
-    filters.insert(
-        "label".into(),
-        vec![
-            "dev.dc.fwd=true".to_string(),
-            format!("dev.dc.project={project}"),
-        ],
-    );
+    let filter = format!("label=dev.dc.fwd=true");
+    let filter2 = format!("label=dev.dc.project={project}");
 
-    let containers = state
-        .docker
-        .docker
-        .list_containers(Some(ListContainersOptions {
-            all: true,
-            filters: Some(filters),
-            ..Default::default()
-        }))
+    let out = Command::new("docker")
+        .args(["ps", "-a", "-q", "--filter", &filter, "--filter", &filter2])
+        .output()
         .await?;
 
-    for c in containers {
-        if let Some(id) = c.id {
-            let _ = state
-                .docker
-                .docker
-                .remove_container(
-                    &id,
-                    Some(RemoveContainerOptions {
-                        force: true,
-                        ..Default::default()
-                    }),
-                )
-                .await;
-        }
+    let stdout = String::from_utf8(out.stdout)?;
+    let ids: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+
+    if !ids.is_empty() {
+        let mut args = vec!["rm", "-f"];
+        args.extend(ids);
+        let _ = docker(&args).await;
+    }
+
+    // Clean up forwarding volumes
+    let out = Command::new("docker")
+        .args([
+            "volume", "ls", "-q", "--filter", &filter, "--filter", &filter2,
+        ])
+        .output()
+        .await?;
+    let stdout = String::from_utf8(out.stdout)?;
+    for vol in stdout.lines().filter(|l| !l.is_empty()) {
+        let _ = Command::new("docker")
+            .args(["volume", "rm", vol])
+            .output()
+            .await;
+    }
+
+    Ok(())
+}
+
+async fn docker(args: &[&str]) -> eyre::Result<()> {
+    let out = Command::new("docker").args(args).output().await?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        return Err(eyre!("docker {} failed: {}", args[0], stderr.trim()));
     }
     Ok(())
 }

@@ -8,7 +8,7 @@ use bollard::{
 use derive_more::{Add, Sum};
 use eyre::{WrapErr, eyre};
 use futures::{StreamExt, future::try_join_all};
-use itertools::Itertools;
+
 
 pub mod compose;
 pub mod container_group;
@@ -138,10 +138,17 @@ impl DockerClient {
             .into_iter()
             .filter_map(|c| {
                 let ws = c.labels?.get("dev.dc.workspace")?.clone();
-                let port = c.ports?.into_iter().find_map(|p| p.public_port)?;
-                Some((ws, port))
+                let ports: Vec<u16> = c.ports?.into_iter().filter_map(|p| p.public_port).collect();
+                if ports.is_empty() {
+                    None
+                } else {
+                    Some((ws, ports))
+                }
             })
-            .into_group_map();
+            .fold(HashMap::new(), |mut acc, (ws, ports)| {
+                acc.entry(ws).or_insert_with(Vec::new).extend(ports);
+                acc
+            });
         Ok(result)
     }
 
