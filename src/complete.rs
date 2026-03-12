@@ -4,8 +4,10 @@ use clap::{CommandFactory, Parser};
 use clap_complete::Shell;
 use clap_complete::engine::CompletionCandidate;
 
+use crate::archive;
 use crate::cli::{Cli, Commands};
 use crate::config::Config;
+use crate::docker::compose::compose_project_name;
 use crate::worktree;
 
 fn is_completion_candidate(prefix: &str, candidate: &str) -> bool {
@@ -33,11 +35,12 @@ pub fn complete_workspace(current: &OsStr) -> Vec<CompletionCandidate> {
 fn complete_workspace_inner(current: &OsStr) -> eyre::Result<Vec<CompletionCandidate>> {
     let prefix = current.to_string_lossy();
     let config = Config::load()?;
-    let (_, project) = config.project(parse_project_arg())?;
+    let (project_name, project) = config.project(parse_project_arg())?;
 
     let workspaces = worktree::list_sync(&project.path)
         .unwrap_or_default()
         .into_iter()
+        .filter(|path| !archive::is_archived(&project_name, &compose_project_name(path)))
         .filter_map(|path| path.file_name().map(|n| n.to_string_lossy().into_owned()))
         .filter(|name| is_completion_candidate(&prefix, name))
         .map(CompletionCandidate::new)

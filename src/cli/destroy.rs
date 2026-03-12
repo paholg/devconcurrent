@@ -33,7 +33,7 @@ pub struct Destroy {
 impl Destroy {
     pub async fn run(self, state: State) -> eyre::Result<()> {
         let name = self.workspace;
-        let workspace = Workspace::get(&state, &name).await?;
+        let workspace = Workspace::get_including_archived(&state, &name).await?;
 
         let is_root = workspace.path == state.project.path;
 

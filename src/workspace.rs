@@ -28,8 +28,26 @@ pub struct Workspace {
 
 impl Workspace {
     pub async fn get(state: &State, name: &str) -> eyre::Result<Workspace> {
-        let (groups, fwd_ports) = ContainerGroup::list(state).await?;
+        Self::get_inner(state, name, ContainerGroup::list(state).await?).await
+    }
 
+    pub async fn get_including_archived(state: &State, name: &str) -> eyre::Result<Workspace> {
+        Self::get_inner(
+            state,
+            name,
+            ContainerGroup::list_including_archived(state).await?,
+        )
+        .await
+    }
+
+    async fn get_inner(
+        state: &State,
+        name: &str,
+        (groups, fwd_ports): (
+            Vec<ContainerGroup>,
+            std::collections::HashMap<String, Vec<u16>>,
+        ),
+    ) -> eyre::Result<Workspace> {
         let group = if state.is_root(name) {
             groups
                 .into_iter()
