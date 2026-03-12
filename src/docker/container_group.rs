@@ -3,6 +3,7 @@ use std::{collections::HashMap, path::PathBuf};
 use futures::future::try_join_all;
 
 use crate::{
+    archive,
     cli::State,
     docker::{ContainerInfo, compose::compose_project_name},
     workspace::{Workspace, git_status},
@@ -45,8 +46,12 @@ impl ContainerGroup {
             group.containers.push(c);
         }
 
-        // Ensure we have an entry for all of our worktrees.
+        // Ensure we have an entry for all of our worktrees (skip archived ones).
         for path in worktree_paths {
+            let cp = compose_project_name(&path);
+            if archive::is_archived(&state.project_name, &cp) {
+                continue;
+            }
             groups
                 .entry(path.clone())
                 .or_insert_with(|| ContainerGroup {

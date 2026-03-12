@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 pub mod ansi;
+pub mod archive;
 pub mod bytes;
 pub mod cli;
 pub mod complete;

@@ -4,10 +4,12 @@ use color_eyre::owo_colors::OwoColorize;
 use tracing::info_span;
 use tracing_indicatif::span_ext::IndicatifSpanExt;
 
+use crate::archive;
 use crate::cli::State;
 use crate::cli::copy::copy_volumes;
 use crate::cli::exec::exec_interactive;
 use crate::cli::fwd::forward;
+use crate::cli::rename::{docker, remove_fwd_sidecars, rename_workspace};
 use crate::complete::complete_workspace;
 use crate::docker::compose::{compose_args, compose_project_name, compose_ps_q, compose_up_args};
 use crate::run::Runner;
@@ -45,10 +47,16 @@ impl Up {
 
         let name = state.resolve_workspace(self.workspace).await?;
         let is_root = state.is_root(&name);
+        let workspace_dir = dc_options.workspace_dir(&state.project.path);
         let worktree_path = if is_root {
             state.project.path.clone()
+        } else if !self.copy {
+            if let Some(reused) = try_reuse_archived(&state, &workspace_dir, &name).await? {
+                reused
+            } else {
+                worktree::create(&state.project.path, &workspace_dir, &name, self.detach).await?
+            }
         } else {
-            let workspace_dir = dc_options.workspace_dir(&state.project.path);
             worktree::create(&state.project.path, &workspace_dir, &name, self.detach).await?
         };
 
@@ -164,4 +172,51 @@ impl Up {
 
         Ok(())
     }
+}
+
+/// Try to reuse an archived workspace's volumes and worktree via rename.
+/// Returns the new worktree path if reuse succeeded, or None if no archived workspace available.
+async fn try_reuse_archived(
+    state: &State,
+    workspace_dir: &std::path::Path,
+    new_name: &str,
+) -> eyre::Result<Option<std::path::PathBuf>> {
+    let archived = match archive::find_archived(&state.project_name)? {
+        Some(aw) => aw,
+        None => return Ok(None),
+    };
+
+    let old_path = workspace_dir.join(&archived.workspace_name);
+    let new_path = workspace_dir.join(new_name);
+
+    if new_path.exists() {
+        return Ok(None);
+    }
+    if !old_path.exists() {
+        // Stale marker — clean it up
+        let _ = archive::unarchive(&state.project_name, &archived.compose_project);
+        return Ok(None);
+    }
+
+    eprintln!(
+        "Reusing archived workspace '{}' as '{new_name}'...",
+        archived.workspace_name
+    );
+
+    // Safe to re-run down even though `archive` already stopped it
+    docker(&[
+        "compose",
+        "-p",
+        &archived.compose_project,
+        "down",
+        "--remove-orphans",
+    ])
+    .await?;
+    remove_fwd_sidecars(&archived.compose_project).await?;
+
+    rename_workspace(state, &old_path, &new_path).await?;
+
+    archive::unarchive(&state.project_name, &archived.compose_project)?;
+
+    Ok(Some(new_path))
 }

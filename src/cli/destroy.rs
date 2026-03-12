@@ -10,7 +10,9 @@ use clap_complete::ArgValueCompleter;
 use eyre::{Context, eyre};
 
 use crate::ansi::{RED, RESET, YELLOW};
+use crate::archive;
 use crate::cli::State;
+use crate::cli::rename::resolve_backing_volume;
 use crate::complete::complete_workspace;
 use crate::docker::compose::compose_project_name;
 use crate::run::{self, Runnable, Runner, run_cmd};
@@ -49,11 +51,18 @@ impl Destroy {
             }
         }
 
+        let compose_name = compose_project_name(&workspace.path);
+
+        // Remove archived marker if one exists
+        if let Err(e) = archive::unarchive(&state.project_name, &compose_name) {
+            eprintln!("warning: failed to remove archive marker: {e}");
+        }
+
         let cleanup = Cleanup {
             docker: &state.docker.docker,
             repo_path: &state.project.path,
             path: &workspace.path,
-            compose_name: compose_project_name(&workspace.path),
+            compose_name,
             remove_worktree: !is_root,
             force: self.force,
         };
@@ -84,6 +93,9 @@ impl Runnable for Cleanup<'_> {
     }
 
     async fn run(self, _: run::Token) -> eyre::Result<()> {
+        // Collect backing volumes before tearing down (these are from renamed workspaces)
+        let backing_volumes = backing_volumes(&self.compose_name).await;
+
         run_cmd(
             &[
                 "docker",
@@ -97,6 +109,14 @@ impl Runnable for Cleanup<'_> {
             None,
         )
         .await?;
+
+        // Remove backing volumes from a prior rename
+        for vol in backing_volumes {
+            let _ = tokio::process::Command::new("docker")
+                .args(["volume", "rm", &vol])
+                .output()
+                .await;
+        }
 
         let override_file =
             std::env::temp_dir().join(format!("{}-override.yml", self.compose_name));
@@ -150,6 +170,21 @@ impl Runnable for Cleanup<'_> {
         eprintln!("Removed {}", self.path.display());
         Ok(())
     }
+}
+
+/// Find backing volumes from a prior rename. These are old volumes whose data
+/// is bind-mounted into the current workspace's volumes.
+async fn backing_volumes(compose_name: &str) -> Vec<String> {
+    let Ok(volumes) = crate::cli::rename::list_project_volumes(compose_name).await else {
+        return Vec::new();
+    };
+    let mut backing = Vec::new();
+    for vol in &volumes {
+        if let Some(bv) = resolve_backing_volume(vol).await {
+            backing.push(bv);
+        }
+    }
+    backing
 }
 
 pub(super) fn confirm() -> eyre::Result<bool> {
