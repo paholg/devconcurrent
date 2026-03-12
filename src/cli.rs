@@ -48,9 +48,9 @@ pub enum Commands {
     Up(up::Up),
     #[command(visible_alias = "x")]
     Exec(exec::Exec),
-    #[command()]
+    #[command(visible_alias = "f")]
     Fwd(fwd::Fwd),
-    #[command()]
+    #[command(visible_alias = "l")]
     List(list::List),
     #[command(visible_alias = "c")]
     Compose(compose::Compose),
@@ -60,9 +60,6 @@ pub enum Commands {
     Destroy(destroy::Destroy),
     #[command()]
     Rename(rename::Rename),
-    // Temporarily disabled as we try to copy while running.
-    // #[command()]
-    // Copy(copy::Copy),
     Show(show::Show),
     #[command()]
     Go(go::Go),
