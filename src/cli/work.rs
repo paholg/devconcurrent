@@ -58,7 +58,9 @@ impl Work {
         let worktree_path = if is_root {
             state.project.path.clone()
         } else if !self.copy {
-            if let Some(reused) = try_reuse_archived(&state, &workspace_dir, &name).await? {
+            if let Some(reused) =
+                try_reuse_archived(&state, &workspace_dir, &name, self.detach).await?
+            {
                 reused
             } else {
                 worktree::create(&state.project.path, &workspace_dir, &name, self.detach).await?
@@ -187,6 +189,7 @@ async fn try_reuse_archived(
     state: &State,
     workspace_dir: &std::path::Path,
     new_name: &str,
+    detach: bool,
 ) -> eyre::Result<Option<std::path::PathBuf>> {
     let archived = match archive::find_archived(&state.project_name)? {
         Some(aw) => aw,
@@ -222,6 +225,22 @@ async fn try_reuse_archived(
     remove_fwd_sidecars(&archived.compose_project).await?;
 
     rename_workspace(state, &old_path, &new_path).await?;
+
+    // Set up the branch, matching what `git worktree add` would do.
+    let root_head = worktree::rev_parse_head(&state.project.path).await?;
+    if detach {
+        run::run_cmd(
+            &["git", "checkout", "--detach", &root_head],
+            Some(&new_path),
+        )
+        .await?;
+    } else {
+        run::run_cmd(
+            &["git", "checkout", "-b", new_name, &root_head],
+            Some(&new_path),
+        )
+        .await?;
+    }
 
     archive::unarchive(&state.project_name, &archived.compose_project)?;
 

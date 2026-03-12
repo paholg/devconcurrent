@@ -6,6 +6,16 @@ use tokio::process::Command;
 
 use crate::run::run_cmd;
 
+pub async fn rev_parse_head(repo_path: &Path) -> eyre::Result<String> {
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .await?;
+    eyre::ensure!(output.status.success(), "git rev-parse HEAD failed");
+    Ok(String::from_utf8(output.stdout)?.trim().to_string())
+}
+
 pub async fn create(
     repo_path: &Path,
     workspace_dir: &Path,
