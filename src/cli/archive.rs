@@ -8,6 +8,7 @@ use crate::complete::complete_workspace;
 use crate::docker::compose::{
     compose_project_name, docker, remove_fwd_sidecars, remove_override_file,
 };
+use crate::run::run_cmd;
 use crate::workspace::Workspace;
 
 /// Archive a workspace, stopping containers but preserving volumes for reuse
@@ -44,6 +45,8 @@ impl Archive {
         }
 
         safety_check(&workspace, self.force)?;
+
+        run_cmd(&["git", "checkout", "--detach"], Some(&workspace.path)).await?;
 
         eprintln!("Stopping workspace '{name}'...");
         docker(&[
