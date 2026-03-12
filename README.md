@@ -54,17 +54,17 @@ path = "~/src/second/"
 
 You may also specify an `projects.PROJECT.environment` if you want to set
 environment variables here that will get injected into docker-compose when
-running `dc up`. This is useful if there is per-user config you want for a
+running `dc work`. This is useful if there is per-user config you want for a
 project.
 
 We also add a customization to `devcontainer.json`. It is recommended that you
 add a `devconcurrent` field with these properties, though none are required.
 
-* `defaultExec` - The command to run on `dc exec` and `dc up --exec` if none is
+* `defaultExec` - The command to run on `dc exec` and `dc work --exec` if none is
  specified.
 * `worktreeFolder` - The directory to place `dc`-generated worktrees. Defaults
   to `/tmp/`.
-* `defaultCopyVolumes` - The volumes to copy with `dc copy` and `dc up --copy`
+* `defaultCopyVolumes` - The volumes to copy with `dc copy` and `dc work --copy`
   if none are specified.
 * `mountGit` [default `true`]- Whether to mount your project's git directory in
   workspace devcontainers. Git worktrees have a simple `.git` file that just

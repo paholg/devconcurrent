@@ -22,7 +22,7 @@ mod go;
 mod list;
 pub(crate) mod rename;
 mod show;
-mod up;
+mod work;
 
 const ABOUT: &str =
     "A tool for managing devcontainers, especially when combined with git worktrees";
@@ -44,8 +44,8 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
-    #[command()]
-    Up(up::Up),
+    #[command(visible_alias = "w")]
+    Work(work::Work),
     #[command(visible_alias = "x")]
     Exec(exec::Exec),
     #[command(visible_alias = "f")]
@@ -124,7 +124,7 @@ impl Cli {
         };
 
         match self.command {
-            Commands::Up(up) => up.run(state).await,
+            Commands::Work(work) => work.run(state).await,
             Commands::Exec(exec) => exec.run(state).await,
             Commands::Fwd(fwd) => fwd.run(state).await,
             Commands::List(list) => list.run(state).await,
