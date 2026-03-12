@@ -16,7 +16,7 @@ use crate::workspace::Workspace;
 pub struct Archive {
     /// Workspace name
     #[arg(add = ArgValueCompleter::new(complete_workspace))]
-    workspace: String,
+    workspace: Option<String>,
 
     /// Force archive even if dirty or has active execs
     #[arg(short, long)]
@@ -25,13 +25,13 @@ pub struct Archive {
 
 impl Archive {
     pub async fn run(self, state: State) -> eyre::Result<()> {
-        let name = &self.workspace;
+        let name = state.resolve_workspace(self.workspace).await?;
 
-        if state.is_root(name) {
+        if state.is_root(&name) {
             return Err(eyre!("cannot archive root workspace"));
         }
 
-        let workspace = Workspace::get(&state, name).await?;
+        let workspace = Workspace::get(&state, &name).await?;
 
         if !workspace.path.exists() {
             return Err(eyre!("no workspace named '{name}' found"));
@@ -61,7 +61,7 @@ impl Archive {
         remove_fwd_sidecars(&compose_project).await?;
         remove_override_file(&compose_project);
 
-        archive::archive(&state.project_name, &compose_project, name)?;
+        archive::archive(&state.project_name, &compose_project, &name)?;
 
         eprintln!("Workspace '{name}' archived (volumes preserved for reuse)");
         Ok(())
