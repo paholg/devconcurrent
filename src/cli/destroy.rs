@@ -1,20 +1,20 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::io::{BufRead, Write};
 use std::path::Path;
 
 use bollard::Docker;
 use bollard::query_parameters::{ListContainersOptions, RemoveContainerOptions};
 use clap::Args;
 use clap_complete::ArgValueCompleter;
-use eyre::{Context, eyre};
+use eyre::eyre;
 
 use crate::ansi::{RED, RESET, YELLOW};
 use crate::archive;
-use crate::cli::State;
-use crate::cli::rename::resolve_backing_volume;
+use crate::cli::{State, confirm, safety_check};
 use crate::complete::complete_workspace;
-use crate::docker::compose::compose_project_name;
+use crate::docker::compose::{
+    compose_project_name, list_project_volumes, remove_override_file, resolve_backing_volume,
+};
 use crate::run::{self, Runnable, Runner, run_cmd};
 use crate::workspace::Workspace;
 
@@ -40,6 +40,8 @@ impl Destroy {
         if !workspace.path.exists() {
             return Err(eyre!("no workspace named '{}' found", name));
         }
+
+        safety_check(&workspace, self.force)?;
 
         if is_root {
             eprintln!(
@@ -118,12 +120,7 @@ impl Runnable for Cleanup<'_> {
                 .await;
         }
 
-        let override_file =
-            std::env::temp_dir().join(format!("{}-override.yml", self.compose_name));
-        if override_file.exists() {
-            std::fs::remove_file(&override_file)
-                .wrap_err_with(|| format!("failed to remove {}", override_file.display()))?;
-        }
+        remove_override_file(&self.compose_name);
 
         // Remove any port-forward sidecar targeting this workspace
         let mut filters = HashMap::new();
@@ -175,7 +172,7 @@ impl Runnable for Cleanup<'_> {
 /// Find backing volumes from a prior rename. These are old volumes whose data
 /// is bind-mounted into the current workspace's volumes.
 async fn backing_volumes(compose_name: &str) -> Vec<String> {
-    let Ok(volumes) = crate::cli::rename::list_project_volumes(compose_name).await else {
+    let Ok(volumes) = list_project_volumes(compose_name).await else {
         return Vec::new();
     };
     let mut backing = Vec::new();
@@ -185,12 +182,4 @@ async fn backing_volumes(compose_name: &str) -> Vec<String> {
         }
     }
     backing
-}
-
-pub(super) fn confirm() -> eyre::Result<bool> {
-    eprint!("Proceed? [y/N] ");
-    std::io::stderr().flush()?;
-    let mut line = String::new();
-    std::io::stdin().lock().read_line(&mut line)?;
-    Ok(line.trim().eq_ignore_ascii_case("y"))
 }

@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use eyre::{Context, eyre};
 use serde_json::json;
+use tokio::process::Command;
 
 use crate::{
     config::Project,
@@ -20,6 +21,15 @@ pub fn compose_project_name(worktree_path: &Path) -> String {
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
         .collect()
+}
+
+pub fn remove_override_file(compose_project: &str) {
+    let path = std::env::temp_dir().join(format!("{compose_project}-override.yml"));
+    if path.exists()
+        && let Err(e) = std::fs::remove_file(&path)
+    {
+        eprintln!("warning: failed to remove {}: {e}", path.display());
+    }
 }
 
 fn compose_base_args(
@@ -198,4 +208,88 @@ fn write_compose_override(
     std::fs::write(&override_path, content)
         .wrap_err_with(|| format!("failed to write {}", override_path.display()))?;
     Ok(override_path)
+}
+
+pub async fn docker(args: &[&str]) -> eyre::Result<()> {
+    let out = Command::new("docker").args(args).output().await?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        return Err(eyre!("docker {} failed: {}", args[0], stderr.trim()));
+    }
+    Ok(())
+}
+
+pub async fn remove_fwd_sidecars(compose_project: &str) -> eyre::Result<()> {
+    let filter = format!("label=dev.dc.workspace={compose_project}");
+
+    // Remove containers
+    let out = Command::new("docker")
+        .args(["ps", "-a", "-q", "--filter", &filter])
+        .output()
+        .await?;
+    let stdout = String::from_utf8(out.stdout)?;
+    let ids: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    if !ids.is_empty() {
+        let mut args = vec!["rm", "-f"];
+        args.extend(ids);
+        docker(&args).await?;
+    }
+
+    // Remove volumes
+    let out = Command::new("docker")
+        .args(["volume", "ls", "-q", "--filter", &filter])
+        .output()
+        .await?;
+    let stdout = String::from_utf8(out.stdout)?;
+    for vol in stdout.lines().filter(|l| !l.is_empty()) {
+        let _ = docker(&["volume", "rm", vol]).await;
+    }
+
+    Ok(())
+}
+
+pub async fn list_project_volumes(compose_project: &str) -> eyre::Result<Vec<String>> {
+    let filter = format!("label=com.docker.compose.project={compose_project}");
+    let out = Command::new("docker")
+        .args(["volume", "ls", "-q", "--filter", &filter])
+        .output()
+        .await?;
+    eyre::ensure!(out.status.success(), "docker volume ls failed");
+    let stdout = String::from_utf8(out.stdout)?;
+    Ok(stdout
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(String::from)
+        .collect())
+}
+
+pub async fn resolve_backing_volume(vol_name: &str) -> Option<String> {
+    let out = Command::new("docker")
+        .args([
+            "volume",
+            "inspect",
+            "--format",
+            "{{ index .Labels \"dev.dc.backing_volume\" }}",
+            vol_name,
+        ])
+        .output()
+        .await
+        .ok()?;
+    let label = String::from_utf8(out.stdout).ok()?.trim().to_string();
+    if label.is_empty() { None } else { Some(label) }
+}
+
+pub async fn volume_mountpoint(vol_name: &str) -> eyre::Result<String> {
+    let out = Command::new("docker")
+        .args([
+            "volume",
+            "inspect",
+            "--format",
+            "{{ .Mountpoint }}",
+            vol_name,
+        ])
+        .output()
+        .await?;
+    eyre::ensure!(out.status.success(), "docker volume inspect failed");
+    Ok(String::from_utf8(out.stdout)?.trim().to_string())
 }

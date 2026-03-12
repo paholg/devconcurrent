@@ -1,4 +1,5 @@
 use std::env;
+use std::io::{BufRead, Write};
 
 use clap::{Parser, Subcommand};
 use clap_complete::engine::ArgValueCompleter;
@@ -9,6 +10,7 @@ use crate::{
     config::{Config, Project},
     devcontainer::Devcontainer,
     docker::DockerClient,
+    workspace::Workspace,
     worktree,
 };
 
@@ -20,7 +22,6 @@ mod exec;
 mod fwd;
 mod go;
 mod list;
-pub(crate) mod rename;
 mod show;
 mod work;
 
@@ -58,8 +59,6 @@ pub enum Commands {
     Archive(archive::Archive),
     #[command()]
     Destroy(destroy::Destroy),
-    #[command()]
-    Rename(rename::Rename),
     Show(show::Show),
     #[command()]
     Go(go::Go),
@@ -112,6 +111,36 @@ impl State {
     }
 }
 
+/// Check that the workspace is safe to tear down (clean git, no active execs).
+pub(crate) fn safety_check(workspace: &Workspace, force: bool) -> eyre::Result<()> {
+    if force {
+        return Ok(());
+    }
+
+    if workspace.is_dirty() {
+        eyre::bail!(
+            "workspace '{}' has uncommitted changes (use --force to override)",
+            workspace.name
+        );
+    }
+    if !workspace.execs.is_empty() {
+        eyre::bail!(
+            "workspace '{}' has {} active exec session(s) (use --force to override)",
+            workspace.name,
+            workspace.execs.len()
+        );
+    }
+    Ok(())
+}
+
+pub(crate) fn confirm() -> eyre::Result<bool> {
+    eprint!("Proceed? [y/N] ");
+    std::io::stderr().flush()?;
+    let mut line = String::new();
+    std::io::stdin().lock().read_line(&mut line)?;
+    Ok(line.trim().eq_ignore_ascii_case("y"))
+}
+
 impl Cli {
     pub async fn run(self) -> eyre::Result<()> {
         let config = Config::load()?;
@@ -131,7 +160,6 @@ impl Cli {
             Commands::Compose(compose) => compose.run(state).await,
             // Commands::Copy(copy) => copy.run(state).await,
             Commands::Archive(archive) => archive.run(state).await,
-            Commands::Rename(rename) => rename.run(state).await,
             Commands::Show(show) => show.run(state).await,
             Commands::Destroy(destroy) => destroy.run(state).await,
             Commands::Go(go) => go.run(state).await,

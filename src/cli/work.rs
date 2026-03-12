@@ -4,16 +4,23 @@ use color_eyre::owo_colors::OwoColorize;
 use tracing::info_span;
 use tracing_indicatif::span_ext::IndicatifSpanExt;
 
+use std::path::Path;
+
+use eyre::Context;
+
 use crate::archive;
 use crate::cli::State;
 use crate::cli::copy::copy_volumes;
 use crate::cli::exec::exec_interactive;
 use crate::cli::fwd::forward;
-use crate::cli::rename::{docker, remove_fwd_sidecars, rename_workspace};
 use crate::complete::complete_workspace;
-use crate::docker::compose::{compose_args, compose_project_name, compose_ps_q, compose_up_args};
-use crate::run::Runner;
+use crate::docker::compose::{
+    compose_args, compose_project_name, compose_ps_q, compose_up_args, docker,
+    list_project_volumes, remove_fwd_sidecars, remove_override_file, resolve_backing_volume,
+    volume_mountpoint,
+};
 use crate::run::cmd::{Cmd, NamedCmd};
+use crate::run::{self, Runner};
 use crate::worktree;
 
 /// Bring up a workspace, creating it if it does not exist
@@ -219,4 +226,80 @@ async fn try_reuse_archived(
     archive::unarchive(&state.project_name, &archived.compose_project)?;
 
     Ok(Some(new_path))
+}
+
+/// Core rename logic: create bind-mount alias volumes, move worktree, clean up.
+/// Returns the number of volumes aliased.
+async fn rename_workspace(state: &State, old_path: &Path, new_path: &Path) -> eyre::Result<usize> {
+    let old_project = compose_project_name(old_path);
+    let new_project = compose_project_name(new_path);
+
+    // Create bind-mount alias volumes.
+    // If the old volumes are themselves aliases from a prior rename, follow
+    // the chain back to the original backing volume so we never build up a
+    // chain of bind-mount dependencies.
+    let old_volumes = list_project_volumes(&old_project).await?;
+    let mut intermediate_volumes: Vec<String> = Vec::new();
+    for old_vol in &old_volumes {
+        let suffix = old_vol
+            .strip_prefix(&format!("{old_project}_"))
+            .unwrap_or(old_vol);
+        let new_vol = format!("{new_project}_{suffix}");
+
+        let backing = resolve_backing_volume(old_vol).await;
+        let is_alias = backing.is_some();
+        let backing = backing.as_deref().unwrap_or(old_vol);
+
+        let mountpoint = volume_mountpoint(backing)
+            .await
+            .wrap_err_with(|| format!("failed to get mountpoint for volume {backing}"))?;
+        let device = format!("device={mountpoint}");
+        docker(&[
+            "volume",
+            "create",
+            "--driver",
+            "local",
+            "--opt",
+            "type=none",
+            "--opt",
+            "o=bind",
+            "--opt",
+            &device,
+            "--label",
+            &format!("com.docker.compose.project={new_project}"),
+            "--label",
+            &format!("com.docker.compose.volume={suffix}"),
+            "--label",
+            &format!("dev.dc.backing_volume={backing}"),
+            &new_vol,
+        ])
+        .await
+        .wrap_err_with(|| format!("failed to create alias volume {new_vol}"))?;
+
+        // The old volume was itself an alias — it can be removed now.
+        if is_alias {
+            intermediate_volumes.push(old_vol.clone());
+        }
+    }
+
+    // Clean up intermediate alias volumes from the prior rename.
+    for vol in &intermediate_volumes {
+        let _ = docker(&["volume", "rm", vol]).await;
+    }
+
+    let vol_count = old_volumes.len();
+
+    // Move the worktree
+    let old_path_str = old_path.to_string_lossy();
+    let new_path_str = new_path.to_string_lossy();
+    run::run_cmd(
+        &["git", "worktree", "move", &old_path_str, &new_path_str],
+        Some(&state.project.path),
+    )
+    .await
+    .wrap_err("failed to move worktree")?;
+
+    remove_override_file(&old_project);
+
+    Ok(vol_count)
 }

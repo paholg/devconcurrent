@@ -3,10 +3,12 @@ use clap_complete::ArgValueCompleter;
 use eyre::eyre;
 
 use crate::archive;
-use crate::cli::State;
-use crate::cli::rename::{docker, remove_fwd_sidecars};
+use crate::cli::{State, safety_check};
 use crate::complete::complete_workspace;
-use crate::docker::compose::compose_project_name;
+use crate::docker::compose::{
+    compose_project_name, docker, remove_fwd_sidecars, remove_override_file,
+};
+use crate::workspace::Workspace;
 
 /// Archive a workspace, stopping containers but preserving volumes for reuse
 #[derive(Debug, Args)]
@@ -14,6 +16,10 @@ pub struct Archive {
     /// Workspace name
     #[arg(add = ArgValueCompleter::new(complete_workspace))]
     workspace: String,
+
+    /// Force archive even if dirty or has active execs
+    #[arg(short, long)]
+    force: bool,
 }
 
 impl Archive {
@@ -24,16 +30,20 @@ impl Archive {
             return Err(eyre!("cannot archive root workspace"));
         }
 
-        let devcontainer = state.devcontainer()?;
-        let dc_options = &devcontainer.common.customizations.devconcurrent;
-        let workspace_dir = dc_options.workspace_dir(&state.project.path);
+        let workspace = Workspace::get(&state, name).await?;
 
-        let ws_path = workspace_dir.join(name);
-        if !ws_path.exists() {
+        if !workspace.path.exists() {
             return Err(eyre!("no workspace named '{name}' found"));
         }
 
-        let compose_project = compose_project_name(&ws_path);
+        let compose_project = compose_project_name(&workspace.path);
+
+        if archive::is_archived(&state.project_name, &compose_project) {
+            eprintln!("Workspace '{name}' is already archived.");
+            return Ok(());
+        }
+
+        safety_check(&workspace, self.force)?;
 
         eprintln!("Stopping workspace '{name}'...");
         docker(&[
@@ -46,6 +56,7 @@ impl Archive {
         .await?;
 
         remove_fwd_sidecars(&compose_project).await?;
+        remove_override_file(&compose_project);
 
         archive::archive(&state.project_name, &compose_project, name)?;
 
