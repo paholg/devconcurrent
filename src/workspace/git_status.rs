@@ -38,29 +38,42 @@ fn fetch_sync(path: &Path) -> eyre::Result<GitStatus> {
     gs.ahead = ahead;
     gs.behind = behind;
 
-    let iter = repo.status(gix::progress::Discard)?.into_iter(Vec::new())?;
+    // Use `git status` instead of gix's status API — the latter doesn't refresh
+    // the index stat cache and reports false modifications in worktrees.
+    let output = std::process::Command::new("git")
+        .args(["status", "--porcelain=v1", "-z"])
+        .current_dir(path)
+        .output()?;
 
-    for item in iter {
-        let item = item?;
-        match &item {
-            gix::status::Item::IndexWorktree(iw) => {
-                use gix::status::index_worktree::iter::Summary;
-                if let Some(summary) = iw.summary() {
-                    match summary {
-                        Summary::Modified | Summary::TypeChange => gs.modified += 1,
-                        Summary::Removed => gs.deleted += 1,
-                        Summary::Added => gs.untracked += 1,
-                        Summary::Conflict => gs.conflicted += 1,
-                        Summary::Renamed => gs.renamed += 1,
-                        Summary::Copied | Summary::IntentToAdd => {}
+    if !output.status.success() {
+        return Ok(gs);
+    }
+
+    for entry in output.stdout.split(|&b| b == 0) {
+        if entry.len() < 3 {
+            continue;
+        }
+        let x = entry[0];
+        let y = entry[1];
+        match (x, y) {
+            (b'?', b'?') => gs.untracked += 1,
+            (b'U', _) | (_, b'U') | (b'A', b'A') | (b'D', b'D') => gs.conflicted += 1,
+            _ => {
+                match x {
+                    b'A' | b'M' | b'T' | b'C' => gs.staged += 1,
+                    b'R' => {
+                        gs.staged += 1;
+                        gs.renamed += 1;
                     }
+                    b'D' => {
+                        gs.staged += 1;
+                        gs.deleted += 1;
+                    }
+                    _ => {}
                 }
-            }
-            gix::status::Item::TreeIndex(change) => {
-                gs.staged += 1;
-                match change {
-                    gix::diff::index::ChangeRef::Deletion { .. } => gs.deleted += 1,
-                    gix::diff::index::ChangeRef::Rewrite { copy: false, .. } => gs.renamed += 1,
+                match y {
+                    b'M' | b'T' => gs.modified += 1,
+                    b'D' => gs.deleted += 1,
                     _ => {}
                 }
             }
