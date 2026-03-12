@@ -31,15 +31,6 @@ impl Workspace {
         Self::get_inner(state, name, ContainerGroup::list(state).await?).await
     }
 
-    pub async fn get_including_archived(state: &State, name: &str) -> eyre::Result<Workspace> {
-        Self::get_inner(
-            state,
-            name,
-            ContainerGroup::list_including_archived(state).await?,
-        )
-        .await
-    }
-
     async fn get_inner(
         state: &State,
         name: &str,

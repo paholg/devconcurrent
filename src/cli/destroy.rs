@@ -9,7 +9,6 @@ use clap_complete::ArgValueCompleter;
 use eyre::eyre;
 
 use crate::ansi::{RED, RESET, YELLOW};
-use crate::archive;
 use crate::cli::{State, confirm, safety_check};
 use crate::complete::complete_workspace;
 use crate::docker::compose::{
@@ -33,7 +32,7 @@ pub struct Destroy {
 impl Destroy {
     pub async fn run(self, state: State) -> eyre::Result<()> {
         let name = self.workspace;
-        let workspace = Workspace::get_including_archived(&state, &name).await?;
+        let workspace = Workspace::get(&state, &name).await?;
 
         let is_root = workspace.path == state.project.path;
 
@@ -54,11 +53,6 @@ impl Destroy {
         }
 
         let compose_name = compose_project_name(&workspace.path);
-
-        // Remove archived marker if one exists
-        if let Err(e) = archive::unarchive(&state.project_name, &compose_name) {
-            eprintln!("warning: failed to remove archive marker: {e}");
-        }
 
         let cleanup = Cleanup {
             docker: &state.docker.docker,

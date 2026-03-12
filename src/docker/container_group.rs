@@ -3,7 +3,6 @@ use std::{collections::HashMap, path::PathBuf};
 use futures::future::try_join_all;
 
 use crate::{
-    archive,
     cli::State,
     docker::{ContainerInfo, compose::compose_project_name},
     workspace::{Workspace, git_status},
@@ -18,20 +17,6 @@ pub struct ContainerGroup {
 
 impl ContainerGroup {
     pub async fn list(state: &State) -> eyre::Result<(Vec<Self>, HashMap<String, Vec<u16>>)> {
-        Self::list_inner(state, false).await
-    }
-
-    /// Like `list`, but includes archived workspaces.
-    pub async fn list_including_archived(
-        state: &State,
-    ) -> eyre::Result<(Vec<Self>, HashMap<String, Vec<u16>>)> {
-        Self::list_inner(state, true).await
-    }
-
-    async fn list_inner(
-        state: &State,
-        include_archived: bool,
-    ) -> eyre::Result<(Vec<Self>, HashMap<String, Vec<u16>>)> {
         let worktree_paths = worktree::list(&state.project.path).await?;
         let (containers, fwd_ports) = tokio::try_join!(
             state.docker.container_info(),
@@ -51,12 +36,6 @@ impl ContainerGroup {
                 // This is not a devcontainer for any of our worktrees.
                 continue;
             }
-            if !include_archived {
-                let cp = compose_project_name(&c.local_folder);
-                if archive::is_archived(&state.project_name, &cp) {
-                    continue;
-                }
-            }
             let group = groups
                 .entry(c.local_folder.clone())
                 .or_insert_with(|| ContainerGroup {
@@ -66,14 +45,7 @@ impl ContainerGroup {
             group.containers.push(c);
         }
 
-        // Ensure we have an entry for all of our worktrees (skip archived ones).
         for path in worktree_paths {
-            if !include_archived {
-                let cp = compose_project_name(&path);
-                if archive::is_archived(&state.project_name, &cp) {
-                    continue;
-                }
-            }
             groups
                 .entry(path.clone())
                 .or_insert_with(|| ContainerGroup {

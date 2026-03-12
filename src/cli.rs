@@ -14,7 +14,6 @@ use crate::{
     worktree,
 };
 
-mod archive;
 mod compose;
 mod copy;
 mod destroy;
@@ -55,8 +54,6 @@ pub enum Commands {
     List(list::List),
     #[command(visible_alias = "c")]
     Compose(compose::Compose),
-    #[command()]
-    Archive(archive::Archive),
     #[command()]
     Destroy(destroy::Destroy),
     Show(show::Show),
@@ -159,7 +156,6 @@ impl Cli {
             Commands::List(list) => list.run(state).await,
             Commands::Compose(compose) => compose.run(state).await,
             // Commands::Copy(copy) => copy.run(state).await,
-            Commands::Archive(archive) => archive.run(state).await,
             Commands::Show(show) => show.run(state).await,
             Commands::Destroy(destroy) => destroy.run(state).await,
             Commands::Go(go) => go.run(state).await,
