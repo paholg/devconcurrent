@@ -16,7 +16,7 @@ use crate::worktree;
 
 /// Bring up a workspace, creating it if it does not exist
 #[derive(Debug, Args)]
-pub struct Work {
+pub struct Up {
     /// Copy configured `defaultCopyVolumes` from root workspace
     #[arg(short, long)]
     copy: bool,
@@ -38,7 +38,7 @@ pub struct Work {
     exec: Option<Vec<String>>,
 }
 
-impl Work {
+impl Up {
     pub async fn run(self, state: State) -> eyre::Result<()> {
         let devcontainer = state.devcontainer()?;
         let dc_options = &devcontainer.common.customizations.devconcurrent;
@@ -55,7 +55,7 @@ impl Work {
         // Set up span.
         let name = &name;
         let colored_name = name.cyan().to_string();
-        let up = "work".cyan().to_string();
+        let up = "up".cyan().to_string();
         let path = worktree_path.display().to_string();
         let description = &path;
         let message = format!(
@@ -65,7 +65,7 @@ impl Work {
         let pb_message = format!("[{up}] Spinning up workspace {colored_name}");
         let finish_message = format!("Workspace {colored_name} is available.");
         let span = info_span!(
-            "work",
+            "up",
             indicatif.pb_show = true,
             name = up,
             description,
