@@ -68,7 +68,7 @@ impl DockerClient {
             let mut labels = c.labels.ok_or_else(|| eyre!("container missing labels"))?;
             let local_folder = labels.remove("devcontainer.local_folder")
                 .ok_or_else(|| eyre!("container was filtered by devcontainer.local_folder, but does not have that label"))?.into();
-            let dc_project = labels.remove("dev.dc.project");
+            let dc_project = labels.remove("dev.devconcurrent.project");
             let id = c.id.ok_or_else(|| eyre!("container missing id"))?;
             let state = c.state.ok_or_else(|| eyre!("container missing state"))?;
 
@@ -120,8 +120,8 @@ impl DockerClient {
         filters.insert(
             "label".into(),
             vec![
-                "dev.dc.fwd=true".to_string(),
-                format!("dev.dc.project={project}"),
+                "dev.devconcurrent.fwd=true".to_string(),
+                format!("dev.devconcurrent.project={project}"),
             ],
         );
         let containers = self
@@ -136,7 +136,7 @@ impl DockerClient {
         let result = containers
             .into_iter()
             .filter_map(|c| {
-                let ws = c.labels?.get("dev.dc.workspace")?.clone();
+                let ws = c.labels?.get("dev.devconcurrent.workspace")?.clone();
                 let ports: Vec<u16> = c.ports?.into_iter().filter_map(|p| p.public_port).collect();
                 if ports.is_empty() {
                     None
@@ -160,9 +160,9 @@ impl DockerClient {
         filters.insert(
             "label".into(),
             vec![
-                "dev.dc.fwd=true".to_string(),
-                format!("dev.dc.project={project}"),
-                format!("dev.dc.workspace={compose_project_name}"),
+                "dev.devconcurrent.fwd=true".to_string(),
+                format!("dev.devconcurrent.project={project}"),
+                format!("dev.devconcurrent.workspace={compose_project_name}"),
             ],
         );
         let sidecars = self
@@ -176,7 +176,7 @@ impl DockerClient {
 
         let target_id = sidecars
             .iter()
-            .find_map(|c| c.labels.as_ref()?.get("dev.dc.fwd.target").cloned());
+            .find_map(|c| c.labels.as_ref()?.get("dev.devconcurrent.fwd.target").cloned());
 
         let Some(target_id) = target_id else {
             return Ok(sidecars.is_empty());
@@ -205,9 +205,9 @@ impl DockerClient {
         filters.insert(
             "label".into(),
             vec![
-                "dev.dc.fwd=true".to_string(),
-                format!("dev.dc.project={project}"),
-                format!("dev.dc.workspace={compose_project_name}"),
+                "dev.devconcurrent.fwd=true".to_string(),
+                format!("dev.devconcurrent.project={project}"),
+                format!("dev.devconcurrent.workspace={compose_project_name}"),
             ],
         );
         let containers = self

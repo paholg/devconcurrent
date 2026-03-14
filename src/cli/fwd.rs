@@ -67,17 +67,17 @@ pub async fn forward(state: &State, name: &str) -> eyre::Result<()> {
 
         ensure_image().await?;
 
-        let volume_name = format!("dc-fwd-{}", ws.compose_project_name);
+        let volume_name = format!("devconcurrent-fwd-{}", ws.compose_project_name);
 
         docker(&[
             "volume",
             "create",
             "--label",
-            "dev.dc.fwd=true",
+            "dev.devconcurrent.fwd=true",
             "--label",
-            &format!("dev.dc.project={}", state.project_name),
+            &format!("dev.devconcurrent.project={}", state.project_name),
             "--label",
-            &format!("dev.dc.workspace={}", ws.compose_project_name),
+            &format!("dev.devconcurrent.workspace={}", ws.compose_project_name),
             &volume_name,
         ])
         .await?;
@@ -139,7 +139,7 @@ async fn create_inner_sidecar(
     volume_name: &str,
     ports: &[ForwardPort],
 ) -> eyre::Result<()> {
-    let name = format!("dc-fwd-inner-{compose_project_name}");
+    let name = format!("devconcurrent-fwd-inner-{compose_project_name}");
 
     let socat_cmds: Vec<String> = ports
         .iter()
@@ -161,13 +161,13 @@ async fn create_inner_sidecar(
         format!("--network=container:{cid}"),
         format!("--volume={volume_name}:/socks"),
         "--label".to_string(),
-        "dev.dc.fwd=true".to_string(),
+        "dev.devconcurrent.fwd=true".to_string(),
         "--label".to_string(),
-        format!("dev.dc.project={}", state.project_name),
+        format!("dev.devconcurrent.project={}", state.project_name),
         "--label".to_string(),
-        format!("dev.dc.workspace={compose_project_name}"),
+        format!("dev.devconcurrent.workspace={compose_project_name}"),
         "--label".to_string(),
-        format!("dev.dc.fwd.target={cid}"),
+        format!("dev.devconcurrent.fwd.target={cid}"),
         "--entrypoint".to_string(),
         "sh".to_string(),
         SOCAT_IMAGE.to_string(),
@@ -189,7 +189,7 @@ async fn create_outer_sidecar(
     volume_name: &str,
     ports: &[ForwardPort],
 ) -> eyre::Result<()> {
-    let name = format!("dc-fwd-{compose_project_name}");
+    let name = format!("devconcurrent-fwd-{compose_project_name}");
 
     let socat_cmds: Vec<String> = ports
         .iter()
@@ -210,13 +210,13 @@ async fn create_outer_sidecar(
         format!("--network={network_name}"),
         format!("--volume={volume_name}:/socks"),
         "--label".to_string(),
-        "dev.dc.fwd=true".to_string(),
+        "dev.devconcurrent.fwd=true".to_string(),
         "--label".to_string(),
-        format!("dev.dc.project={}", state.project_name),
+        format!("dev.devconcurrent.project={}", state.project_name),
         "--label".to_string(),
-        format!("dev.dc.workspace={compose_project_name}"),
+        format!("dev.devconcurrent.workspace={compose_project_name}"),
         "--label".to_string(),
-        format!("dev.dc.fwd.target={cid}"),
+        format!("dev.devconcurrent.fwd.target={cid}"),
     ];
 
     for p in ports {
@@ -256,8 +256,8 @@ async fn ensure_image() -> eyre::Result<()> {
 
 pub async fn remove_sidecars(state: &State) -> eyre::Result<()> {
     let project = &state.project_name;
-    let filter = "label=dev.dc.fwd=true".to_string();
-    let filter2 = format!("label=dev.dc.project={project}");
+    let filter = "label=dev.devconcurrent.fwd=true".to_string();
+    let filter2 = format!("label=dev.devconcurrent.project={project}");
 
     let out = Command::new("docker")
         .args(["ps", "-a", "-q", "--filter", &filter, "--filter", &filter2])

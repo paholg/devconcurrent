@@ -145,8 +145,8 @@ fn write_compose_override(
         "labels": [
             format!("devcontainer.local_folder={local_folder}"),
             format!("devcontainer.config_file={config_file}"),
-            "dev.dc.managed=true".to_string(),
-            format!("dev.dc.project={project_name}"),
+            "dev.devconcurrent.managed=true".to_string(),
+            format!("dev.devconcurrent.project={project_name}"),
         ]
     });
 
@@ -220,7 +220,7 @@ pub async fn docker(args: &[&str]) -> eyre::Result<()> {
 }
 
 pub async fn remove_fwd_sidecars(compose_project: &str) -> eyre::Result<()> {
-    let filter = format!("label=dev.dc.workspace={compose_project}");
+    let filter = format!("label=dev.devconcurrent.workspace={compose_project}");
 
     // Remove containers
     let out = Command::new("docker")
@@ -269,7 +269,7 @@ pub async fn resolve_backing_volume(vol_name: &str) -> Option<String> {
             "volume",
             "inspect",
             "--format",
-            "{{ index .Labels \"dev.dc.backing_volume\" }}",
+            "{{ index .Labels \"dev.devconcurrent.backing_volume\" }}",
             vol_name,
         ])
         .output()
