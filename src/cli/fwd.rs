@@ -93,6 +93,7 @@ pub async fn forward(state: &State, name: &str) -> eyre::Result<()> {
         create_outer_sidecar(
             state,
             &ws.compose_project_name,
+            cid,
             &network_name,
             &volume_name,
             &available,
@@ -165,6 +166,8 @@ async fn create_inner_sidecar(
         format!("dev.dc.project={}", state.project_name),
         "--label".to_string(),
         format!("dev.dc.workspace={compose_project_name}"),
+        "--label".to_string(),
+        format!("dev.dc.fwd.target={cid}"),
         "--entrypoint".to_string(),
         "sh".to_string(),
         SOCAT_IMAGE.to_string(),
@@ -181,6 +184,7 @@ async fn create_inner_sidecar(
 async fn create_outer_sidecar(
     state: &State,
     compose_project_name: &str,
+    cid: &str,
     network_name: &str,
     volume_name: &str,
     ports: &[ForwardPort],
@@ -211,6 +215,8 @@ async fn create_outer_sidecar(
         format!("dev.dc.project={}", state.project_name),
         "--label".to_string(),
         format!("dev.dc.workspace={compose_project_name}"),
+        "--label".to_string(),
+        format!("dev.dc.fwd.target={cid}"),
     ];
 
     for p in ports {
@@ -248,7 +254,7 @@ async fn ensure_image() -> eyre::Result<()> {
     Ok(())
 }
 
-async fn remove_sidecars(state: &State) -> eyre::Result<()> {
+pub async fn remove_sidecars(state: &State) -> eyre::Result<()> {
     let project = &state.project_name;
     let filter = "label=dev.dc.fwd=true".to_string();
     let filter2 = format!("label=dev.dc.project={project}");

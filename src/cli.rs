@@ -18,7 +18,7 @@ mod compose;
 mod copy;
 mod destroy;
 mod exec;
-mod fwd;
+pub mod fwd;
 mod go;
 mod list;
 mod show;

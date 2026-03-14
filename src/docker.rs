@@ -151,6 +151,51 @@ impl DockerClient {
         Ok(result)
     }
 
+    pub async fn is_forwarding_healthy(
+        &self,
+        project: &str,
+        compose_project_name: &str,
+    ) -> eyre::Result<bool> {
+        let mut filters = HashMap::new();
+        filters.insert(
+            "label".into(),
+            vec![
+                "dev.dc.fwd=true".to_string(),
+                format!("dev.dc.project={project}"),
+                format!("dev.dc.workspace={compose_project_name}"),
+            ],
+        );
+        let sidecars = self
+            .docker
+            .list_containers(Some(ListContainersOptions {
+                all: true,
+                filters: Some(filters),
+                ..Default::default()
+            }))
+            .await?;
+
+        let target_id = sidecars
+            .iter()
+            .find_map(|c| c.labels.as_ref()?.get("dev.dc.fwd.target").cloned());
+
+        let Some(target_id) = target_id else {
+            return Ok(sidecars.is_empty());
+        };
+
+        let mut filters = HashMap::new();
+        filters.insert("id".into(), vec![target_id]);
+        filters.insert("status".into(), vec!["running".to_string()]);
+        let targets = self
+            .docker
+            .list_containers(Some(ListContainersOptions {
+                all: false,
+                filters: Some(filters),
+                ..Default::default()
+            }))
+            .await?;
+        Ok(!targets.is_empty())
+    }
+
     pub async fn workspace_forwarded_ports(
         &self,
         project: &str,

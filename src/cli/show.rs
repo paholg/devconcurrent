@@ -3,7 +3,7 @@ use std::path::Path;
 use clap::{Args, Subcommand};
 use itertools::Itertools;
 
-use crate::{cli::State, docker::compose::compose_project_name};
+use crate::{cli::State, cli::fwd, docker::compose::compose_project_name};
 
 /// Show some value
 #[derive(Debug, Args)]
@@ -37,16 +37,31 @@ impl Show {
 
 impl Ports {
     async fn run(self, state: State) -> eyre::Result<()> {
-        let name = state.resolve_workspace(None).await?;
-        let cpn = compose_project_name(Path::new(&name));
-        let ports = state
-            .docker
-            .workspace_forwarded_ports(&state.project_name, &cpn)
-            .await?
-            .into_iter()
-            .join(",");
+        let ports = get_ports(state).await?;
+
         println!("{ports}");
         Ok(())
+    }
+}
+
+async fn get_ports(state: State) -> eyre::Result<String> {
+    let name = state.resolve_workspace(None).await?;
+    let cpn = compose_project_name(Path::new(&name));
+    let (ports, healthy) = tokio::join!(
+        state
+            .docker
+            .workspace_forwarded_ports(&state.project_name, &cpn),
+        state
+            .docker
+            .is_forwarding_healthy(&state.project_name, &cpn),
+    );
+    let ports = ports?;
+
+    if !ports.is_empty() && !healthy? {
+        fwd::remove_sidecars(&state).await?;
+        Ok(String::new())
+    } else {
+        Ok(ports.into_iter().join(","))
     }
 }
 
