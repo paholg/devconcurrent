@@ -22,7 +22,7 @@ use crate::workspace::Workspace;
 pub struct Destroy {
     /// Workspace name
     #[arg(add = ArgValueCompleter::new(complete_workspace))]
-    workspace: String,
+    workspace: Option<String>,
 
     /// Force remove the worktree, even if dirty
     #[arg(short, long)]
@@ -31,7 +31,7 @@ pub struct Destroy {
 
 impl Destroy {
     pub async fn run(self, state: State) -> eyre::Result<()> {
-        let name = self.workspace;
+        let name = state.resolve_workspace(self.workspace).await?;
         let workspace = Workspace::get(&state, &name).await?;
 
         let is_root = workspace.path == state.project.path;

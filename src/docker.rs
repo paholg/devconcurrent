@@ -174,9 +174,12 @@ impl DockerClient {
             }))
             .await?;
 
-        let target_id = sidecars
-            .iter()
-            .find_map(|c| c.labels.as_ref()?.get("dev.devconcurrent.fwd.target").cloned());
+        let target_id = sidecars.iter().find_map(|c| {
+            c.labels
+                .as_ref()?
+                .get("dev.devconcurrent.fwd.target")
+                .cloned()
+        });
 
         let Some(target_id) = target_id else {
             return Ok(sidecars.is_empty());
