@@ -93,14 +93,18 @@ impl State {
         let cwd = env::current_dir()?;
         let worktrees = worktree::list(&self.project.path).await?;
 
-        worktrees.into_iter().find(|wt| wt == &cwd).ok_or_else(|| {
-            eyre::eyre!(
-                "no workspace specified and not inside a worktree of project '{}'",
-                self.project_name
-            )
-        })?;
+        let wt = worktrees
+            .into_iter()
+            .filter(|wt| cwd.starts_with(wt))
+            .max_by_key(|wt| wt.as_os_str().len())
+            .ok_or_else(|| {
+                eyre::eyre!(
+                    "no workspace specified and not inside a worktree of project '{}'",
+                    self.project_name
+                )
+            })?;
 
-        Ok(cwd
+        Ok(wt
             .file_name()
             .ok_or_eyre("worktree path has no basename")?
             .to_string_lossy()
