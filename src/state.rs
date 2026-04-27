@@ -6,7 +6,7 @@ use crate::{
     config::{Config, Project},
     devcontainer::{self, DevcontainerConfig, dc_options::DcOptions},
     docker::DockerClient,
-    workspace::WorkspaceMini,
+    workspace::Workspace,
     worktree,
 };
 
@@ -117,7 +117,7 @@ impl State {
     pub(crate) async fn resolve_workspace(
         &self,
         name: Option<String>,
-    ) -> eyre::Result<WorkspaceMini> {
+    ) -> eyre::Result<Workspace<'_>> {
         let worktrees = worktree::list(&self.project.path).await?;
 
         if let Some(workspace_name) = name
@@ -127,11 +127,12 @@ impl State {
                 .into_iter()
                 .find(|wt| wt.file_name() == Some(workspace_name.as_ref()))
                 .unwrap_or_else(|| self.worktree_path(&workspace_name));
-            let root = self.is_root(&workspace_name);
-            return Ok(WorkspaceMini {
+            let is_root = self.is_root(&workspace_name);
+            return Ok(Workspace {
+                state: self,
                 name: workspace_name,
                 path,
-                root,
+                is_root,
             });
         }
 
@@ -154,9 +155,14 @@ impl State {
             .to_string_lossy()
             .to_string();
 
-        let root = self.is_root(&name);
+        let is_root = self.is_root(&name);
 
-        Ok(WorkspaceMini { name, path, root })
+        Ok(Workspace {
+            state: self,
+            name,
+            path,
+            is_root,
+        })
     }
 
     pub(crate) fn try_devcontainer(&self) -> eyre::Result<&DevcontainerState> {

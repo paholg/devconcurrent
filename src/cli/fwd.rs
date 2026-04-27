@@ -9,7 +9,7 @@ use crate::cli::State;
 use crate::complete::complete_workspace;
 use crate::devcontainer::forward_port::ForwardPort;
 use crate::state::DevcontainerState;
-use crate::workspace::{Workspace, WorkspaceMini};
+use crate::workspace::{Workspace, WorkspaceLegacy};
 
 const SOCAT_IMAGE: &str = "docker.io/alpine/socat:latest";
 
@@ -37,20 +37,19 @@ impl Fwd {
             Some(FwdCommands::Stop) => remove_sidecars(&state).await,
             None => {
                 let workspace = state.resolve_workspace(self.workspace).await?;
-                forward(&state, devcontainer, &workspace).await
+                forward(devcontainer, &workspace).await
             }
         }
     }
 }
 
 pub(crate) async fn forward(
-    state: &State,
     devcontainer: &DevcontainerState,
-    workspace: &WorkspaceMini,
+    workspace: &Workspace<'_>,
 ) -> eyre::Result<()> {
-    remove_sidecars(state).await?;
+    remove_sidecars(workspace.state).await?;
 
-    let ws = Workspace::get(state, devcontainer, &workspace.name).await?;
+    let ws = WorkspaceLegacy::get(workspace.state, devcontainer, &workspace.name).await?;
     let cid = ws.service_container_id()?;
     let ports = &devcontainer.config.common.forward_ports;
 
@@ -75,12 +74,11 @@ pub(crate) async fn forward(
         let volume_name = format!("devconcurrent-fwd-{}", ws.compose_project_name);
 
         let mut args = vec!["volume", "create", &volume_name];
-        let labels = workspace.docker_fwd_labels(state);
+        let labels = workspace.docker_fwd_labels();
         args.extend(labels.iter().flat_map(|l| ["--label", l]));
         docker(&args).await?;
 
         create_inner_sidecar(
-            state,
             workspace,
             &ws.compose_project_name,
             cid,
@@ -89,7 +87,6 @@ pub(crate) async fn forward(
         )
         .await?;
         create_outer_sidecar(
-            state,
             workspace,
             &ws.compose_project_name,
             cid,
@@ -132,8 +129,7 @@ async fn container_network(cid: &str) -> eyre::Result<String> {
 /// Inner sidecar: shares the target container's network namespace.
 /// For each port, listens on a Unix socket and connects to 127.0.0.1:<port>.
 async fn create_inner_sidecar(
-    state: &State,
-    workspace: &WorkspaceMini,
+    workspace: &Workspace<'_>,
     compose_project_name: &str,
     cid: &str,
     volume_name: &str,
@@ -156,7 +152,7 @@ async fn create_inner_sidecar(
     let inner_network = format!("container:{cid}");
     let inner_volume = format!("{volume_name}:/socks");
     let fwd_target = format!("dev.devconcurrent.fwd.target={cid}");
-    let labels = workspace.docker_fwd_labels(state);
+    let labels = workspace.docker_fwd_labels();
     let mut args = vec![
         "run",
         "-d",
@@ -185,8 +181,7 @@ async fn create_inner_sidecar(
 /// Outer sidecar: on the Docker network with host port bindings.
 /// For each port, listens on TCP and connects via the Unix socket.
 async fn create_outer_sidecar(
-    state: &State,
-    workspace: &WorkspaceMini,
+    workspace: &Workspace<'_>,
     compose_project_name: &str,
     cid: &str,
     network_name: &str,
@@ -212,7 +207,7 @@ async fn create_outer_sidecar(
         .iter()
         .map(|p| format!("127.0.0.1:{}:{}", p.port, p.port))
         .collect();
-    let labels = workspace.docker_fwd_labels(state);
+    let labels = workspace.docker_fwd_labels();
     let mut args = vec![
         "run",
         "-d",

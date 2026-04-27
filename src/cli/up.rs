@@ -43,8 +43,8 @@ impl Up {
         let colored_name = name.cyan().to_string();
         let up = "up".cyan().to_string();
         let path = workspace.path.display().to_string();
-        if !workspace.root {
-            worktree::create(&state.project.path, &state, &workspace, self.detach).await?;
+        if !workspace.is_root {
+            worktree::create(&workspace, self.detach).await?;
         }
 
         let description = &path;
@@ -71,7 +71,7 @@ impl Up {
                 .await?;
         }
 
-        let mut compose_up_cmd = compose_cmd(&state, devcontainer, &workspace)?;
+        let mut compose_up_cmd = compose_cmd(devcontainer, &workspace)?;
         compose_up_cmd.args(["up", "-d", "--build"]);
 
         let compose_config = devcontainer.compose();
@@ -92,7 +92,7 @@ impl Up {
         };
         Runner::run(cmd).await?;
 
-        let container_id = compose_ps_q(&state, devcontainer, &workspace).await?;
+        let container_id = compose_ps_q(devcontainer, &workspace).await?;
         let user = devcontainer.config.common.remote_user.as_deref();
         let workdir = Some(compose_config.workspace_folder.as_path());
         let remote_env = &devcontainer.config.common.remote_env;
@@ -130,7 +130,7 @@ impl Up {
 
         // Port forward if requested
         if self.forward {
-            forward(&state, devcontainer, &workspace).await?;
+            forward(devcontainer, &workspace).await?;
         }
 
         // Interactive exec if requested

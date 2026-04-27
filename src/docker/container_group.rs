@@ -5,7 +5,7 @@ use futures::future::try_join_all;
 use crate::{
     docker::ContainerInfo,
     state::{DevcontainerState, State},
-    workspace::{Workspace, WorkspaceMini, git_status},
+    workspace::{Workspace, WorkspaceLegacy, git_status},
     worktree,
 };
 
@@ -64,7 +64,7 @@ impl ContainerGroup {
         state: &State,
         devcontainer: &DevcontainerState,
         fwd_ports: &HashMap<String, Vec<u16>>,
-    ) -> eyre::Result<Workspace> {
+    ) -> eyre::Result<WorkspaceLegacy> {
         let git_future = git_status::GitStatus::fetch(&self.path);
         let execs_futures = try_join_all(
             self.containers
@@ -89,7 +89,7 @@ impl ContainerGroup {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
 
-        let ws_mini = WorkspaceMini::from_path(self.path.clone(), state)
+        let ws_mini = Workspace::from_path(self.path.clone(), state)
             .ok_or_else(|| eyre::eyre!("Invalid path: {}", self.path.display()))?;
         let compose_project_name = ws_mini.compose_project_name();
         let mut fwd_ports = fwd_ports.get(&ws_mini.name).cloned().unwrap_or_default();
@@ -107,7 +107,7 @@ impl ContainerGroup {
 
         let dc_managed = self.containers.iter().any(|c| c.dc_project.is_some());
 
-        Ok(Workspace {
+        Ok(WorkspaceLegacy {
             compose_project_name,
             name,
             root,

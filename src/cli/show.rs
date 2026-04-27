@@ -46,12 +46,8 @@ async fn get_ports(state: State) -> eyre::Result<String> {
     let workspace = state.resolve_workspace(None).await?;
     let devcontainer = state.try_devcontainer()?;
     let (ports, healthy) = tokio::join!(
-        devcontainer
-            .docker
-            .workspace_forwarded_ports(&state, &workspace),
-        devcontainer
-            .docker
-            .is_forwarding_healthy(&state, &workspace),
+        devcontainer.docker.workspace_forwarded_ports(&workspace),
+        devcontainer.docker.is_forwarding_healthy(&workspace),
     );
     let ports = ports?;
 

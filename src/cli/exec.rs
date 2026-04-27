@@ -9,7 +9,7 @@ use eyre::eyre;
 use crate::cli::State;
 use crate::complete::complete_workspace;
 use crate::state::DevcontainerState;
-use crate::workspace::Workspace;
+use crate::workspace::WorkspaceLegacy;
 
 /// Exec into a running devcontainer
 #[derive(Debug, Args)]
@@ -27,7 +27,7 @@ impl Exec {
     pub(crate) async fn run(self, state: State) -> eyre::Result<()> {
         let workspace = state.resolve_workspace(self.workspace).await?;
         let devcontainer = state.try_devcontainer()?;
-        let workspace_full = Workspace::get(&state, devcontainer, &workspace.name).await?;
+        let workspace_full = WorkspaceLegacy::get(&state, devcontainer, &workspace.name).await?;
         if workspace_full.status() != ContainerSummaryStateEnum::RUNNING {
             return Err(eyre!(
                 "workspace is not running: {}",

@@ -2,7 +2,7 @@ use bollard::plugin::ContainerSummaryStateEnum;
 use owo_colors::OwoColorize;
 use tabular::{Row, Table};
 
-use crate::{bytes::format_bytes, workspace::Workspace};
+use crate::{bytes::format_bytes, workspace::WorkspaceLegacy};
 
 const TABLE_SPEC: &str = "{:<}  {:<}  {:<}  {:>}  {:>}  {:>}  {:<}  {:<}";
 
@@ -41,7 +41,7 @@ struct WsFields {
     git: String,
 }
 
-fn ws_fields(ws: &Workspace) -> WsFields {
+fn ws_fields(ws: &WorkspaceLegacy) -> WsFields {
     let name = ws.name.clone();
     let state = ws.status();
     let status = match state {
@@ -79,7 +79,7 @@ fn ws_fields(ws: &Workspace) -> WsFields {
     }
 }
 
-fn ws_row(ws: &Workspace) -> Row {
+fn ws_row(ws: &WorkspaceLegacy) -> Row {
     let f = ws_fields(ws);
     let execs = if ws.execs == 0 {
         String::new()
@@ -99,7 +99,9 @@ fn ws_row(ws: &Workspace) -> Row {
 }
 
 /// Full table with header row, for `list` output.
-pub(crate) fn workspace_table<'a>(workspaces: impl IntoIterator<Item = &'a Workspace>) -> Table {
+pub(crate) fn workspace_table<'a>(
+    workspaces: impl IntoIterator<Item = &'a WorkspaceLegacy>,
+) -> Table {
     let mut workspaces: Vec<_> = workspaces.into_iter().collect();
     workspaces.sort_by(|a, b| b.root.cmp(&a.root).then_with(|| a.name.cmp(&b.name)));
 

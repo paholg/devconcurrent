@@ -11,19 +11,24 @@ use crate::state::{DevcontainerState, State};
 pub(crate) mod git_status;
 pub(crate) mod table;
 
-#[derive(Debug)]
-pub(crate) struct WorkspaceMini {
+pub(crate) struct Workspace<'a> {
+    pub(crate) state: &'a State,
     pub(crate) name: String,
     pub(crate) path: PathBuf,
-    pub(crate) root: bool,
+    pub(crate) is_root: bool,
 }
 
-impl WorkspaceMini {
-    pub(crate) fn from_path(path: PathBuf, state: &State) -> Option<Self> {
+impl<'a> Workspace<'a> {
+    pub(crate) fn from_path(path: PathBuf, state: &'a State) -> Option<Self> {
         let name = path.file_name()?.to_string_lossy().to_string();
-        let root = state.is_root(&name);
+        let is_root = state.is_root(&name);
 
-        Some(Self { name, path, root })
+        Some(Self {
+            state,
+            name,
+            path,
+            is_root,
+        })
     }
 
     /// Match the devcontainer CLI convention: `{basename}_devcontainer`, lowercased,
@@ -37,8 +42,8 @@ impl WorkspaceMini {
             .collect()
     }
 
-    pub(crate) fn project_label(&self, state: &State) -> String {
-        format!("dev.devconcurrent.project={}", state.project_name)
+    pub(crate) fn project_label(&self) -> String {
+        format!("dev.devconcurrent.project={}", self.state.project_name)
     }
 
     pub(crate) fn workspace_label(&self) -> String {
@@ -49,21 +54,20 @@ impl WorkspaceMini {
         "dev.devconcurrent.fwd=true".to_string()
     }
 
-    pub(crate) fn docker_labels(&self, state: &State) -> Vec<String> {
-        vec![self.project_label(state), self.workspace_label()]
+    pub(crate) fn docker_labels(&self) -> Vec<String> {
+        vec![self.project_label(), self.workspace_label()]
     }
 
-    pub(crate) fn docker_fwd_labels(&self, state: &State) -> Vec<String> {
+    pub(crate) fn docker_fwd_labels(&self) -> Vec<String> {
         vec![
-            self.project_label(state),
+            self.project_label(),
             self.workspace_label(),
             self.fwd_label(),
         ]
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct Workspace {
+pub(crate) struct WorkspaceLegacy {
     pub(crate) name: String,
     pub(crate) root: bool,
     pub(crate) compose_project_name: String,
@@ -76,12 +80,12 @@ pub(crate) struct Workspace {
     pub(crate) dc_managed: bool,
 }
 
-impl Workspace {
+impl WorkspaceLegacy {
     pub(crate) async fn get(
         state: &State,
         devcontainer: &DevcontainerState,
         name: &str,
-    ) -> eyre::Result<Workspace> {
+    ) -> eyre::Result<WorkspaceLegacy> {
         Self::get_inner(
             state,
             devcontainer,
@@ -99,7 +103,7 @@ impl Workspace {
             Vec<ContainerGroup>,
             std::collections::HashMap<String, Vec<u16>>,
         ),
-    ) -> eyre::Result<Workspace> {
+    ) -> eyre::Result<WorkspaceLegacy> {
         let group = if state.is_root(name) {
             groups
                 .into_iter()
@@ -117,7 +121,7 @@ impl Workspace {
     pub(crate) async fn list(
         state: &State,
         devcontainer: &DevcontainerState,
-    ) -> eyre::Result<Vec<Workspace>> {
+    ) -> eyre::Result<Vec<WorkspaceLegacy>> {
         let (groups, fwd_ports) = ContainerGroup::list(state, devcontainer).await?;
         let futures = groups
             .into_iter()

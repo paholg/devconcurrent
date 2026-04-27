@@ -12,7 +12,7 @@ use crate::complete::complete_workspace;
 use crate::docker::compose::{compose_cmd, remove_override_file};
 use crate::run::{self, Runnable, Runner, run_command};
 use crate::state::DevcontainerState;
-use crate::workspace::{Workspace, WorkspaceMini};
+use crate::workspace::{Workspace, WorkspaceLegacy};
 
 /// Fully destroy the workspace; equivalent to `docker compose down -v --remove-orphans && git worktree remove`
 #[derive(Debug, Args)]
@@ -30,7 +30,7 @@ impl Destroy {
     pub(crate) async fn run(self, state: State) -> eyre::Result<()> {
         let devcontainer = state.try_devcontainer()?;
         let workspace = state.resolve_workspace(self.workspace).await?;
-        let workspace_full = Workspace::get(&state, devcontainer, &workspace.name).await?;
+        let workspace_full = WorkspaceLegacy::get(&state, devcontainer, &workspace.name).await?;
 
         if !workspace.path.exists() {
             return Err(eyre!("workspace '{}' not found", workspace.name));
@@ -38,7 +38,7 @@ impl Destroy {
 
         safety_check(&workspace_full, self.force)?;
 
-        if workspace.root {
+        if workspace.is_root {
             eprintln!(
                 "{YELLOW}Will destroy {RED}root{YELLOW} workspace — DATA WILL BE LOST{RESET}",
             );
@@ -49,7 +49,6 @@ impl Destroy {
         }
 
         let cleanup = Cleanup {
-            state: &state,
             devcontainer,
             workspace: &workspace,
             force: self.force,
@@ -60,9 +59,8 @@ impl Destroy {
 }
 
 struct Cleanup<'a> {
-    state: &'a State,
     devcontainer: &'a DevcontainerState,
-    workspace: &'a WorkspaceMini,
+    workspace: &'a Workspace<'a>,
     force: bool,
 }
 
@@ -76,15 +74,15 @@ impl Runnable for Cleanup<'_> {
     }
 
     async fn run(self, _: run::Token) -> eyre::Result<()> {
-        let mut down_cmd = compose_cmd(self.state, self.devcontainer, self.workspace)?;
+        let mut down_cmd = compose_cmd(self.devcontainer, self.workspace)?;
         down_cmd.args(["down", "-v", "--remove-orphans"]);
 
         run_command(down_cmd).await?;
-        remove_override_file(self.state, self.workspace);
+        remove_override_file(self.workspace);
 
         // Remove any port-forward sidecars targeting this workspace
         let mut filters = HashMap::new();
-        filters.insert("label".into(), self.workspace.docker_labels(self.state));
+        filters.insert("label".into(), self.workspace.docker_labels());
 
         let docker = &self.devcontainer.docker.docker;
 
@@ -111,7 +109,7 @@ impl Runnable for Cleanup<'_> {
             }
         }
 
-        if !self.workspace.root {
+        if !self.workspace.is_root {
             let mut worktree_cmd = tokio::process::Command::new("git");
             worktree_cmd.args(["worktree", "remove"]);
 
@@ -119,7 +117,7 @@ impl Runnable for Cleanup<'_> {
                 worktree_cmd.arg("--force");
             }
             worktree_cmd.arg(&self.workspace.path);
-            worktree_cmd.current_dir(&self.state.project.path);
+            worktree_cmd.current_dir(&self.workspace.state.project.path);
 
             run_command(worktree_cmd).await?;
         }

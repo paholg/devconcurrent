@@ -9,7 +9,7 @@ use derive_more::{Add, Sum};
 use eyre::{WrapErr, eyre};
 use futures::{StreamExt, future::try_join_all};
 
-use crate::{state::State, workspace::WorkspaceMini};
+use crate::workspace::Workspace;
 
 pub(crate) mod compose;
 pub(crate) mod container_group;
@@ -152,10 +152,9 @@ impl DockerClient {
 
     pub(crate) async fn is_forwarding_healthy(
         &self,
-        state: &State,
-        workspace: &WorkspaceMini,
+        workspace: &Workspace<'_>,
     ) -> eyre::Result<bool> {
-        let mut labels = workspace.docker_labels(state);
+        let mut labels = workspace.docker_labels();
         labels.push("dev.devconcurrent.fwd=true".to_string());
         let filters = HashMap::from([("label".into(), labels)]);
 
@@ -195,10 +194,9 @@ impl DockerClient {
 
     pub(crate) async fn workspace_forwarded_ports(
         &self,
-        state: &State,
-        workspace: &WorkspaceMini,
+        workspace: &Workspace<'_>,
     ) -> eyre::Result<Vec<u16>> {
-        let mut labels = workspace.docker_labels(state);
+        let mut labels = workspace.docker_labels();
         labels.push("dev.devconcurrent.fwd=true".to_string());
         let filters = HashMap::from([("label".into(), labels)]);
 

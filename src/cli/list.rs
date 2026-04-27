@@ -2,7 +2,7 @@ use clap::Args;
 
 use crate::{
     cli::State,
-    workspace::{Workspace, table::workspace_table},
+    workspace::{WorkspaceLegacy, table::workspace_table},
 };
 
 /// List all workspaces for the project
@@ -13,7 +13,7 @@ impl List {
     pub(crate) async fn run(self, state: State) -> eyre::Result<()> {
         // TODO: This command should not require devcontainer state.
         let devcontainer = state.try_devcontainer()?;
-        let workspaces = Workspace::list(&state, devcontainer).await?;
+        let workspaces = WorkspaceLegacy::list(&state, devcontainer).await?;
         eprint!("{}", workspace_table(&workspaces));
         Ok(())
     }

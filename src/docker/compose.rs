@@ -3,19 +3,17 @@ use std::path::PathBuf;
 use eyre::{Context, eyre};
 use serde_json::json;
 
-use crate::{
-    state::{DevcontainerState, State},
-    workspace::WorkspaceMini,
-};
+use crate::{state::DevcontainerState, workspace::Workspace};
 
-fn override_path(state: &State, workspace: &WorkspaceMini) -> PathBuf {
-    state
+fn override_path(workspace: &Workspace) -> PathBuf {
+    workspace
+        .state
         .project_working_dir()
         .join(format!("{}-override.yml", workspace.name))
 }
 
-pub(crate) fn remove_override_file(state: &State, workspace: &WorkspaceMini) {
-    let path = override_path(state, workspace);
+pub(crate) fn remove_override_file(workspace: &Workspace) {
+    let path = override_path(workspace);
 
     if path.exists()
         && let Err(e) = std::fs::remove_file(&path)
@@ -26,11 +24,10 @@ pub(crate) fn remove_override_file(state: &State, workspace: &WorkspaceMini) {
 
 /// Write the compose override and return docker compose base args.
 pub(crate) fn compose_cmd(
-    state: &State,
     devcontainer: &DevcontainerState,
-    workspace: &WorkspaceMini,
+    workspace: &Workspace,
 ) -> eyre::Result<tokio::process::Command> {
-    let override_file_path = write_compose_override(state, devcontainer, workspace)?;
+    let override_file_path = write_compose_override(devcontainer, workspace)?;
 
     let mut cmd = tokio::process::Command::new("docker");
 
@@ -47,11 +44,10 @@ pub(crate) fn compose_cmd(
 }
 
 pub(crate) async fn compose_ps_q(
-    state: &State,
     devcontainer: &DevcontainerState,
-    workspace: &WorkspaceMini,
+    workspace: &Workspace<'_>,
 ) -> eyre::Result<String> {
-    let mut cmd = compose_cmd(state, devcontainer, workspace)?;
+    let mut cmd = compose_cmd(devcontainer, workspace)?;
 
     let service = &devcontainer.compose().service;
     cmd.arg("ps").arg("-q").arg(service);
@@ -71,23 +67,22 @@ pub(crate) async fn compose_ps_q(
 /// We set the standard devcontainer labels, our own labels, and any appropriate overrides from
 /// devcontainer.json.
 fn write_compose_override(
-    state: &State,
     devcontainer: &DevcontainerState,
-    workspace: &WorkspaceMini,
+    workspace: &Workspace,
 ) -> eyre::Result<PathBuf> {
-    let override_path = override_path(state, workspace);
+    let override_path = override_path(workspace);
 
     let mut service_obj = json!({
         "labels": [
             format!("devcontainer.local_folder={}", workspace.path.display()),
             format!("devcontainer.config_file={}", devcontainer.path.display()),
             "dev.devconcurrent.managed=true".to_string(),
-            format!("dev.devconcurrent.project={}", state.project_name),
+            format!("dev.devconcurrent.project={}", workspace.state.project_name),
         ]
     });
 
     let common = &devcontainer.config.common;
-    let mut env = state.project.environment.clone();
+    let mut env = workspace.state.project.environment.clone();
     env.extend(
         common
             .container_env
@@ -116,9 +111,9 @@ fn write_compose_override(
 
     let devconcurrent_options = devcontainer.devconcurrent();
 
-    let mut volumes = state.project.volumes.clone();
-    if devconcurrent_options.mount_git && !workspace.root {
-        let git_dir = state.project.path.join(".git");
+    let mut volumes = workspace.state.project.volumes.clone();
+    if devconcurrent_options.mount_git && !workspace.is_root {
+        let git_dir = workspace.state.project.path.join(".git");
         volumes.push(format!("{}:{}", git_dir.display(), git_dir.display()));
     }
     if !volumes.is_empty() {
@@ -144,7 +139,7 @@ fn write_compose_override(
         "services": { &devcontainer.compose().service: service_obj }
     }))?;
 
-    state.ensure_project_working_dir()?;
+    workspace.state.ensure_project_working_dir()?;
     std::fs::write(&override_path, content)
         .wrap_err_with(|| format!("failed to write {}", override_path.display()))?;
     Ok(override_path)

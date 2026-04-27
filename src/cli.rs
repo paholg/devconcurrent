@@ -3,7 +3,7 @@ use std::io::{BufRead, Write};
 use clap::{Parser, Subcommand};
 use clap_complete::engine::ArgValueCompleter;
 
-use crate::{complete, state::State, workspace::Workspace};
+use crate::{complete, state::State, workspace::WorkspaceLegacy};
 
 mod compose;
 mod destroy;
@@ -52,7 +52,7 @@ pub(crate) enum Commands {
 }
 
 /// Check that the workspace is safe to tear down (clean git, no active execs).
-pub(crate) fn safety_check(workspace: &Workspace, force: bool) -> eyre::Result<()> {
+pub(crate) fn safety_check(workspace: &WorkspaceLegacy, force: bool) -> eyre::Result<()> {
     if force {
         return Ok(());
     }
