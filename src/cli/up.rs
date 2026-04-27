@@ -36,17 +36,12 @@ pub(crate) struct Up {
 impl Up {
     pub(crate) async fn run(self, state: State) -> eyre::Result<()> {
         let workspace = state.resolve_workspace(self.workspace).await?;
-        let devcontainer = state.try_devcontainer()?;
 
         // Set up span.
         let name = &workspace.name;
         let colored_name = name.cyan().to_string();
         let up = "up".cyan().to_string();
         let path = workspace.path.display().to_string();
-        if !workspace.is_root {
-            worktree::create(&workspace, self.detach).await?;
-        }
-
         let description = &path;
         let message = format!(
             "Spinning up workspace {colored_name} from root {}",
@@ -64,6 +59,15 @@ impl Up {
         );
         span.pb_set_message(&pb_message);
         let _guard = span.enter();
+
+        if !workspace.is_root {
+            worktree::create(&workspace, self.detach).await?;
+        }
+
+        let Ok(devcontainer) = state.try_devcontainer() else {
+            // If there's no devcontainer, then the only thing to do is create the worktree.
+            return Ok(());
+        };
 
         // initializeCommand runs on the host, from the worktree
         if let Some(ref cmd) = devcontainer.config.common.initialize_command {
