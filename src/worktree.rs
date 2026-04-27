@@ -5,13 +5,25 @@ use eyre::WrapErr;
 use tokio::process::Command;
 
 use crate::run::run_cmd;
+use crate::state::State;
 use crate::workspace::WorkspaceMini;
 
 pub(crate) async fn create(
     root_path: &Path,
+    state: &State,
     workspace: &WorkspaceMini,
     detach: bool,
 ) -> eyre::Result<()> {
+    let valid = !workspace.name.is_empty()
+        && Path::new(&workspace.name).file_name().is_some_and(|f| f == workspace.name.as_str())
+        && workspace.name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if !valid {
+        eyre::bail!(
+            "invalid workspace name {:?}: must contain only [a-zA-Z0-9-_]",
+            workspace.name
+        );
+    }
+
     let repo = gix::open(root_path)
         .wrap_err_with(|| format!("failed to open git repo at {}", root_path.display()))?;
 
@@ -30,6 +42,7 @@ pub(crate) async fn create(
         if detach {
             args.push("--detach");
         }
+        state.ensure_project_working_dir()?;
         run_cmd(&args, Some(root_path)).await?;
     }
 

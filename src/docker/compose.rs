@@ -144,6 +144,7 @@ fn write_compose_override(
         "services": { &devcontainer.compose().service: service_obj }
     }))?;
 
+    state.ensure_project_working_dir()?;
     std::fs::write(&override_path, content)
         .wrap_err_with(|| format!("failed to write {}", override_path.display()))?;
     Ok(override_path)

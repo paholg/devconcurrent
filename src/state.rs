@@ -102,6 +102,11 @@ impl State {
         }
     }
 
+    pub(crate) fn ensure_project_working_dir(&self) -> eyre::Result<()> {
+        std::fs::create_dir_all(self.project_working_dir())?;
+        Ok(())
+    }
+
     fn worktree_path(&self, workspace_name: &str) -> PathBuf {
         self.project_working_dir().join(workspace_name)
     }

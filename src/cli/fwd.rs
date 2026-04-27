@@ -52,8 +52,7 @@ pub(crate) async fn forward(
 
     let ws = Workspace::get(state, devcontainer, &workspace.name).await?;
     let cid = ws.service_container_id()?;
-    let dc = state.try_devcontainer()?;
-    let ports = &dc.config.common.forward_ports;
+    let ports = &devcontainer.config.common.forward_ports;
 
     if ports.is_empty() {
         return Ok(());

@@ -44,7 +44,7 @@ impl Up {
         let up = "up".cyan().to_string();
         let path = workspace.path.display().to_string();
         if !workspace.root {
-            worktree::create(&state.project.path, &workspace, self.detach).await?;
+            worktree::create(&state.project.path, &state, &workspace, self.detach).await?;
         }
 
         let description = &path;
@@ -91,8 +91,6 @@ impl Up {
             dir: None,
         };
         Runner::run(cmd).await?;
-
-        let compose_config = devcontainer.compose();
 
         let container_id = compose_ps_q(&state, devcontainer, &workspace).await?;
         let user = devcontainer.config.common.remote_user.as_deref();
