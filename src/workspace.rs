@@ -4,9 +4,9 @@ use bollard::models::ContainerSummaryStateEnum;
 use eyre::eyre;
 use futures::future::try_join_all;
 
-use crate::docker::container_group::ContainerGroup;
 use crate::docker::{ContainerInfo, Stats};
 use crate::state::{DevcontainerState, State};
+use crate::worktree;
 
 pub(crate) mod git_status;
 pub(crate) mod table;
@@ -19,6 +19,14 @@ pub(crate) struct Workspace<'a> {
 }
 
 impl<'a> Workspace<'a> {
+    pub(crate) async fn list(state: &'a State) -> eyre::Result<Vec<Workspace<'a>>> {
+        let paths = worktree::list(&state.project.path).await?;
+        Ok(paths
+            .into_iter()
+            .filter_map(|path| Self::from_path(path, state))
+            .collect())
+    }
+
     pub(crate) fn from_path(path: PathBuf, state: &'a State) -> Option<Self> {
         let name = path.file_name()?.to_string_lossy().to_string();
         let is_root = state.is_root(&name);
@@ -114,42 +122,34 @@ impl<'a> WorkspaceDevcontainer<'a> {
         .await?;
         Ok(counts.into_iter().sum())
     }
-}
-
-pub(crate) struct WorkspaceLegacy {
-    pub(crate) name: String,
-    pub(crate) root: bool,
-    pub(crate) containers: Vec<ContainerInfo>,
-    pub(crate) git_status: git_status::GitStatus,
-    pub(crate) execs: usize,
-    pub(crate) stats: Stats,
-    pub(crate) fwd_ports: Vec<u16>,
-    pub(crate) docker_ports: Vec<u16>,
-    pub(crate) dc_managed: bool,
-}
-
-impl WorkspaceLegacy {
-    pub(crate) async fn list(
-        state: &State,
-        devcontainer: &DevcontainerState,
-    ) -> eyre::Result<Vec<WorkspaceLegacy>> {
-        let (groups, fwd_ports) = ContainerGroup::list(state, devcontainer).await?;
-        let futures = groups
-            .into_iter()
-            .map(|g| g.into_workspace(state, devcontainer, &fwd_ports));
-
-        try_join_all(futures).await
-    }
-
-    pub(crate) fn status(&self) -> ContainerSummaryStateEnum {
-        self.containers
-            .iter()
-            .map(|c| c.state)
-            .max()
-            .unwrap_or(ContainerSummaryStateEnum::EMPTY)
-    }
 
     pub(crate) fn created(&self) -> Option<i64> {
         self.containers.iter().filter_map(|c| c.created).min()
+    }
+
+    pub(crate) fn dc_managed(&self) -> bool {
+        self.containers.iter().any(|c| c.dc_project.is_some())
+    }
+
+    pub(crate) fn docker_ports(&self) -> Vec<u16> {
+        let mut ports: Vec<u16> = self
+            .containers
+            .iter()
+            .flat_map(|c| &c.host_ports)
+            .copied()
+            .collect();
+        ports.sort();
+        ports.dedup();
+        ports
+    }
+
+    pub(crate) async fn stats(&self) -> eyre::Result<Stats> {
+        let stats = try_join_all(
+            self.containers
+                .iter()
+                .map(|c| self.devcontainer.docker.stats(&c.id)),
+        )
+        .await?;
+        Ok(stats.into_iter().sum())
     }
 }

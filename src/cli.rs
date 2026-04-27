@@ -103,7 +103,6 @@ impl Cli {
             Commands::Fwd(fwd) => fwd.run(state).await,
             Commands::List(list) => list.run(state).await,
             Commands::Compose(compose) => compose.run(state).await,
-            // Commands::Copy(copy) => copy.run(state).await,
             Commands::Show(show) => show.run(state).await,
             Commands::Destroy(destroy) => destroy.run(state).await,
             Commands::Go(go) => go.run(state).await,

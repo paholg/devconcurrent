@@ -2,9 +2,22 @@ use bollard::plugin::ContainerSummaryStateEnum;
 use owo_colors::OwoColorize;
 use tabular::{Row, Table};
 
-use crate::{bytes::format_bytes, workspace::WorkspaceLegacy};
+use crate::{bytes::format_bytes, docker::Stats, workspace::git_status::GitStatus};
 
 const TABLE_SPEC: &str = "{:<}  {:<}  {:<}  {:>}  {:>}  {:>}  {:<}  {:<}";
+
+pub(crate) struct WorkspaceListRow {
+    pub(crate) name: String,
+    pub(crate) is_root: bool,
+    pub(crate) git_status: GitStatus,
+    pub(crate) status: ContainerSummaryStateEnum,
+    pub(crate) created: Option<i64>,
+    pub(crate) dc_managed: bool,
+    pub(crate) stats: Stats,
+    pub(crate) execs: usize,
+    pub(crate) fwd_ports: Vec<u16>,
+    pub(crate) docker_ports: Vec<u16>,
+}
 
 fn format_age(created: Option<i64>) -> String {
     let ts = match created {
@@ -41,30 +54,29 @@ struct WsFields {
     git: String,
 }
 
-fn ws_fields(ws: &WorkspaceLegacy) -> WsFields {
-    let name = ws.name.clone();
-    let state = ws.status();
-    let status = match state {
+fn ws_fields(r: &WorkspaceListRow) -> WsFields {
+    let name = r.name.clone();
+    let status = match r.status {
         ContainerSummaryStateEnum::EMPTY => "-".dimmed().to_string(),
-        ContainerSummaryStateEnum::RUNNING => state.green().to_string(),
+        ContainerSummaryStateEnum::RUNNING => r.status.green().to_string(),
         ContainerSummaryStateEnum::EXITED | ContainerSummaryStateEnum::DEAD => {
-            state.red().to_string()
+            r.status.red().to_string()
         }
         ContainerSummaryStateEnum::CREATED
         | ContainerSummaryStateEnum::PAUSED
         | ContainerSummaryStateEnum::RESTARTING
-        | ContainerSummaryStateEnum::REMOVING => state.yellow().to_string(),
+        | ContainerSummaryStateEnum::REMOVING => r.status.yellow().to_string(),
     };
-    let mem = match ws.stats.ram {
+    let mem = match r.stats.ram {
         0 => String::new(),
         ram => format_bytes(ram),
     };
     let ports = {
         let mut parts: Vec<String> = Vec::new();
-        for p in &ws.fwd_ports {
+        for p in &r.fwd_ports {
             parts.push(p.blue().to_string());
         }
-        for p in &ws.docker_ports {
+        for p in &r.docker_ports {
             parts.push(p.to_string());
         }
         parts.join(",")
@@ -72,21 +84,21 @@ fn ws_fields(ws: &WorkspaceLegacy) -> WsFields {
     WsFields {
         name,
         status,
-        created: format_age(ws.created()),
+        created: format_age(r.created),
         mem,
         ports,
-        git: ws.git_status.to_string(),
+        git: r.git_status.to_string(),
     }
 }
 
-fn ws_row(ws: &WorkspaceLegacy) -> Row {
-    let f = ws_fields(ws);
-    let execs = if ws.execs == 0 {
+fn ws_row(r: &WorkspaceListRow) -> Row {
+    let f = ws_fields(r);
+    let execs = if r.execs == 0 {
         String::new()
     } else {
-        ws.execs.to_string()
+        r.execs.to_string()
     };
-    let dc = if ws.dc_managed { "\u{2713}" } else { "" };
+    let dc = if r.dc_managed { "\u{2713}" } else { "" };
     Row::new()
         .with_cell(f.name)
         .with_ansi_cell(f.status)
@@ -100,10 +112,10 @@ fn ws_row(ws: &WorkspaceLegacy) -> Row {
 
 /// Full table with header row, for `list` output.
 pub(crate) fn workspace_table<'a>(
-    workspaces: impl IntoIterator<Item = &'a WorkspaceLegacy>,
+    workspaces: impl IntoIterator<Item = &'a WorkspaceListRow>,
 ) -> Table {
     let mut workspaces: Vec<_> = workspaces.into_iter().collect();
-    workspaces.sort_by(|a, b| b.root.cmp(&a.root).then_with(|| a.name.cmp(&b.name)));
+    workspaces.sort_by(|a, b| b.is_root.cmp(&a.is_root).then_with(|| a.name.cmp(&b.name)));
 
     let mut table = Table::new(TABLE_SPEC);
     table.add_row(

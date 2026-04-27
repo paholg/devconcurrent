@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::collections::HashMap;
 
 use bollard::{
     Docker,
@@ -12,19 +12,17 @@ use futures::{StreamExt, future::try_join_all};
 use crate::workspace::Workspace;
 
 pub(crate) mod compose;
-pub(crate) mod container_group;
 
 #[derive(Debug)]
 pub(crate) struct ContainerInfo {
     pub(crate) id: String,
     pub(crate) state: ContainerSummaryStateEnum,
-    pub(crate) local_folder: PathBuf,
     pub(crate) dc_project: Option<String>,
     pub(crate) created: Option<i64>,
     pub(crate) host_ports: Vec<u16>,
 }
 
-#[derive(Debug, Clone, Add, Sum)]
+#[derive(Debug, Clone, Default, Add, Sum)]
 pub(crate) struct Stats {
     /// Current memory use in bytes.
     pub(crate) ram: u64,
@@ -43,45 +41,27 @@ impl DockerClient {
         Ok(Self { docker })
     }
 
-    /// Return all containers labeled with `devcontainer.local_folder`.
-    pub(crate) async fn container_info(&self) -> eyre::Result<Vec<ContainerInfo>> {
-        self.container_info_filtered(vec!["devcontainer.local_folder".to_string()])
-            .await
-    }
-
-    /// Return containers for a specific workspace.
+    /// Return containers for a specific workspace, filtered at the Docker API level.
     pub(crate) async fn workspace_container_info(
         &self,
         workspace: &Workspace<'_>,
     ) -> eyre::Result<Vec<ContainerInfo>> {
-        self.container_info_filtered(vec![format!(
-            "devcontainer.local_folder={}",
-            workspace.path.display()
-        )])
-        .await
-    }
-
-    async fn container_info_filtered(
-        &self,
-        label_filters: Vec<String>,
-    ) -> eyre::Result<Vec<ContainerInfo>> {
+        let label_filter = format!("devcontainer.local_folder={}", workspace.path.display());
         let containers = self
             .docker
             .list_containers(Some(ListContainersOptions {
                 all: true,
-                filters: Some(HashMap::from([("label".to_string(), label_filters)])),
+                filters: Some(HashMap::from([("label".to_string(), vec![label_filter])])),
                 ..Default::default()
             }))
             .await?;
 
         let mut result = Vec::new();
         for c in containers {
-            let mut labels = c.labels.ok_or_else(|| eyre!("container missing labels"))?;
-            let local_folder = labels
-                .remove("devcontainer.local_folder")
-                .ok_or_else(|| eyre!("container was filtered by devcontainer.local_folder, but does not have that label"))?
-                .into();
-            let dc_project = labels.remove("dev.devconcurrent.project");
+            let dc_project = c
+                .labels
+                .as_ref()
+                .and_then(|l| l.get("dev.devconcurrent.project").cloned());
             let id = c.id.ok_or_else(|| eyre!("container missing id"))?;
             let state = c.state.ok_or_else(|| eyre!("container missing state"))?;
 
@@ -95,7 +75,6 @@ impl DockerClient {
             result.push(ContainerInfo {
                 id,
                 state,
-                local_folder,
                 dc_project,
                 created: c.created,
                 host_ports,
