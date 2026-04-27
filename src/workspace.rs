@@ -37,10 +37,27 @@ impl WorkspaceMini {
             .collect()
     }
 
+    pub(crate) fn project_label(&self, state: &State) -> String {
+        format!("dev.devconcurrent.project={}", state.project_name)
+    }
+
+    pub(crate) fn workspace_label(&self) -> String {
+        format!("dev.devconcurrent.workspace={}", self.name)
+    }
+
+    pub(crate) fn fwd_label(&self) -> String {
+        "dev.devconcurrent.fwd=true".to_string()
+    }
+
     pub(crate) fn docker_labels(&self, state: &State) -> Vec<String> {
+        vec![self.project_label(state), self.workspace_label()]
+    }
+
+    pub(crate) fn docker_fwd_labels(&self, state: &State) -> Vec<String> {
         vec![
-            format!("dev.devconcurrent.project={}", state.project_name),
-            format!("dev.devconcurrent.workspace={}", self.name),
+            self.project_label(state),
+            self.workspace_label(),
+            self.fwd_label(),
         ]
     }
 }

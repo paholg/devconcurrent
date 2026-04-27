@@ -45,7 +45,10 @@ impl Config {
             .wrap_err_with(|| format!("failed to parse {}", path.display()))
     }
 
-    pub(crate) fn project(mut self, project_name: Option<String>) -> eyre::Result<(String, Project)> {
+    pub(crate) fn project(
+        mut self,
+        project_name: Option<String>,
+    ) -> eyre::Result<(String, Project)> {
         let name = project_name.or_else(|| std::env::var("DC_PROJECT").ok());
         match name {
             Some(name) => self

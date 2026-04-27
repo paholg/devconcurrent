@@ -75,21 +75,14 @@ pub(crate) async fn forward(
 
         let volume_name = format!("devconcurrent-fwd-{}", ws.compose_project_name);
 
-        docker(&[
-            "volume",
-            "create",
-            "--label",
-            "dev.devconcurrent.fwd=true",
-            "--label",
-            &format!("dev.devconcurrent.project={}", state.project_name),
-            "--label",
-            &format!("dev.devconcurrent.workspace={}", ws.compose_project_name),
-            &volume_name,
-        ])
-        .await?;
+        let mut args = vec!["volume", "create", &volume_name];
+        let labels = workspace.docker_fwd_labels(state);
+        args.extend(labels.iter().flat_map(|l| ["--label", l]));
+        docker(&args).await?;
 
         create_inner_sidecar(
             state,
+            workspace,
             &ws.compose_project_name,
             cid,
             &volume_name,
@@ -98,6 +91,7 @@ pub(crate) async fn forward(
         .await?;
         create_outer_sidecar(
             state,
+            workspace,
             &ws.compose_project_name,
             cid,
             &network_name,
@@ -140,6 +134,7 @@ async fn container_network(cid: &str) -> eyre::Result<String> {
 /// For each port, listens on a Unix socket and connects to 127.0.0.1:<port>.
 async fn create_inner_sidecar(
     state: &State,
+    workspace: &WorkspaceMini,
     compose_project_name: &str,
     cid: &str,
     volume_name: &str,
@@ -159,29 +154,32 @@ async fn create_inner_sidecar(
         .collect();
     let shell_cmd = join_background(&socat_cmds);
 
-    let args = vec![
-        "run".to_string(),
-        "-d".to_string(),
-        "--name".to_string(),
-        name.clone(),
-        format!("--network=container:{cid}"),
-        format!("--volume={volume_name}:/socks"),
-        "--label".to_string(),
-        "dev.devconcurrent.fwd=true".to_string(),
-        "--label".to_string(),
-        format!("dev.devconcurrent.project={}", state.project_name),
-        "--label".to_string(),
-        format!("dev.devconcurrent.workspace={compose_project_name}"),
-        "--label".to_string(),
-        format!("dev.devconcurrent.fwd.target={cid}"),
-        "--entrypoint".to_string(),
-        "sh".to_string(),
-        SOCAT_IMAGE.to_string(),
-        "-c".to_string(),
-        shell_cmd,
+    let inner_network = format!("container:{cid}");
+    let inner_volume = format!("{volume_name}:/socks");
+    let fwd_target = format!("dev.devconcurrent.fwd.target={cid}");
+    let labels = workspace.docker_fwd_labels(state);
+    let mut args = vec![
+        "run",
+        "-d",
+        "--name",
+        &name,
+        "--network",
+        &inner_network,
+        "--volume",
+        &inner_volume,
     ];
+    args.extend(labels.iter().flat_map(|l| ["--label", l]));
+    args.extend([
+        "--label",
+        &fwd_target,
+        "--entrypoint",
+        "sh",
+        SOCAT_IMAGE,
+        "-c",
+        &shell_cmd,
+    ]);
 
-    docker(&args.iter().map(|s| s.as_str()).collect::<Vec<_>>()).await?;
+    docker(&args).await?;
     Ok(())
 }
 
@@ -189,6 +187,7 @@ async fn create_inner_sidecar(
 /// For each port, listens on TCP and connects via the Unix socket.
 async fn create_outer_sidecar(
     state: &State,
+    workspace: &WorkspaceMini,
     compose_project_name: &str,
     cid: &str,
     network_name: &str,
@@ -208,35 +207,31 @@ async fn create_outer_sidecar(
         .collect();
     let shell_cmd = join_background(&socat_cmds);
 
+    let outer_volume = format!("{volume_name}:/socks");
+    let fwd_target = format!("dev.devconcurrent.fwd.target={cid}");
+    let port_bindings: Vec<String> = ports
+        .iter()
+        .map(|p| format!("127.0.0.1:{}:{}", p.port, p.port))
+        .collect();
+    let labels = workspace.docker_fwd_labels(state);
     let mut args = vec![
-        "run".to_string(),
-        "-d".to_string(),
-        "--name".to_string(),
-        name.clone(),
-        format!("--network={network_name}"),
-        format!("--volume={volume_name}:/socks"),
-        "--label".to_string(),
-        "dev.devconcurrent.fwd=true".to_string(),
-        "--label".to_string(),
-        format!("dev.devconcurrent.project={}", state.project_name),
-        "--label".to_string(),
-        format!("dev.devconcurrent.workspace={compose_project_name}"),
-        "--label".to_string(),
-        format!("dev.devconcurrent.fwd.target={cid}"),
+        "run",
+        "-d",
+        "--name",
+        &name,
+        "--network",
+        network_name,
+        "--volume",
+        &outer_volume,
     ];
-
-    for p in ports {
-        args.push("-p".to_string());
-        args.push(format!("127.0.0.1:{}:{}", p.port, p.port));
+    args.extend(labels.iter().flat_map(|l| ["--label", l]));
+    args.extend(["--label", &fwd_target]);
+    for p in &port_bindings {
+        args.extend(["-p", p]);
     }
+    args.extend(["--entrypoint", "sh", SOCAT_IMAGE, "-c", &shell_cmd]);
 
-    args.push("--entrypoint".to_string());
-    args.push("sh".to_string());
-    args.push(SOCAT_IMAGE.to_string());
-    args.push("-c".to_string());
-    args.push(shell_cmd);
-
-    docker(&args.iter().map(|s| s.as_str()).collect::<Vec<_>>()).await?;
+    docker(&args).await?;
     Ok(())
 }
 

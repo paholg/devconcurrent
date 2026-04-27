@@ -247,7 +247,7 @@ impl DockerClient {
         let execs = try_join_all(futures)
             .await?
             .into_iter()
-            .filter(|r| *r == true)
+            .filter(|r| *r)
             .count();
         Ok(execs)
     }

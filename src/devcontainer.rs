@@ -390,6 +390,7 @@ pub(crate) enum UserEnvProbe {
     InteractiveShell,
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum WaitFor {

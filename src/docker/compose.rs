@@ -35,7 +35,7 @@ pub(crate) fn compose_cmd(
     let mut cmd = tokio::process::Command::new("docker");
 
     cmd.args(["compose", "-p"])
-        .arg(&workspace.compose_project_name());
+        .arg(workspace.compose_project_name());
 
     for f in &devcontainer.compose().docker_compose_file {
         cmd.arg("-f")
