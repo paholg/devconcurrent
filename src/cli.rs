@@ -3,7 +3,11 @@ use std::io::{BufRead, Write};
 use clap::{Parser, Subcommand};
 use clap_complete::engine::ArgValueCompleter;
 
-use crate::{complete, state::State, workspace::WorkspaceLegacy};
+use crate::{
+    complete,
+    state::State,
+    workspace::{Workspace, WorkspaceDevcontainer},
+};
 
 mod compose;
 mod destroy;
@@ -52,23 +56,31 @@ pub(crate) enum Commands {
 }
 
 /// Check that the workspace is safe to tear down (clean git, no active execs).
-pub(crate) fn safety_check(workspace: &WorkspaceLegacy, force: bool) -> eyre::Result<()> {
+pub(crate) async fn safety_check(
+    workspace: &Workspace<'_>,
+    workspace_dc: Option<&WorkspaceDevcontainer<'_>>,
+    force: bool,
+) -> eyre::Result<()> {
     if force {
         return Ok(());
     }
 
-    if workspace.is_dirty() {
+    if workspace.is_dirty().await? {
         eyre::bail!(
             "workspace '{}' has uncommitted changes (use --force to override)",
             workspace.name
         );
     }
-    if workspace.execs > 0 {
-        eyre::bail!(
-            "workspace '{}' has {} active exec session(s) (use --force to override)",
-            workspace.name,
-            workspace.execs
-        );
+
+    if let Some(workspace_dc) = workspace_dc {
+        let execs = workspace_dc.execs().await?;
+        if execs > 0 {
+            eyre::bail!(
+                "workspace '{}' has {} active exec session(s) (use --force to override)",
+                workspace.name,
+                execs
+            );
+        }
     }
     Ok(())
 }

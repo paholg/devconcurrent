@@ -45,16 +45,31 @@ impl DockerClient {
 
     /// Return all containers labeled with `devcontainer.local_folder`.
     pub(crate) async fn container_info(&self) -> eyre::Result<Vec<ContainerInfo>> {
-        let mut filters = HashMap::new();
-        filters.insert(
-            "label".to_string(),
-            vec!["devcontainer.local_folder".to_string()],
-        );
+        self.container_info_filtered(vec!["devcontainer.local_folder".to_string()])
+            .await
+    }
+
+    /// Return containers for a specific workspace.
+    pub(crate) async fn workspace_container_info(
+        &self,
+        workspace: &Workspace<'_>,
+    ) -> eyre::Result<Vec<ContainerInfo>> {
+        self.container_info_filtered(vec![format!(
+            "devcontainer.local_folder={}",
+            workspace.path.display()
+        )])
+        .await
+    }
+
+    async fn container_info_filtered(
+        &self,
+        label_filters: Vec<String>,
+    ) -> eyre::Result<Vec<ContainerInfo>> {
         let containers = self
             .docker
             .list_containers(Some(ListContainersOptions {
                 all: true,
-                filters: Some(filters),
+                filters: Some(HashMap::from([("label".to_string(), label_filters)])),
                 ..Default::default()
             }))
             .await?;
@@ -62,8 +77,10 @@ impl DockerClient {
         let mut result = Vec::new();
         for c in containers {
             let mut labels = c.labels.ok_or_else(|| eyre!("container missing labels"))?;
-            let local_folder = labels.remove("devcontainer.local_folder")
-                .ok_or_else(|| eyre!("container was filtered by devcontainer.local_folder, but does not have that label"))?.into();
+            let local_folder = labels
+                .remove("devcontainer.local_folder")
+                .ok_or_else(|| eyre!("container was filtered by devcontainer.local_folder, but does not have that label"))?
+                .into();
             let dc_project = labels.remove("dev.devconcurrent.project");
             let id = c.id.ok_or_else(|| eyre!("container missing id"))?;
             let state = c.state.ok_or_else(|| eyre!("container missing state"))?;

@@ -91,7 +91,6 @@ impl ContainerGroup {
 
         let ws_mini = Workspace::from_path(self.path.clone(), state)
             .ok_or_else(|| eyre::eyre!("Invalid path: {}", self.path.display()))?;
-        let compose_project_name = ws_mini.compose_project_name();
         let mut fwd_ports = fwd_ports.get(&ws_mini.name).cloned().unwrap_or_default();
         fwd_ports.sort();
         fwd_ports.dedup();
@@ -108,7 +107,6 @@ impl ContainerGroup {
         let dc_managed = self.containers.iter().any(|c| c.dc_project.is_some());
 
         Ok(WorkspaceLegacy {
-            compose_project_name,
             name,
             root,
             containers: self.containers,

@@ -9,7 +9,7 @@ use crate::cli::State;
 use crate::complete::complete_workspace;
 use crate::devcontainer::forward_port::ForwardPort;
 use crate::state::DevcontainerState;
-use crate::workspace::{Workspace, WorkspaceLegacy};
+use crate::workspace::Workspace;
 
 const SOCAT_IMAGE: &str = "docker.io/alpine/socat:latest";
 
@@ -49,7 +49,7 @@ pub(crate) async fn forward(
 ) -> eyre::Result<()> {
     remove_sidecars(workspace.state).await?;
 
-    let ws = WorkspaceLegacy::get(workspace.state, devcontainer, &workspace.name).await?;
+    let ws = workspace.devcontainer(devcontainer).await?;
     let cid = ws.service_container_id()?;
     let ports = &devcontainer.config.common.forward_ports;
 
@@ -71,7 +71,7 @@ pub(crate) async fn forward(
 
         ensure_image().await?;
 
-        let volume_name = format!("devconcurrent-fwd-{}", ws.compose_project_name);
+        let volume_name = format!("devconcurrent-fwd-{}", workspace.compose_project_name());
 
         let mut args = vec!["volume", "create", &volume_name];
         let labels = workspace.docker_fwd_labels();
@@ -80,7 +80,7 @@ pub(crate) async fn forward(
 
         create_inner_sidecar(
             workspace,
-            &ws.compose_project_name,
+            &workspace.compose_project_name(),
             cid,
             &volume_name,
             &available,
@@ -88,7 +88,7 @@ pub(crate) async fn forward(
         .await?;
         create_outer_sidecar(
             workspace,
-            &ws.compose_project_name,
+            &workspace.compose_project_name(),
             cid,
             &network_name,
             &volume_name,

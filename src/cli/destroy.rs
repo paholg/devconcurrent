@@ -12,7 +12,7 @@ use crate::complete::complete_workspace;
 use crate::docker::compose::{compose_cmd, remove_override_file};
 use crate::run::{self, Runnable, Runner, run_command};
 use crate::state::DevcontainerState;
-use crate::workspace::{Workspace, WorkspaceLegacy};
+use crate::workspace::Workspace;
 
 /// Fully destroy the workspace; equivalent to `docker compose down -v --remove-orphans && git worktree remove`
 #[derive(Debug, Args)]
@@ -28,15 +28,19 @@ pub(crate) struct Destroy {
 
 impl Destroy {
     pub(crate) async fn run(self, state: State) -> eyre::Result<()> {
-        let devcontainer = state.try_devcontainer()?;
         let workspace = state.resolve_workspace(self.workspace).await?;
-        let workspace_full = WorkspaceLegacy::get(&state, devcontainer, &workspace.name).await?;
+        let devcontainer = state.try_devcontainer().ok();
+        let workspace_dc = if let Some(dc) = devcontainer {
+            Some(workspace.devcontainer(dc).await?)
+        } else {
+            None
+        };
 
         if !workspace.path.exists() {
             return Err(eyre!("workspace '{}' not found", workspace.name));
         }
 
-        safety_check(&workspace_full, self.force)?;
+        safety_check(&workspace, workspace_dc.as_ref(), self.force).await?;
 
         if workspace.is_root {
             eprintln!(
@@ -59,7 +63,7 @@ impl Destroy {
 }
 
 struct Cleanup<'a> {
-    devcontainer: &'a DevcontainerState,
+    devcontainer: Option<&'a DevcontainerState>,
     workspace: &'a Workspace<'a>,
     force: bool,
 }
@@ -74,37 +78,39 @@ impl Runnable for Cleanup<'_> {
     }
 
     async fn run(self, _: run::Token) -> eyre::Result<()> {
-        let mut down_cmd = compose_cmd(self.devcontainer, self.workspace)?;
-        down_cmd.args(["down", "-v", "--remove-orphans"]);
+        if let Some(devcontainer) = self.devcontainer {
+            let mut down_cmd = compose_cmd(devcontainer, self.workspace)?;
+            down_cmd.args(["down", "-v", "--remove-orphans"]);
 
-        run_command(down_cmd).await?;
-        remove_override_file(self.workspace);
+            run_command(down_cmd).await?;
+            remove_override_file(self.workspace);
 
-        // Remove any port-forward sidecars targeting this workspace
-        let mut filters = HashMap::new();
-        filters.insert("label".into(), self.workspace.docker_labels());
+            // Remove any port-forward sidecars targeting this workspace
+            let mut filters = HashMap::new();
+            filters.insert("label".into(), self.workspace.docker_labels());
 
-        let docker = &self.devcontainer.docker.docker;
+            let docker = &devcontainer.docker.docker;
 
-        if let Ok(containers) = docker
-            .list_containers(Some(ListContainersOptions {
-                all: true,
-                filters: Some(filters),
-                ..Default::default()
-            }))
-            .await
-        {
-            for c in containers {
-                if let Some(id) = c.id {
-                    let _ = docker
-                        .remove_container(
-                            &id,
-                            Some(RemoveContainerOptions {
-                                force: true,
-                                ..Default::default()
-                            }),
-                        )
-                        .await;
+            if let Ok(containers) = docker
+                .list_containers(Some(ListContainersOptions {
+                    all: true,
+                    filters: Some(filters),
+                    ..Default::default()
+                }))
+                .await
+            {
+                for c in containers {
+                    if let Some(id) = c.id {
+                        let _ = docker
+                            .remove_container(
+                                &id,
+                                Some(RemoveContainerOptions {
+                                    force: true,
+                                    ..Default::default()
+                                }),
+                            )
+                            .await;
+                    }
                 }
             }
         }
