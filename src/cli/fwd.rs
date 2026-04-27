@@ -8,7 +8,8 @@ use color_eyre::owo_colors::OwoColorize;
 use crate::cli::State;
 use crate::complete::complete_workspace;
 use crate::devcontainer::forward_port::ForwardPort;
-use crate::workspace::Workspace;
+use crate::state::DevcontainerState;
+use crate::workspace::{Workspace, WorkspaceMini};
 
 const SOCAT_IMAGE: &str = "docker.io/alpine/socat:latest";
 
@@ -31,23 +32,28 @@ enum FwdCommands {
 
 impl Fwd {
     pub async fn run(self, state: State) -> eyre::Result<()> {
+        let devcontainer = state.try_devcontainer()?;
         match self.command {
             Some(FwdCommands::Stop) => remove_sidecars(&state).await,
             None => {
-                let name = state.resolve_workspace(self.workspace).await?;
-                forward(&state, &name).await
+                let workspace = state.resolve_workspace(self.workspace).await?;
+                forward(&state, devcontainer, &workspace).await
             }
         }
     }
 }
 
-pub async fn forward(state: &State, name: &str) -> eyre::Result<()> {
+pub async fn forward(
+    state: &State,
+    devcontainer: &DevcontainerState,
+    workspace: &WorkspaceMini,
+) -> eyre::Result<()> {
     remove_sidecars(state).await?;
 
-    let ws = Workspace::get(state, name).await?;
+    let ws = Workspace::get(state, devcontainer, &workspace.name).await?;
     let cid = ws.service_container_id()?;
-    let dc = state.devcontainer()?;
-    let ports = dc.common.forward_ports;
+    let dc = state.try_devcontainer()?;
+    let ports = &dc.config.common.forward_ports;
 
     if ports.is_empty() {
         return Ok(());

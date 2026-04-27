@@ -11,7 +11,9 @@ pub struct List;
 
 impl List {
     pub async fn run(self, state: State) -> eyre::Result<()> {
-        let workspaces = Workspace::list(&state).await?;
+        // TODO: This command should not require devcontainer state.
+        let devcontainer = state.try_devcontainer()?;
+        let workspaces = Workspace::list(&state, devcontainer).await?;
         eprint!("{}", workspace_table(&workspaces));
         Ok(())
     }

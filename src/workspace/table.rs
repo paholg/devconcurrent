@@ -1,4 +1,4 @@
-use bollard::secret::ContainerSummaryStateEnum;
+use bollard::plugin::ContainerSummaryStateEnum;
 use owo_colors::OwoColorize;
 use tabular::{Row, Table};
 

@@ -3,6 +3,7 @@ use std::borrow::Cow;
 use color_eyre::owo_colors::OwoColorize;
 use crossterm::style::SetForegroundColor;
 use eyre::WrapErr;
+use itertools::Itertools;
 use tracing::{Instrument, Span, info_span};
 use tracing_indicatif::span_ext::IndicatifSpanExt;
 
@@ -97,12 +98,7 @@ impl Runner {
 
 /// Run the given command, capturing all of its output and printing it ourselves, so it plays nicely
 /// with our spinners.
-pub async fn run_cmd(argv: &[&str], dir: Option<&std::path::Path>) -> eyre::Result<()> {
-    let mut cmd = tokio::process::Command::new(argv[0]);
-    cmd.args(&argv[1..]);
-    if let Some(d) = dir {
-        cmd.current_dir(d);
-    }
+pub async fn run_command(mut cmd: tokio::process::Command) -> eyre::Result<()> {
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
 
@@ -128,8 +124,24 @@ pub async fn run_cmd(argv: &[&str], dir: Option<&std::path::Path>) -> eyre::Resu
     let status = status?;
     if !status.success() {
         let code = status.code().unwrap_or(1);
-        eyre::bail!("{} exited with status {code}", argv.join(" "));
+
+        let cmd_std = cmd.as_std();
+        let prog = cmd_std.get_program().display();
+        let args = cmd_std.get_args().map(|a| a.display()).join(" ");
+
+        eyre::bail!("{prog} {args} exited with status {code}");
     }
 
     Ok(())
+}
+
+// TODO: Remove this
+pub async fn run_cmd(argv: &[&str], dir: Option<&std::path::Path>) -> eyre::Result<()> {
+    let mut cmd = tokio::process::Command::new(argv[0]);
+    cmd.args(&argv[1..]);
+    if let Some(d) = dir {
+        cmd.current_dir(d);
+    }
+
+    run_command(cmd).await
 }

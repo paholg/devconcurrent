@@ -1,8 +1,6 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::path::Path;
 
-use bollard::Docker;
 use bollard::query_parameters::{ListContainersOptions, RemoveContainerOptions};
 use clap::Args;
 use clap_complete::ArgValueCompleter;
@@ -11,11 +9,10 @@ use eyre::eyre;
 use crate::ansi::{RED, RESET, YELLOW};
 use crate::cli::{State, confirm, safety_check};
 use crate::complete::complete_workspace;
-use crate::docker::compose::{
-    compose_project_name, list_project_volumes, remove_override_file, resolve_backing_volume,
-};
-use crate::run::{self, Runnable, Runner, run_cmd};
-use crate::workspace::Workspace;
+use crate::docker::compose::{compose_cmd, remove_override_file};
+use crate::run::{self, Runnable, Runner, run_command};
+use crate::state::DevcontainerState;
+use crate::workspace::{Workspace, WorkspaceMini};
 
 /// Fully destroy the workspace; equivalent to `docker compose down -v --remove-orphans && git worktree remove`
 #[derive(Debug, Args)]
@@ -31,18 +28,17 @@ pub struct Destroy {
 
 impl Destroy {
     pub async fn run(self, state: State) -> eyre::Result<()> {
-        let name = state.resolve_workspace(self.workspace).await?;
-        let workspace = Workspace::get(&state, &name).await?;
-
-        let is_root = workspace.path == state.project.path;
+        let devcontainer = state.try_devcontainer()?;
+        let workspace = state.resolve_workspace(self.workspace).await?;
+        let workspace_full = Workspace::get(&state, devcontainer, &workspace.name).await?;
 
         if !workspace.path.exists() {
-            return Err(eyre!("no workspace named '{}' found", name));
+            return Err(eyre!("workspace '{}' not found", workspace.name));
         }
 
-        safety_check(&workspace, self.force)?;
+        safety_check(&workspace_full, self.force)?;
 
-        if is_root {
+        if workspace.root {
             eprintln!(
                 "{YELLOW}Will destroy {RED}root{YELLOW} workspace — DATA WILL BE LOST{RESET}",
             );
@@ -52,14 +48,10 @@ impl Destroy {
             }
         }
 
-        let compose_name = compose_project_name(&workspace.path);
-
         let cleanup = Cleanup {
-            docker: &state.docker.docker,
-            repo_path: &state.project.path,
-            path: &workspace.path,
-            compose_name,
-            remove_worktree: !is_root,
+            state: &state,
+            devcontainer,
+            workspace: &workspace,
             force: self.force,
         };
 
@@ -68,62 +60,35 @@ impl Destroy {
 }
 
 struct Cleanup<'a> {
-    docker: &'a Docker,
-    repo_path: &'a Path,
-    path: &'a Path,
-    compose_name: String,
-    remove_worktree: bool,
+    state: &'a State,
+    devcontainer: &'a DevcontainerState,
+    workspace: &'a WorkspaceMini,
     force: bool,
 }
 
 impl Runnable for Cleanup<'_> {
     fn name(&self) -> Cow<'_, str> {
-        self.path
-            .file_name()
-            .map(|n| n.to_string_lossy())
-            .unwrap_or(self.path.display().to_string().into())
+        (&self.workspace.name).into()
     }
 
     fn description(&self) -> Cow<'_, str> {
-        format!("destroy {}", self.path.display()).into()
+        format!("destroy {}", self.workspace.path.display()).into()
     }
 
     async fn run(self, _: run::Token) -> eyre::Result<()> {
-        // Collect backing volumes before tearing down (these are from renamed workspaces)
-        let backing_volumes = backing_volumes(&self.compose_name).await;
+        let mut down_cmd = compose_cmd(self.state, self.devcontainer, self.workspace)?;
+        down_cmd.args(["down", "-v", "--remove-orphans"]);
 
-        run_cmd(
-            &[
-                "docker",
-                "compose",
-                "-p",
-                &self.compose_name,
-                "down",
-                "-v",
-                "--remove-orphans",
-            ],
-            None,
-        )
-        .await?;
+        run_command(down_cmd).await?;
+        remove_override_file(self.state, self.workspace);
 
-        // Remove backing volumes from a prior rename
-        for vol in backing_volumes {
-            let _ = tokio::process::Command::new("docker")
-                .args(["volume", "rm", &vol])
-                .output()
-                .await;
-        }
-
-        remove_override_file(&self.compose_name);
-
-        // Remove any port-forward sidecar targeting this workspace
+        // Remove any port-forward sidecars targeting this workspace
         let mut filters = HashMap::new();
-        filters.insert(
-            "label".into(),
-            vec![format!("dev.devconcurrent.workspace={}", self.compose_name)],
-        );
-        if let Ok(containers) = self
-            .docker
+        filters.insert("label".into(), self.workspace.docker_labels(self.state));
+
+        let docker = &self.devcontainer.docker.docker;
+
+        if let Ok(containers) = docker
             .list_containers(Some(ListContainersOptions {
                 all: true,
                 filters: Some(filters),
@@ -133,8 +98,7 @@ impl Runnable for Cleanup<'_> {
         {
             for c in containers {
                 if let Some(id) = c.id {
-                    let _ = self
-                        .docker
+                    let _ = docker
                         .remove_container(
                             &id,
                             Some(RemoveContainerOptions {
@@ -147,33 +111,20 @@ impl Runnable for Cleanup<'_> {
             }
         }
 
-        if self.remove_worktree {
-            let mut args = vec!["git", "worktree", "remove"];
-            if self.force {
-                args.push("--force");
-            }
-            let path_str = self.path.to_string_lossy();
-            args.push(&path_str);
+        if !self.workspace.root {
+            let mut worktree_cmd = tokio::process::Command::new("git");
+            worktree_cmd.args(["worktree", "remove"]);
 
-            run_cmd(&args, Some(self.repo_path)).await?;
+            if self.force {
+                worktree_cmd.arg("--force");
+            }
+            worktree_cmd.arg(&self.workspace.path);
+            worktree_cmd.current_dir(&self.state.project.path);
+
+            run_command(worktree_cmd).await?;
         }
 
-        eprintln!("Removed {}", self.path.display());
+        eprintln!("Removed {}", self.workspace.path.display());
         Ok(())
     }
-}
-
-/// Find backing volumes from a prior rename. These are old volumes whose data
-/// is bind-mounted into the current workspace's volumes.
-async fn backing_volumes(compose_name: &str) -> Vec<String> {
-    let Ok(volumes) = list_project_volumes(compose_name).await else {
-        return Vec::new();
-    };
-    let mut backing = Vec::new();
-    for vol in &volumes {
-        if let Some(bv) = resolve_backing_volume(vol).await {
-            backing.push(bv);
-        }
-    }
-    backing
 }

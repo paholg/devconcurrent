@@ -5,22 +5,16 @@ use tracing::info_span;
 use tracing_indicatif::span_ext::IndicatifSpanExt;
 
 use crate::cli::State;
-use crate::cli::copy::copy_volumes;
 use crate::cli::exec::exec_interactive;
 use crate::cli::fwd::forward;
 use crate::complete::complete_workspace;
-use crate::docker::compose::{compose_args, compose_project_name, compose_ps_q, compose_up_args};
+use crate::docker::compose::{compose_cmd, compose_ps_q};
 use crate::run::Runner;
-use crate::run::cmd::{Cmd, NamedCmd};
-use crate::worktree;
+use crate::run::cmd::NamedCmd;
 
 /// Bring up a workspace, creating it if it does not exist
 #[derive(Debug, Args)]
 pub struct Up {
-    /// Copy configured `defaultCopyVolumes` from root workspace
-    #[arg(short, long)]
-    copy: bool,
-
     /// Foward configured `forwardPorts` once up
     #[arg(short, long)]
     forward: bool,
@@ -40,23 +34,14 @@ pub struct Up {
 
 impl Up {
     pub async fn run(self, state: State) -> eyre::Result<()> {
-        let devcontainer = state.devcontainer()?;
-        let dc_options = &devcontainer.common.customizations.devconcurrent;
-
-        let name = state.resolve_workspace(self.workspace).await?;
-        let is_root = state.is_root(&name);
-        let workspace_dir = dc_options.workspace_dir(&state.project.path);
-        let worktree_path = if is_root {
-            state.project.path.clone()
-        } else {
-            worktree::create(&state.project.path, &workspace_dir, &name, self.detach).await?
-        };
+        let workspace = state.resolve_workspace(self.workspace).await?;
+        let devcontainer = state.try_devcontainer()?;
 
         // Set up span.
-        let name = &name;
+        let name = &workspace.name;
         let colored_name = name.cyan().to_string();
         let up = "up".cyan().to_string();
-        let path = worktree_path.display().to_string();
+        let path = workspace.path.display().to_string();
         let description = &path;
         let message = format!(
             "Spinning up workspace {colored_name} from root {}",
@@ -75,52 +60,49 @@ impl Up {
         span.pb_set_message(&pb_message);
         let _guard = span.enter();
 
-        let crate::devcontainer::Kind::Compose(ref compose) = devcontainer.kind else {
-            // This was handled at deserialize time already.
-            unimplemented!();
-        };
-
-        let base_args = compose_args(
-            &devcontainer,
-            compose,
-            &worktree_path,
-            &state.project_name,
-            &state.project,
-        )?;
+        // let base_compose_cmd = compose_cmd(&state, devcontainer, &workspace)?;
 
         // initializeCommand runs on the host, from the worktree
-        if let Some(ref cmd) = devcontainer.common.initialize_command {
-            cmd.run_on_host("initializeCommand", Some(&worktree_path))
+        if let Some(ref cmd) = devcontainer.config.common.initialize_command {
+            cmd.run_on_host("initializeCommand", Some(&workspace.path))
                 .await?;
         }
 
-        if self.copy && !is_root {
-            let root_project = compose_project_name(&state.project.path);
-            let new_project = compose_project_name(&worktree_path);
+        let mut compose_up_cmd = compose_cmd(&state, devcontainer, &workspace)?;
+        compose_up_cmd.args(["up", "-d", "--build"]);
 
-            copy_volumes(&state, Vec::new(), &root_project, &new_project).await?;
+        let compose_config = devcontainer.compose();
+        if let Some(ref services) = compose_config.run_services {
+            compose_up_cmd.args(services);
+            if !services.contains(&compose_config.service) {
+                // TODO: We probably want this in the `else` also, or maybe we
+                // don't need it at all?
+                compose_up_cmd.arg(&compose_config.service);
+            }
         }
 
-        let up_args = compose_up_args(compose, &base_args);
+        let up_cmd = compose_up_cmd.into_std().into();
         let cmd = NamedCmd {
             name: "docker compose up",
-            cmd: &Cmd::Args(up_args),
+            cmd: &up_cmd,
             dir: None,
         };
         Runner::run(cmd).await?;
 
-        let container_id = compose_ps_q(compose, &base_args).await?;
-        let user = devcontainer.common.remote_user.as_deref();
-        let workdir = Some(compose.workspace_folder.as_path());
-        let remote_env = &devcontainer.common.remote_env;
+        let compose_config = devcontainer.compose();
+
+        let container_id = compose_ps_q(&state, devcontainer, &workspace).await?;
+        let user = devcontainer.config.common.remote_user.as_deref();
+        let workdir = Some(compose_config.workspace_folder.as_path());
+        let remote_env = &devcontainer.config.common.remote_env;
 
         // Lifecycle commands: create-only commands run only on first creation
         // For now, though, we always recreate.
-        if let Some(ref cmd) = devcontainer.common.on_create_command {
+        if let Some(ref cmd) = devcontainer.config.common.on_create_command {
             cmd.run_in_container("onCreateCommand", &container_id, user, workdir, remote_env)
                 .await?;
         }
-        if let Some(ref cmd) = devcontainer.common.update_content_command {
+        if let Some(ref cmd) = devcontainer.config.common.update_content_command {
             cmd.run_in_container(
                 "updateContentCommand",
                 &container_id,
@@ -130,7 +112,7 @@ impl Up {
             )
             .await?;
         }
-        if let Some(ref cmd) = devcontainer.common.post_create_command {
+        if let Some(ref cmd) = devcontainer.config.common.post_create_command {
             cmd.run_in_container(
                 "postCreateCommand",
                 &container_id,
@@ -140,26 +122,19 @@ impl Up {
             )
             .await?;
         }
-        if let Some(ref cmd) = devcontainer.common.post_start_command {
+        if let Some(ref cmd) = devcontainer.config.common.post_start_command {
             cmd.run_in_container("postStartCommand", &container_id, user, workdir, remote_env)
                 .await?;
         }
 
         // Port forward if requested
         if self.forward {
-            forward(&state, name).await?;
+            forward(&state, devcontainer, &workspace).await?;
         }
 
         // Interactive exec if requested
         if let Some(cmd_args) = self.exec {
-            exec_interactive(
-                &container_id,
-                user,
-                workdir,
-                &cmd_args,
-                dc_options.default_exec.as_ref(),
-                &state.project.exec.environment,
-            )?;
+            exec_interactive(&container_id, &state, devcontainer, &cmd_args)?;
         }
 
         Ok(())

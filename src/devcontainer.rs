@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use eyre::WrapErr;
 use indexmap::IndexMap;
@@ -11,23 +11,20 @@ pub mod forward_port;
 pub mod lifecycle_command;
 mod unsupported;
 
-use crate::{
-    config::Project,
-    devcontainer::{dc_options::DcOptions, forward_port::ForwardPort},
-};
+use crate::devcontainer::{dc_options::DcOptions, forward_port::ForwardPort};
 use lifecycle_command::LifecycleCommand;
 use unsupported::Unsupported;
 
 /// Devcontainer config from devcontainer.json.
 #[derive(Deserialize, Serialize, Clone, Debug)]
-pub struct Devcontainer {
+pub struct DevcontainerConfig {
     #[serde(flatten)]
     pub common: Common,
     #[serde(flatten)]
     pub kind: Kind,
 }
 
-impl Devcontainer {
+impl DevcontainerConfig {
     pub fn compose(&self) -> &Compose {
         match &self.kind {
             Kind::Compose(compose) => compose,
@@ -47,31 +44,38 @@ pub enum Kind {
     Dockerfile(Box<Dockerfile>),
 }
 
-impl Devcontainer {
-    /// Load the appropriate devcontainer.json file from the given root directory.
+impl DevcontainerConfig {
+    /// Find the appropriate devcontainer.json file from the given root directory.
     ///
-    /// The given `dir` should be the directory containing `.devcontainer/`.
+    /// Return None if there is no devcontainer.json file, and treat the project as one that
+    /// does not use devcontainers.
     ///
     /// From the devcontainer reference:
+    /// https://containers.dev/implementors/spec/#devcontainerjson
     ///
-    /// Products using it should expect to find a devcontainer.json file in one or more of the following locations (in order of precedence):
-    /// .devcontainer/devcontainer.json
-    /// .devcontainer.json
-    /// .devcontainer/<folder>/devcontainer.json (where <folder> is a sub-folder, one level deep)
-    pub fn load(project: &Project) -> eyre::Result<Self> {
-        let dir = &project.path;
+    /// Products using it should expect to find a devcontainer.json file in one or more of the
+    /// following locations (in order of precedence):
+    ///
+    /// * .devcontainer/devcontainer.json
+    /// * .devcontainer.json
+    /// * .devcontainer/<folder>/devcontainer.json (where <folder> is a sub-folder, one level deep)
+    ///
+    /// It is valid that these files may exist in more than one location, so consider providing a
+    /// mechanism for users to select one when appropriate.
+    ///
+    // TODO: Allow a user to select from multiple devcontainer.json files.
+    pub fn find_config(dir: &Path) -> Option<PathBuf> {
         let candidates = [
             dir.join(".devcontainer/devcontainer.json"),
             dir.join(".devcontainer.json"),
         ];
 
-        let path = candidates
-            .into_iter()
-            .find(|p| p.is_file())
-            .or_else(|| {
-                // .devcontainer/<folder>/devcontainer.json (one level deep)
-                let dc_dir = dir.join(".devcontainer");
-                std::fs::read_dir(&dc_dir).ok().and_then(|entries| {
+        candidates.into_iter().find(|p| p.is_file()).or_else(|| {
+            // .devcontainer/<folder>/devcontainer.json
+            let devcontainer_dir = dir.join(".devcontainer");
+            std::fs::read_dir(&devcontainer_dir)
+                .ok()
+                .and_then(|entries| {
                     entries
                         .filter_map(Result::ok)
                         .find(|e| {
@@ -80,12 +84,14 @@ impl Devcontainer {
                         })
                         .map(|e| e.path().join("devcontainer.json"))
                 })
-            })
-            .ok_or_else(|| eyre::eyre!("no devcontainer.json found in {}", dir.display()))?;
+        })
+    }
 
+    /// Load the given path
+    pub fn load(path: &Path) -> eyre::Result<Self> {
         // serde's flatten messes with the ability to trace what failed; so we parse the individual
         // sections separately.
-        let json = std::fs::read_to_string(&path)
+        let json = std::fs::read_to_string(path)
             .wrap_err_with(|| format!("failed to read {}", path.display()))?;
 
         fn parse<'de, T: Deserialize<'de>>(
@@ -98,9 +104,9 @@ impl Devcontainer {
                 .wrap_err_with(|| format!("failed to parse {label} in {}", path.display()))
         }
 
-        Ok(Devcontainer {
-            common: parse(&json, "common properties", &path)?,
-            kind: parse(&json, "container type properties", &path)?,
+        Ok(DevcontainerConfig {
+            common: parse(&json, "common properties", path)?,
+            kind: parse(&json, "container type properties", path)?,
         })
     }
 }

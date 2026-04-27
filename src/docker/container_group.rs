@@ -3,9 +3,9 @@ use std::{collections::HashMap, path::PathBuf};
 use futures::future::try_join_all;
 
 use crate::{
-    cli::State,
-    docker::{ContainerInfo, compose::compose_project_name},
-    workspace::{Workspace, git_status},
+    docker::ContainerInfo,
+    state::{DevcontainerState, State},
+    workspace::{Workspace, WorkspaceMini, git_status},
     worktree,
 };
 
@@ -16,11 +16,14 @@ pub struct ContainerGroup {
 }
 
 impl ContainerGroup {
-    pub async fn list(state: &State) -> eyre::Result<(Vec<Self>, HashMap<String, Vec<u16>>)> {
+    pub async fn list(
+        state: &State,
+        devcontainer: &DevcontainerState,
+    ) -> eyre::Result<(Vec<Self>, HashMap<String, Vec<u16>>)> {
         let worktree_paths = worktree::list(&state.project.path).await?;
         let (containers, fwd_ports) = tokio::try_join!(
-            state.docker.container_info(),
-            state.docker.forwarded_ports(&state.project_name),
+            devcontainer.docker.container_info(),
+            devcontainer.docker.forwarded_ports(&state.project_name),
         )?;
 
         let mut groups: HashMap<PathBuf, ContainerGroup> = HashMap::new();
@@ -59,11 +62,20 @@ impl ContainerGroup {
     pub async fn into_workspace(
         self,
         state: &State,
+        devcontainer: &DevcontainerState,
         fwd_ports: &HashMap<String, Vec<u16>>,
     ) -> eyre::Result<Workspace> {
         let git_future = git_status::GitStatus::fetch(&self.path);
-        let execs_futures = try_join_all(self.containers.iter().map(|c| state.docker.execs(&c.id)));
-        let stats_futures = try_join_all(self.containers.iter().map(|c| state.docker.stats(&c.id)));
+        let execs_futures = try_join_all(
+            self.containers
+                .iter()
+                .map(|c| devcontainer.docker.execs(&c.id)),
+        );
+        let stats_futures = try_join_all(
+            self.containers
+                .iter()
+                .map(|c| devcontainer.docker.stats(&c.id)),
+        );
         let (git_status, execs, stats) =
             tokio::try_join!(git_future, execs_futures, stats_futures)?;
 
@@ -77,7 +89,9 @@ impl ContainerGroup {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
 
-        let compose_project_name = compose_project_name(&self.path);
+        let ws_mini = WorkspaceMini::from_path(self.path.clone(), state)
+            .ok_or_else(|| eyre::eyre!("Invalid path: {}", self.path.display()))?;
+        let compose_project_name = ws_mini.compose_project_name();
         let mut fwd_ports = fwd_ports
             .get(&compose_project_name)
             .cloned()

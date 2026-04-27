@@ -1,9 +1,7 @@
-use std::path::Path;
-
 use clap::{Args, Subcommand};
 use itertools::Itertools;
 
-use crate::{cli::State, cli::fwd, docker::compose::compose_project_name};
+use crate::{cli::State, cli::fwd};
 
 /// Show some value
 #[derive(Debug, Args)]
@@ -45,15 +43,15 @@ impl Ports {
 }
 
 async fn get_ports(state: State) -> eyre::Result<String> {
-    let name = state.resolve_workspace(None).await?;
-    let cpn = compose_project_name(Path::new(&name));
+    let workspace = state.resolve_workspace(None).await?;
+    let devcontainer = state.try_devcontainer()?;
     let (ports, healthy) = tokio::join!(
-        state
+        devcontainer
             .docker
-            .workspace_forwarded_ports(&state.project_name, &cpn),
-        state
+            .workspace_forwarded_ports(&state, &workspace),
+        devcontainer
             .docker
-            .is_forwarding_healthy(&state.project_name, &cpn),
+            .is_forwarding_healthy(&state, &workspace),
     );
     let ports = ports?;
 
@@ -68,8 +66,8 @@ async fn get_ports(state: State) -> eyre::Result<String> {
 impl ShowWorkspace {
     async fn run(self, state: State) -> eyre::Result<()> {
         match state.resolve_workspace(None).await {
-            Ok(name) => {
-                println!("{name}");
+            Ok(workspace) => {
+                println!("{}", workspace.name);
                 Ok(())
             }
             Err(_) => std::process::exit(1),

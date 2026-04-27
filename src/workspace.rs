@@ -4,17 +4,51 @@ use bollard::models::ContainerSummaryStateEnum;
 use eyre::eyre;
 use futures::future::try_join_all;
 
-use crate::cli::State;
 use crate::docker::container_group::ContainerGroup;
 use crate::docker::{ContainerInfo, ExecSession, Stats};
+use crate::state::{DevcontainerState, State};
 
 pub mod git_status;
 pub mod table;
 
 #[derive(Debug)]
-pub struct Workspace {
-    pub path: PathBuf,
+pub struct WorkspaceMini {
     pub name: String,
+    pub path: PathBuf,
+    pub root: bool,
+}
+
+impl WorkspaceMini {
+    pub fn from_path(path: PathBuf, state: &State) -> Option<Self> {
+        let name = path.file_name()?.to_string_lossy().to_string();
+        let root = state.is_root(&name);
+
+        Some(Self { name, path, root })
+    }
+
+    /// Match the devcontainer CLI convention: `{basename}_devcontainer`, lowercased,
+    /// keeping only `[a-z0-9-_]`.
+    pub fn compose_project_name(&self) -> String {
+        let raw = format!("{}_devcontainer", self.name);
+
+        raw.to_lowercase()
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+            .collect()
+    }
+
+    pub fn docker_labels(&self, state: &State) -> Vec<String> {
+        vec![
+            format!("dev.devconcurrent.project={}", state.project_name),
+            format!("dev.devconcurrent.workspace={}", self.name),
+        ]
+    }
+}
+
+#[derive(Debug)]
+pub struct Workspace {
+    pub name: String,
+    pub path: PathBuf,
     pub root: bool,
     pub compose_project_name: String,
     pub containers: Vec<ContainerInfo>,
@@ -27,12 +61,23 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    pub async fn get(state: &State, name: &str) -> eyre::Result<Workspace> {
-        Self::get_inner(state, name, ContainerGroup::list(state).await?).await
+    pub async fn get(
+        state: &State,
+        devcontainer: &DevcontainerState,
+        name: &str,
+    ) -> eyre::Result<Workspace> {
+        Self::get_inner(
+            state,
+            devcontainer,
+            name,
+            ContainerGroup::list(state, devcontainer).await?,
+        )
+        .await
     }
 
     async fn get_inner(
         state: &State,
+        devcontainer: &DevcontainerState,
         name: &str,
         (groups, fwd_ports): (
             Vec<ContainerGroup>,
@@ -50,14 +95,17 @@ impl Workspace {
                 .find(|g| g.path.file_name().is_some_and(|f| f == name))
                 .ok_or_else(|| eyre!("no workspace found for name {name}"))?
         };
-        group.into_workspace(state, &fwd_ports).await
+        group.into_workspace(state, devcontainer, &fwd_ports).await
     }
 
-    pub async fn list(state: &State) -> eyre::Result<Vec<Workspace>> {
-        let (groups, fwd_ports) = ContainerGroup::list(state).await?;
+    pub async fn list(
+        state: &State,
+        devcontainer: &DevcontainerState,
+    ) -> eyre::Result<Vec<Workspace>> {
+        let (groups, fwd_ports) = ContainerGroup::list(state, devcontainer).await?;
         let futures = groups
             .into_iter()
-            .map(|g| g.into_workspace(state, &fwd_ports));
+            .map(|g| g.into_workspace(state, devcontainer, &fwd_ports));
 
         try_join_all(futures).await
     }

@@ -2,12 +2,14 @@ use std::{collections::HashMap, path::PathBuf};
 
 use bollard::{
     Docker,
+    plugin::ContainerSummaryStateEnum,
     query_parameters::{ListContainersOptions, StatsOptions},
-    secret::ContainerSummaryStateEnum,
 };
 use derive_more::{Add, Sum};
 use eyre::{WrapErr, eyre};
 use futures::{StreamExt, future::try_join_all};
+
+use crate::{state::State, workspace::WorkspaceMini};
 
 pub mod compose;
 pub mod container_group;
@@ -153,18 +155,13 @@ impl DockerClient {
 
     pub async fn is_forwarding_healthy(
         &self,
-        project: &str,
-        compose_project_name: &str,
+        state: &State,
+        workspace: &WorkspaceMini,
     ) -> eyre::Result<bool> {
-        let mut filters = HashMap::new();
-        filters.insert(
-            "label".into(),
-            vec![
-                "dev.devconcurrent.fwd=true".to_string(),
-                format!("dev.devconcurrent.project={project}"),
-                format!("dev.devconcurrent.workspace={compose_project_name}"),
-            ],
-        );
+        let mut labels = workspace.docker_labels(state);
+        labels.push("dev.devconcurrent.fwd=true".to_string());
+        let filters = HashMap::from([("label".into(), labels)]);
+
         let sidecars = self
             .docker
             .list_containers(Some(ListContainersOptions {
@@ -201,18 +198,13 @@ impl DockerClient {
 
     pub async fn workspace_forwarded_ports(
         &self,
-        project: &str,
-        compose_project_name: &str,
+        state: &State,
+        workspace: &WorkspaceMini,
     ) -> eyre::Result<Vec<u16>> {
-        let mut filters = HashMap::new();
-        filters.insert(
-            "label".into(),
-            vec![
-                "dev.devconcurrent.fwd=true".to_string(),
-                format!("dev.devconcurrent.project={project}"),
-                format!("dev.devconcurrent.workspace={compose_project_name}"),
-            ],
-        );
+        let mut labels = workspace.docker_labels(state);
+        labels.push("dev.devconcurrent.fwd=true".to_string());
+        let filters = HashMap::from([("label".into(), labels)]);
+
         let containers = self
             .docker
             .list_containers(Some(ListContainersOptions {

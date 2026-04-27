@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
-use vec1::Vec1;
+use vec1::{Vec1, vec1};
 
 use crate::run;
 
@@ -26,6 +26,15 @@ impl Cmd {
             Cmd::Shell(prog) => prog.into(),
             Cmd::Args(vec1) => vec1.join(" ").into(),
         }
+    }
+}
+
+impl From<std::process::Command> for Cmd {
+    fn from(cmd: std::process::Command) -> Self {
+        let mut args = vec1![cmd.get_program().to_string_lossy().to_string()];
+        args.extend(cmd.get_args().map(|a| a.to_string_lossy().to_string()));
+
+        Self::Args(args)
     }
 }
 

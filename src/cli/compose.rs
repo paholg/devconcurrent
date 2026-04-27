@@ -5,7 +5,7 @@ use clap_complete::engine::ArgValueCompleter;
 
 use crate::cli::State;
 use crate::complete::{self, complete_workspace};
-use crate::docker::compose::compose_args;
+use crate::docker::compose::compose_cmd;
 
 /// Run `docker compose` against the given workspace
 #[derive(Debug, Args)]
@@ -21,32 +21,12 @@ pub struct Compose {
 
 impl Compose {
     pub async fn run(self, state: State) -> eyre::Result<()> {
-        let name = state.resolve_workspace(self.workspace).await?;
+        let devcontainer = state.try_devcontainer()?;
+        let workspace = state.resolve_workspace(self.workspace).await?;
 
-        let dc = state.devcontainer()?;
-        let crate::devcontainer::Kind::Compose(ref compose) = dc.kind else {
-            unimplemented!();
-        };
+        let mut cmd = compose_cmd(&state, devcontainer, &workspace)?;
+        cmd.args(&self.args);
 
-        let worktree_path = if state.is_root(&name) {
-            state.project.path.clone()
-        } else {
-            let dc_options = &dc.common.customizations.devconcurrent;
-            dc_options.workspace_dir(&state.project.path).join(&name)
-        };
-
-        let mut args = compose_args(
-            &dc,
-            compose,
-            &worktree_path,
-            &state.project_name,
-            &state.project,
-        )?;
-        args.extend(self.args);
-
-        Err(std::process::Command::new("docker")
-            .args(&args)
-            .exec()
-            .into())
+        Err(cmd.into_std().exec().into())
     }
 }

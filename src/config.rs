@@ -4,10 +4,7 @@ use eyre::{WrapErr, eyre};
 use indexmap::IndexMap;
 use serde::Deserialize;
 
-pub fn deserialize_shell_path<'de, D: serde::Deserializer<'de>>(d: D) -> Result<PathBuf, D::Error> {
-    let s = String::deserialize(d)?;
-    Ok(PathBuf::from(shellexpand::tilde(&s).as_ref()))
-}
+use crate::helpers::{deserialize_shell_path, deserialize_shell_path_opt};
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
@@ -25,6 +22,8 @@ pub struct Project {
     pub volumes: Vec<String>,
     #[serde(default)]
     pub exec: Exec,
+    #[serde(default, deserialize_with = "deserialize_shell_path_opt")]
+    pub worktree_folder: Option<PathBuf>,
 }
 
 #[derive(Debug, Deserialize, Default)]

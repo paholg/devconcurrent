@@ -1,21 +1,11 @@
-use std::env;
 use std::io::{BufRead, Write};
 
 use clap::{Parser, Subcommand};
 use clap_complete::engine::ArgValueCompleter;
-use eyre::OptionExt;
 
-use crate::{
-    complete,
-    config::{Config, Project},
-    devcontainer::Devcontainer,
-    docker::DockerClient,
-    workspace::Workspace,
-    worktree,
-};
+use crate::{complete, state::State, workspace::Workspace};
 
 mod compose;
-mod copy;
 mod destroy;
 mod exec;
 pub mod fwd;
@@ -61,59 +51,8 @@ pub enum Commands {
     Go(go::Go),
 }
 
-pub struct State {
-    pub docker: DockerClient,
-    pub project_name: String,
-    pub project: Project,
-}
-
-impl State {
-    // TODO: We should just load this at start.
-    fn devcontainer(&self) -> eyre::Result<Devcontainer> {
-        Devcontainer::load(&self.project)
-    }
-
-    pub fn is_root(&self, name: &str) -> bool {
-        self.project
-            .path
-            .file_name()
-            .is_some_and(|root| name == root)
-    }
-
-    /// Find the workspace name.
-    ///
-    /// If no name is given, or if it's ".", we derive it from the current working direcory.
-    pub async fn resolve_workspace(&self, name: Option<String>) -> eyre::Result<String> {
-        if let Some(workspace_name) = name
-            && workspace_name != "."
-        {
-            return Ok(workspace_name);
-        }
-
-        let cwd = env::current_dir()?;
-        let worktrees = worktree::list(&self.project.path).await?;
-
-        let wt = worktrees
-            .into_iter()
-            .filter(|wt| cwd.starts_with(wt))
-            .max_by_key(|wt| wt.as_os_str().len())
-            .ok_or_else(|| {
-                eyre::eyre!(
-                    "no workspace specified and not inside a worktree of project '{}'",
-                    self.project_name
-                )
-            })?;
-
-        Ok(wt
-            .file_name()
-            .ok_or_eyre("worktree path has no basename")?
-            .to_string_lossy()
-            .to_string())
-    }
-}
-
 /// Check that the workspace is safe to tear down (clean git, no active execs).
-pub(crate) fn safety_check(workspace: &Workspace, force: bool) -> eyre::Result<()> {
+pub fn safety_check(workspace: &Workspace, force: bool) -> eyre::Result<()> {
     if force {
         return Ok(());
     }
@@ -134,7 +73,7 @@ pub(crate) fn safety_check(workspace: &Workspace, force: bool) -> eyre::Result<(
     Ok(())
 }
 
-pub(crate) fn confirm() -> eyre::Result<bool> {
+pub fn confirm() -> eyre::Result<bool> {
     eprint!("Proceed? [y/N] ");
     std::io::stderr().flush()?;
     let mut line = String::new();
@@ -144,14 +83,7 @@ pub(crate) fn confirm() -> eyre::Result<bool> {
 
 impl Cli {
     pub async fn run(self) -> eyre::Result<()> {
-        let config = Config::load()?;
-        let (project_name, project) = config.project(self.project)?;
-
-        let state = State {
-            docker: DockerClient::new().await?,
-            project_name,
-            project,
-        };
+        let state = State::new(self.project).await?;
 
         match self.command {
             Commands::Up(up) => up.run(state).await,

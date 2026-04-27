@@ -1,16 +1,14 @@
 use std::io::IsTerminal;
 use std::os::unix::process::CommandExt;
-use std::path::Path;
 
-use bollard::secret::ContainerSummaryStateEnum;
+use bollard::plugin::ContainerSummaryStateEnum;
 use clap::Args;
 use clap_complete::ArgValueCompleter;
 use eyre::eyre;
-use indexmap::IndexMap;
 
 use crate::cli::State;
 use crate::complete::complete_workspace;
-use crate::run::cmd::Cmd;
+use crate::state::DevcontainerState;
 use crate::workspace::Workspace;
 
 /// Exec into a running devcontainer
@@ -27,72 +25,62 @@ pub struct Exec {
 
 impl Exec {
     pub async fn run(self, state: State) -> eyre::Result<()> {
-        let name = state.resolve_workspace(self.workspace).await?;
-        let ws = Workspace::get(&state, &name).await?;
-        if ws.status() != ContainerSummaryStateEnum::RUNNING {
-            return Err(eyre!("workspace is not running: {}", ws.path.display()));
+        let workspace = state.resolve_workspace(self.workspace).await?;
+        let devcontainer = state.try_devcontainer()?;
+        let workspace_full = Workspace::get(&state, devcontainer, &workspace.name).await?;
+        if workspace_full.status() != ContainerSummaryStateEnum::RUNNING {
+            return Err(eyre!(
+                "workspace is not running: {}",
+                workspace.path.display()
+            ));
         }
-        let dc = state.devcontainer()?;
-        let dc_options = dc.common.customizations.devconcurrent;
-        let crate::devcontainer::Kind::Compose(ref compose) = dc.kind else {
-            // This was handled at deserialize time already.
-            unimplemented!();
-        };
-        let cid = ws.service_container_id()?;
+        let devcontainer = state.try_devcontainer()?;
+        let cid = workspace_full.service_container_id()?;
 
-        exec_interactive(
-            cid,
-            dc.common.remote_user.as_deref(),
-            Some(compose.workspace_folder.as_path()),
-            &self.cmd,
-            dc_options.default_exec.as_ref(),
-            &state.project.exec.environment,
-        )
+        exec_interactive(cid, &state, devcontainer, &self.cmd)
     }
 }
 
 pub fn exec_interactive(
     container_id: &str,
-    user: Option<&str>,
-    workdir: Option<&Path>,
+    state: &State,
+    devcontainer: &DevcontainerState,
     cmd_args: &[String],
-    default_cmd: Option<&Cmd>,
-    env: &IndexMap<String, String>,
 ) -> eyre::Result<()> {
-    let mut args = vec!["exec".to_string()];
+    let mut cmd = std::process::Command::new("docker");
+    cmd.arg("exec");
     if std::io::stdin().is_terminal() {
-        args.push("-it".into());
+        cmd.arg("-it");
     }
-    if let Some(u) = user {
-        args.extend(["-u".into(), u.to_string()]);
+
+    let dc_options = devcontainer.devconcurrent();
+
+    if let Some(u) = devcontainer.config.common.remote_user.as_deref() {
+        cmd.args(["-u", u]);
     }
-    if let Some(w) = workdir {
-        args.extend(["-w".into(), w.to_string_lossy().into_owned()]);
-    }
-    for (k, v) in env {
+    cmd.arg("-w").arg(&devcontainer.compose().workspace_folder);
+
+    for (k, v) in &state.project.exec.environment {
         let expanded = shellexpand::env(v)?;
-        args.extend(["-e".into(), format!("{k}={expanded}")]);
+        cmd.arg("-e").arg(format!("{k}={expanded}"));
     }
-    args.push(container_id.to_string());
+    cmd.arg(container_id);
 
     if cmd_args.is_empty() {
-        args.extend(
-            default_cmd
+        cmd.args(
+            dc_options
+                .default_exec
+                .as_ref()
                 .ok_or_else(|| eyre!("no command provided and no default configured"))?
-                .as_args()
-                .into_iter()
-                .map(ToString::to_string),
+                .as_args(),
         );
     } else {
-        args.extend(cmd_args.iter().cloned());
+        cmd.args(cmd_args);
     }
 
     // Restore cursor visibility — indicatif hides it for spinners and exec()
     // replaces the process before indicatif's cleanup can run.
     let _ = crossterm::execute!(std::io::stderr(), crossterm::cursor::Show);
 
-    Err(std::process::Command::new("docker")
-        .args(&args)
-        .exec()
-        .into())
+    Err(cmd.exec().into())
 }
