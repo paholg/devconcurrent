@@ -11,46 +11,40 @@ use futures::{StreamExt, future::try_join_all};
 
 use crate::{state::State, workspace::WorkspaceMini};
 
-pub mod compose;
-pub mod container_group;
+pub(crate) mod compose;
+pub(crate) mod container_group;
 
 #[derive(Debug)]
-pub struct ContainerInfo {
-    pub id: String,
-    pub state: ContainerSummaryStateEnum,
-    pub local_folder: PathBuf,
-    pub dc_project: Option<String>,
-    pub created: Option<i64>,
-    pub host_ports: Vec<u16>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ExecSession {
-    pub pid: u32,
-    pub command: Vec<String>,
+pub(crate) struct ContainerInfo {
+    pub(crate) id: String,
+    pub(crate) state: ContainerSummaryStateEnum,
+    pub(crate) local_folder: PathBuf,
+    pub(crate) dc_project: Option<String>,
+    pub(crate) created: Option<i64>,
+    pub(crate) host_ports: Vec<u16>,
 }
 
 #[derive(Debug, Clone, Add, Sum)]
-pub struct Stats {
+pub(crate) struct Stats {
     /// Current memory use in bytes.
-    pub ram: u64,
+    pub(crate) ram: u64,
 }
 
-pub struct DockerClient {
+pub(crate) struct DockerClient {
     // TODO: Instead of making this public, we should move all docker functionality we need to this
     // module.
-    pub docker: Docker,
+    pub(crate) docker: Docker,
 }
 
 impl DockerClient {
-    pub async fn new() -> eyre::Result<Self> {
+    pub(crate) async fn new() -> eyre::Result<Self> {
         let docker =
             Docker::connect_with_local_defaults().wrap_err("failed to connect to Docker")?;
         Ok(Self { docker })
     }
 
     /// Return all containers labeled with `devcontainer.local_folder`.
-    pub async fn container_info(&self) -> eyre::Result<Vec<ContainerInfo>> {
+    pub(crate) async fn container_info(&self) -> eyre::Result<Vec<ContainerInfo>> {
         let mut filters = HashMap::new();
         filters.insert(
             "label".to_string(),
@@ -94,7 +88,7 @@ impl DockerClient {
         Ok(result)
     }
 
-    pub async fn stats(&self, container_id: &str) -> eyre::Result<Stats> {
+    pub(crate) async fn stats(&self, container_id: &str) -> eyre::Result<Stats> {
         let mut stream = self.docker.stats(
             container_id,
             Some(StatsOptions {
@@ -117,7 +111,10 @@ impl DockerClient {
     }
 
     /// Ports forwarded by `dc fwd`.
-    pub async fn forwarded_ports(&self, project: &str) -> eyre::Result<HashMap<String, Vec<u16>>> {
+    pub(crate) async fn forwarded_ports(
+        &self,
+        project: &str,
+    ) -> eyre::Result<HashMap<String, Vec<u16>>> {
         let mut filters = HashMap::new();
         filters.insert(
             "label".into(),
@@ -153,7 +150,7 @@ impl DockerClient {
         Ok(result)
     }
 
-    pub async fn is_forwarding_healthy(
+    pub(crate) async fn is_forwarding_healthy(
         &self,
         state: &State,
         workspace: &WorkspaceMini,
@@ -196,7 +193,7 @@ impl DockerClient {
         Ok(!targets.is_empty())
     }
 
-    pub async fn workspace_forwarded_ports(
+    pub(crate) async fn workspace_forwarded_ports(
         &self,
         state: &State,
         workspace: &WorkspaceMini,
@@ -228,7 +225,7 @@ impl DockerClient {
         Ok(ports)
     }
 
-    pub async fn execs(&self, container_id: &str) -> eyre::Result<Vec<ExecSession>> {
+    pub(crate) async fn execs(&self, container_id: &str) -> eyre::Result<usize> {
         let info = self
             .docker
             .inspect_container(container_id, None)
@@ -236,27 +233,22 @@ impl DockerClient {
             .wrap_err_with(|| format!("failed to inspect container {container_id}"))?;
         let exec_ids = info.exec_ids.unwrap_or_default();
 
-        let futures = exec_ids
-            .into_iter()
-            .map(async |eid| -> eyre::Result<Option<ExecSession>> {
-                let exec = self.docker.inspect_exec(&eid).await?;
-                if exec.running != Some(true) {
-                    return Ok(None);
-                }
-                let pid = exec.pid.ok_or_else(|| eyre!("running exec has no PID"))? as u32;
-                let mut command = Vec::new();
-                if let Some(ref pc) = exec.process_config {
-                    if let Some(ref ep) = pc.entrypoint {
-                        command.push(ep.clone());
-                    }
-                    if let Some(ref args) = pc.arguments {
-                        command.extend(args.iter().cloned());
-                    }
-                }
-                Ok(Some(ExecSession { pid, command }))
-            });
+        let futures = exec_ids.into_iter().map(async |eid| -> eyre::Result<bool> {
+            let running = self
+                .docker
+                .inspect_exec(&eid)
+                .await?
+                .running
+                .unwrap_or(false);
 
-        let execs = try_join_all(futures).await?.into_iter().flatten().collect();
+            Ok(running)
+        });
+
+        let execs = try_join_all(futures)
+            .await?
+            .into_iter()
+            .filter(|r| *r == true)
+            .count();
         Ok(execs)
     }
 }

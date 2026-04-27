@@ -10,16 +10,16 @@ use crate::{
     worktree,
 };
 
-pub struct State {
-    pub project_name: String,
-    pub project: Project,
-    pub devcontainer: Option<DevcontainerState>,
+pub(crate) struct State {
+    pub(crate) project_name: String,
+    pub(crate) project: Project,
+    pub(crate) devcontainer: Option<DevcontainerState>,
 }
 
-pub struct DevcontainerState {
-    pub path: PathBuf,
-    pub config: DevcontainerConfig,
-    pub docker: DockerClient,
+pub(crate) struct DevcontainerState {
+    pub(crate) path: PathBuf,
+    pub(crate) config: DevcontainerConfig,
+    pub(crate) docker: DockerClient,
 }
 
 impl DevcontainerState {
@@ -37,20 +37,21 @@ impl DevcontainerState {
         }))
     }
 
-    pub fn compose(&self) -> &devcontainer::Compose {
+    pub(crate) fn compose(&self) -> &devcontainer::Compose {
         let crate::devcontainer::Kind::Compose(ref compose) = self.config.kind else {
+            // This is already handled during deserialize.
             unimplemented!();
         };
         compose
     }
 
-    pub fn devconcurrent(&self) -> &DcOptions {
+    pub(crate) fn devconcurrent(&self) -> &DcOptions {
         &self.config.common.customizations.devconcurrent
     }
 }
 
 impl State {
-    pub async fn new(specified_project: Option<String>) -> eyre::Result<Self> {
+    pub(crate) async fn new(specified_project: Option<String>) -> eyre::Result<Self> {
         let config = Config::load()?;
         let (project_name, project) = config.project(specified_project)?;
 
@@ -63,7 +64,7 @@ impl State {
         })
     }
 
-    pub fn is_root(&self, name: &str) -> bool {
+    pub(crate) fn is_root(&self, name: &str) -> bool {
         self.project
             .path
             .file_name()
@@ -77,7 +78,7 @@ impl State {
     /// * Read from devconcurrent config file for the project
     /// * Read from customizations.devconcurrent in devcontainer.json
     /// * Defaults to /tmp/devconcurrent/<PROJECT_NAME>/
-    pub fn project_working_dir(&self) -> PathBuf {
+    pub(crate) fn project_working_dir(&self) -> PathBuf {
         let dir = self
             .project
             .worktree_folder
@@ -108,7 +109,10 @@ impl State {
     /// Find the workspace name.
     ///
     /// If no name is given, or if it's ".", we derive it from the current working direcory.
-    pub async fn resolve_workspace(&self, name: Option<String>) -> eyre::Result<WorkspaceMini> {
+    pub(crate) async fn resolve_workspace(
+        &self,
+        name: Option<String>,
+    ) -> eyre::Result<WorkspaceMini> {
         let worktrees = worktree::list(&self.project.path).await?;
 
         if let Some(workspace_name) = name
@@ -150,7 +154,7 @@ impl State {
         Ok(WorkspaceMini { name, path, root })
     }
 
-    pub fn try_devcontainer(&self) -> eyre::Result<&DevcontainerState> {
+    pub(crate) fn try_devcontainer(&self) -> eyre::Result<&DevcontainerState> {
         self.devcontainer.as_ref().ok_or_else(|| eyre::eyre!("no devcontainer.json found for this project; devcontainer functionality is disabled"))
     }
 }

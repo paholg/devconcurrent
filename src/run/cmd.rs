@@ -8,20 +8,20 @@ use crate::run;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(untagged)]
-pub enum Cmd {
+pub(crate) enum Cmd {
     Shell(String),
     Args(Vec1<String>),
 }
 
 impl Cmd {
-    pub fn as_args(&self) -> Vec<&str> {
+    pub(crate) fn as_args(&self) -> Vec<&str> {
         match self {
             Cmd::Shell(prog) => vec!["/bin/sh", "-c", prog],
             Cmd::Args(args) => args.iter().map(|s| s.as_str()).collect(),
         }
     }
 
-    pub fn description(&self) -> Cow<'_, str> {
+    pub(crate) fn description(&self) -> Cow<'_, str> {
         match &self {
             Cmd::Shell(prog) => prog.into(),
             Cmd::Args(vec1) => vec1.join(" ").into(),
@@ -38,10 +38,10 @@ impl From<std::process::Command> for Cmd {
     }
 }
 
-pub struct NamedCmd<'a> {
-    pub name: &'a str,
-    pub cmd: &'a Cmd,
-    pub dir: Option<&'a Path>,
+pub(crate) struct NamedCmd<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) cmd: &'a Cmd,
+    pub(crate) dir: Option<&'a Path>,
 }
 
 impl run::Runnable for NamedCmd<'_> {

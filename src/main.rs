@@ -4,8 +4,24 @@ use clap::{CommandFactory, Parser};
 use clap_complete::env::Shells;
 use clap_complete::{CompleteEnv, Shell};
 use color_eyre::config::HookBuilder;
-use devconcurrent::{self, cli::Cli, complete, subscriber::init_subscriber};
 use eyre::eyre;
+
+use crate::cli::Cli;
+use crate::subscriber::init_subscriber;
+
+mod ansi;
+mod bytes;
+mod cli;
+mod complete;
+mod config;
+mod devcontainer;
+mod docker;
+mod helpers;
+mod run;
+mod state;
+mod subscriber;
+mod workspace;
+mod worktree;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> eyre::Result<()> {

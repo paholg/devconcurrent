@@ -16,7 +16,7 @@ use crate::workspace::{Workspace, WorkspaceMini};
 
 /// Fully destroy the workspace; equivalent to `docker compose down -v --remove-orphans && git worktree remove`
 #[derive(Debug, Args)]
-pub struct Destroy {
+pub(crate) struct Destroy {
     /// Workspace name
     #[arg(add = ArgValueCompleter::new(complete_workspace))]
     workspace: Option<String>,
@@ -27,7 +27,7 @@ pub struct Destroy {
 }
 
 impl Destroy {
-    pub async fn run(self, state: State) -> eyre::Result<()> {
+    pub(crate) async fn run(self, state: State) -> eyre::Result<()> {
         let devcontainer = state.try_devcontainer()?;
         let workspace = state.resolve_workspace(self.workspace).await?;
         let workspace_full = Workspace::get(&state, devcontainer, &workspace.name).await?;

@@ -7,10 +7,10 @@ use crate::{
 
 /// List all workspaces for the project
 #[derive(Debug, Args)]
-pub struct List;
+pub(crate) struct List;
 
 impl List {
-    pub async fn run(self, state: State) -> eyre::Result<()> {
+    pub(crate) async fn run(self, state: State) -> eyre::Result<()> {
         // TODO: This command should not require devcontainer state.
         let devcontainer = state.try_devcontainer()?;
         let workspaces = Workspace::list(&state, devcontainer).await?;

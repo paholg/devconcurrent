@@ -8,7 +8,7 @@ use crate::{complete, state::State, workspace::Workspace};
 mod compose;
 mod destroy;
 mod exec;
-pub mod fwd;
+pub(crate) mod fwd;
 mod go;
 mod list;
 mod show;
@@ -19,21 +19,21 @@ const ABOUT: &str =
 
 #[derive(Debug, Parser)]
 #[command(version, about = ABOUT)]
-pub struct Cli {
+pub(crate) struct Cli {
     #[arg(
         short,
         long,
         help = "name of project [default: The DC_PROJECT variable, then the first configured project]",
         add = ArgValueCompleter::new(complete::complete_project),
     )]
-    pub project: Option<String>,
+    pub(crate) project: Option<String>,
 
     #[command(subcommand)]
-    pub command: Commands,
+    pub(crate) command: Commands,
 }
 
 #[derive(Debug, Subcommand)]
-pub enum Commands {
+pub(crate) enum Commands {
     #[command()]
     Up(up::Up),
     #[command(visible_alias = "x")]
@@ -52,7 +52,7 @@ pub enum Commands {
 }
 
 /// Check that the workspace is safe to tear down (clean git, no active execs).
-pub fn safety_check(workspace: &Workspace, force: bool) -> eyre::Result<()> {
+pub(crate) fn safety_check(workspace: &Workspace, force: bool) -> eyre::Result<()> {
     if force {
         return Ok(());
     }
@@ -63,17 +63,17 @@ pub fn safety_check(workspace: &Workspace, force: bool) -> eyre::Result<()> {
             workspace.name
         );
     }
-    if !workspace.execs.is_empty() {
+    if workspace.execs > 0 {
         eyre::bail!(
             "workspace '{}' has {} active exec session(s) (use --force to override)",
             workspace.name,
-            workspace.execs.len()
+            workspace.execs
         );
     }
     Ok(())
 }
 
-pub fn confirm() -> eyre::Result<bool> {
+pub(crate) fn confirm() -> eyre::Result<bool> {
     eprint!("Proceed? [y/N] ");
     std::io::stderr().flush()?;
     let mut line = String::new();
@@ -82,7 +82,7 @@ pub fn confirm() -> eyre::Result<bool> {
 }
 
 impl Cli {
-    pub async fn run(self) -> eyre::Result<()> {
+    pub(crate) async fn run(self) -> eyre::Result<()> {
         let state = State::new(self.project).await?;
 
         match self.command {

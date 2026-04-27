@@ -4,9 +4,9 @@ use serde::de::{self, Unexpected};
 use serde::{Deserialize, Deserializer, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ForwardPort {
-    pub service: Option<String>,
-    pub port: u16,
+pub(crate) struct ForwardPort {
+    pub(crate) service: Option<String>,
+    pub(crate) port: u16,
 }
 
 impl fmt::Display for ForwardPort {

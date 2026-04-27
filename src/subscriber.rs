@@ -21,7 +21,7 @@ fn ts(time: &Zoned) -> String {
     time.strftime("%F %T").to_string()
 }
 
-pub fn init_subscriber() {
+pub(crate) fn init_subscriber() {
     let indicatif_layer = IndicatifLayer::new().with_progress_style(
         ProgressStyle::with_template("{span_child_prefix}{spinner} {elapsed} {msg}")
             .expect("invalid progress style template"),

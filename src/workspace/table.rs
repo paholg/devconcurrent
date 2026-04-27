@@ -81,10 +81,10 @@ fn ws_fields(ws: &Workspace) -> WsFields {
 
 fn ws_row(ws: &Workspace) -> Row {
     let f = ws_fields(ws);
-    let execs = if ws.execs.is_empty() {
+    let execs = if ws.execs == 0 {
         String::new()
     } else {
-        ws.execs.len().to_string()
+        ws.execs.to_string()
     };
     let dc = if ws.dc_managed { "\u{2713}" } else { "" };
     Row::new()
@@ -99,7 +99,7 @@ fn ws_row(ws: &Workspace) -> Row {
 }
 
 /// Full table with header row, for `list` output.
-pub fn workspace_table<'a>(workspaces: impl IntoIterator<Item = &'a Workspace>) -> Table {
+pub(crate) fn workspace_table<'a>(workspaces: impl IntoIterator<Item = &'a Workspace>) -> Table {
     let mut workspaces: Vec<_> = workspaces.into_iter().collect();
     workspaces.sort_by(|a, b| b.root.cmp(&a.root).then_with(|| a.name.cmp(&b.name)));
 

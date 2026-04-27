@@ -5,21 +5,21 @@ use eyre::eyre;
 use futures::future::try_join_all;
 
 use crate::docker::container_group::ContainerGroup;
-use crate::docker::{ContainerInfo, ExecSession, Stats};
+use crate::docker::{ContainerInfo, Stats};
 use crate::state::{DevcontainerState, State};
 
-pub mod git_status;
-pub mod table;
+pub(crate) mod git_status;
+pub(crate) mod table;
 
 #[derive(Debug)]
-pub struct WorkspaceMini {
-    pub name: String,
-    pub path: PathBuf,
-    pub root: bool,
+pub(crate) struct WorkspaceMini {
+    pub(crate) name: String,
+    pub(crate) path: PathBuf,
+    pub(crate) root: bool,
 }
 
 impl WorkspaceMini {
-    pub fn from_path(path: PathBuf, state: &State) -> Option<Self> {
+    pub(crate) fn from_path(path: PathBuf, state: &State) -> Option<Self> {
         let name = path.file_name()?.to_string_lossy().to_string();
         let root = state.is_root(&name);
 
@@ -28,7 +28,7 @@ impl WorkspaceMini {
 
     /// Match the devcontainer CLI convention: `{basename}_devcontainer`, lowercased,
     /// keeping only `[a-z0-9-_]`.
-    pub fn compose_project_name(&self) -> String {
+    pub(crate) fn compose_project_name(&self) -> String {
         let raw = format!("{}_devcontainer", self.name);
 
         raw.to_lowercase()
@@ -37,7 +37,7 @@ impl WorkspaceMini {
             .collect()
     }
 
-    pub fn docker_labels(&self, state: &State) -> Vec<String> {
+    pub(crate) fn docker_labels(&self, state: &State) -> Vec<String> {
         vec![
             format!("dev.devconcurrent.project={}", state.project_name),
             format!("dev.devconcurrent.workspace={}", self.name),
@@ -46,22 +46,21 @@ impl WorkspaceMini {
 }
 
 #[derive(Debug)]
-pub struct Workspace {
-    pub name: String,
-    pub path: PathBuf,
-    pub root: bool,
-    pub compose_project_name: String,
-    pub containers: Vec<ContainerInfo>,
-    pub git_status: git_status::GitStatus,
-    pub execs: Vec<ExecSession>,
-    pub stats: Stats,
-    pub fwd_ports: Vec<u16>,
-    pub docker_ports: Vec<u16>,
-    pub dc_managed: bool,
+pub(crate) struct Workspace {
+    pub(crate) name: String,
+    pub(crate) root: bool,
+    pub(crate) compose_project_name: String,
+    pub(crate) containers: Vec<ContainerInfo>,
+    pub(crate) git_status: git_status::GitStatus,
+    pub(crate) execs: usize,
+    pub(crate) stats: Stats,
+    pub(crate) fwd_ports: Vec<u16>,
+    pub(crate) docker_ports: Vec<u16>,
+    pub(crate) dc_managed: bool,
 }
 
 impl Workspace {
-    pub async fn get(
+    pub(crate) async fn get(
         state: &State,
         devcontainer: &DevcontainerState,
         name: &str,
@@ -98,7 +97,7 @@ impl Workspace {
         group.into_workspace(state, devcontainer, &fwd_ports).await
     }
 
-    pub async fn list(
+    pub(crate) async fn list(
         state: &State,
         devcontainer: &DevcontainerState,
     ) -> eyre::Result<Vec<Workspace>> {
@@ -110,7 +109,7 @@ impl Workspace {
         try_join_all(futures).await
     }
 
-    pub fn status(&self) -> ContainerSummaryStateEnum {
+    pub(crate) fn status(&self) -> ContainerSummaryStateEnum {
         self.containers
             .iter()
             .map(|c| c.state)
@@ -118,15 +117,15 @@ impl Workspace {
             .unwrap_or(ContainerSummaryStateEnum::EMPTY)
     }
 
-    pub fn created(&self) -> Option<i64> {
+    pub(crate) fn created(&self) -> Option<i64> {
         self.containers.iter().filter_map(|c| c.created).min()
     }
 
-    pub fn is_dirty(&self) -> bool {
+    pub(crate) fn is_dirty(&self) -> bool {
         self.git_status.is_dirty()
     }
 
-    pub fn service_container_id(&self) -> eyre::Result<&str> {
+    pub(crate) fn service_container_id(&self) -> eyre::Result<&str> {
         // FIXME: We need to find the correct service container.
         Ok(&self
             .containers

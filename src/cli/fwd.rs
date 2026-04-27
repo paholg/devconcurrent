@@ -15,7 +15,7 @@ const SOCAT_IMAGE: &str = "docker.io/alpine/socat:latest";
 
 /// Forward configured `forwardPorts` to a running workspace
 #[derive(Debug, Args)]
-pub struct Fwd {
+pub(crate) struct Fwd {
     /// Workspace name [default: current working directory]
     #[arg(short, long, add = ArgValueCompleter::new(complete_workspace))]
     workspace: Option<String>,
@@ -31,7 +31,7 @@ enum FwdCommands {
 }
 
 impl Fwd {
-    pub async fn run(self, state: State) -> eyre::Result<()> {
+    pub(crate) async fn run(self, state: State) -> eyre::Result<()> {
         let devcontainer = state.try_devcontainer()?;
         match self.command {
             Some(FwdCommands::Stop) => remove_sidecars(&state).await,
@@ -43,7 +43,7 @@ impl Fwd {
     }
 }
 
-pub async fn forward(
+pub(crate) async fn forward(
     state: &State,
     devcontainer: &DevcontainerState,
     workspace: &WorkspaceMini,
@@ -260,7 +260,7 @@ async fn ensure_image() -> eyre::Result<()> {
     Ok(())
 }
 
-pub async fn remove_sidecars(state: &State) -> eyre::Result<()> {
+pub(crate) async fn remove_sidecars(state: &State) -> eyre::Result<()> {
     let project = &state.project_name;
     let filter = "label=dev.devconcurrent.fwd=true".to_string();
     let filter2 = format!("label=dev.devconcurrent.project={project}");

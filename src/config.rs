@@ -7,33 +7,33 @@ use serde::Deserialize;
 use crate::helpers::{deserialize_shell_path, deserialize_shell_path_opt};
 
 #[derive(Debug, Deserialize)]
-pub struct Config {
+pub(crate) struct Config {
     #[serde(default)]
-    pub projects: IndexMap<String, Project>,
+    pub(crate) projects: IndexMap<String, Project>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct Project {
+pub(crate) struct Project {
     #[serde(deserialize_with = "deserialize_shell_path")]
-    pub path: PathBuf,
+    pub(crate) path: PathBuf,
     #[serde(default)]
-    pub environment: IndexMap<String, String>,
+    pub(crate) environment: IndexMap<String, String>,
     #[serde(default)]
-    pub volumes: Vec<String>,
+    pub(crate) volumes: Vec<String>,
     #[serde(default)]
-    pub exec: Exec,
+    pub(crate) exec: Exec,
     #[serde(default, deserialize_with = "deserialize_shell_path_opt")]
-    pub worktree_folder: Option<PathBuf>,
+    pub(crate) worktree_folder: Option<PathBuf>,
 }
 
 #[derive(Debug, Deserialize, Default)]
 #[serde(default)]
-pub struct Exec {
-    pub environment: IndexMap<String, String>,
+pub(crate) struct Exec {
+    pub(crate) environment: IndexMap<String, String>,
 }
 
 impl Config {
-    pub fn load() -> eyre::Result<Self> {
+    pub(crate) fn load() -> eyre::Result<Self> {
         let dirs = directories::ProjectDirs::from("", "", "devconcurrent")
             .ok_or_else(|| eyre::eyre!("could not determine config directory"))?;
         let path = dirs.config_dir().join("config.toml");
@@ -45,7 +45,7 @@ impl Config {
             .wrap_err_with(|| format!("failed to parse {}", path.display()))
     }
 
-    pub fn project(mut self, project_name: Option<String>) -> eyre::Result<(String, Project)> {
+    pub(crate) fn project(mut self, project_name: Option<String>) -> eyre::Result<(String, Project)> {
         let name = project_name.or_else(|| std::env::var("DC_PROJECT").ok());
         match name {
             Some(name) => self

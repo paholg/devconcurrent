@@ -13,7 +13,7 @@ use crate::workspace::Workspace;
 
 /// Exec into a running devcontainer
 #[derive(Debug, Args)]
-pub struct Exec {
+pub(crate) struct Exec {
     /// Workspace name [default: current working directory]
     #[arg(short, long, add = ArgValueCompleter::new(complete_workspace))]
     workspace: Option<String>,
@@ -24,7 +24,7 @@ pub struct Exec {
 }
 
 impl Exec {
-    pub async fn run(self, state: State) -> eyre::Result<()> {
+    pub(crate) async fn run(self, state: State) -> eyre::Result<()> {
         let workspace = state.resolve_workspace(self.workspace).await?;
         let devcontainer = state.try_devcontainer()?;
         let workspace_full = Workspace::get(&state, devcontainer, &workspace.name).await?;
@@ -34,14 +34,13 @@ impl Exec {
                 workspace.path.display()
             ));
         }
-        let devcontainer = state.try_devcontainer()?;
         let cid = workspace_full.service_container_id()?;
 
         exec_interactive(cid, &state, devcontainer, &self.cmd)
     }
 }
 
-pub fn exec_interactive(
+pub(crate) fn exec_interactive(
     container_id: &str,
     state: &State,
     devcontainer: &DevcontainerState,

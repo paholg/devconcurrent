@@ -5,36 +5,21 @@ use eyre::WrapErr;
 use tokio::process::Command;
 
 use crate::run::run_cmd;
+use crate::workspace::WorkspaceMini;
 
-pub async fn rev_parse_head(repo_path: &Path) -> eyre::Result<String> {
-    let output = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(repo_path)
-        .output()
-        .await?;
-    eyre::ensure!(output.status.success(), "git rev-parse HEAD failed");
-    Ok(String::from_utf8(output.stdout)?.trim().to_string())
-}
-
-pub async fn create(
-    repo_path: &Path,
-    workspace_dir: &Path,
-    name: &str,
+pub(crate) async fn create(
+    root_path: &Path,
+    workspace: &WorkspaceMini,
     detach: bool,
-) -> eyre::Result<PathBuf> {
-    if Path::new(name).file_name().is_none_or(|f| f != name) {
-        eyre::bail!("invalid workspace name: {name:?}");
-    }
+) -> eyre::Result<()> {
+    let repo = gix::open(root_path)
+        .wrap_err_with(|| format!("failed to open git repo at {}", root_path.display()))?;
 
-    let repo = gix::open(repo_path)
-        .wrap_err_with(|| format!("failed to open git repo at {}", repo_path.display()))?;
-
-    let worktree_path = workspace_dir.join(name);
-    let worktree_path_str = worktree_path.to_string_lossy();
-    if worktree_path.exists() {
+    let worktree_path_str = workspace.path.to_string_lossy();
+    if workspace.path.exists() {
         // Verify the existing directory is a worktree of the expected repo
         let worktree =
-            gix::open(&worktree_path).wrap_err("existing file or directory in the way")?;
+            gix::open(&workspace.path).wrap_err("existing file or directory in the way")?;
         let wt_common = worktree.common_dir().canonicalize()?;
         let repo_common = repo.common_dir().canonicalize()?;
         if wt_common != repo_common {
@@ -45,10 +30,10 @@ pub async fn create(
         if detach {
             args.push("--detach");
         }
-        run_cmd(&args, Some(repo_path)).await?;
+        run_cmd(&args, Some(root_path)).await?;
     }
 
-    Ok(worktree_path)
+    Ok(())
 }
 
 async fn worktree_list(repo_path: &Path) -> eyre::Result<Output> {
@@ -80,13 +65,13 @@ fn process_list(out: Output) -> eyre::Result<Vec<PathBuf>> {
         .collect())
 }
 
-pub async fn list(repo_path: &Path) -> eyre::Result<Vec<PathBuf>> {
+pub(crate) async fn list(repo_path: &Path) -> eyre::Result<Vec<PathBuf>> {
     let out = worktree_list(repo_path).await?;
     process_list(out)
 }
 
 /// A non-async worktree list for use in the completer.
-pub fn list_sync(repo_path: &Path) -> eyre::Result<Vec<PathBuf>> {
+pub(crate) fn list_sync(repo_path: &Path) -> eyre::Result<Vec<PathBuf>> {
     let out = worktree_list_sync(repo_path)?;
     process_list(out)
 }

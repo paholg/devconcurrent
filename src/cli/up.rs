@@ -11,10 +11,11 @@ use crate::complete::complete_workspace;
 use crate::docker::compose::{compose_cmd, compose_ps_q};
 use crate::run::Runner;
 use crate::run::cmd::NamedCmd;
+use crate::worktree;
 
 /// Bring up a workspace, creating it if it does not exist
 #[derive(Debug, Args)]
-pub struct Up {
+pub(crate) struct Up {
     /// Foward configured `forwardPorts` once up
     #[arg(short, long)]
     forward: bool,
@@ -33,7 +34,7 @@ pub struct Up {
 }
 
 impl Up {
-    pub async fn run(self, state: State) -> eyre::Result<()> {
+    pub(crate) async fn run(self, state: State) -> eyre::Result<()> {
         let workspace = state.resolve_workspace(self.workspace).await?;
         let devcontainer = state.try_devcontainer()?;
 
@@ -42,6 +43,10 @@ impl Up {
         let colored_name = name.cyan().to_string();
         let up = "up".cyan().to_string();
         let path = workspace.path.display().to_string();
+        if !workspace.root {
+            worktree::create(&state.project.path, &workspace, self.detach).await?;
+        }
+
         let description = &path;
         let message = format!(
             "Spinning up workspace {colored_name} from root {}",
@@ -59,8 +64,6 @@ impl Up {
         );
         span.pb_set_message(&pb_message);
         let _guard = span.enter();
-
-        // let base_compose_cmd = compose_cmd(&state, devcontainer, &workspace)?;
 
         // initializeCommand runs on the host, from the worktree
         if let Some(ref cmd) = devcontainer.config.common.initialize_command {

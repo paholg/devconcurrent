@@ -30,7 +30,7 @@ const BYTE_UNITS: [Unit; 6] = [
     Unit::new(E, "E", RED),
 ];
 
-pub fn format_bytes(bytes: u64) -> String {
+pub(crate) fn format_bytes(bytes: u64) -> String {
     let bytes = bytes as f32;
     let unit = BYTE_UNITS
         .iter()

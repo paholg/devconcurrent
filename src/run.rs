@@ -11,19 +11,19 @@ use tokio::io::AsyncBufReadExt;
 
 use crate::ansi::{BLUE, CYAN, GREEN, RESET, YELLOW};
 
-pub mod cmd;
-pub mod docker_exec;
+pub(crate) mod cmd;
+pub(crate) mod docker_exec;
 
 /// A token required to call `Runnable::run`.
 ///
 /// Can only be constructed by `Runner`. This is a simple tool to ensure we
 /// wrap our `Runnable`s in `Runner` handling.
-pub struct Token(());
+pub(crate) struct Token(());
 
 const TOK: Token = Token(());
 const LABEL_COLORS: &[SetForegroundColor] = &[YELLOW, GREEN, BLUE, CYAN];
 
-pub trait Runnable: Sync {
+pub(crate) trait Runnable: Sync {
     fn name(&self) -> Cow<'_, str>;
     fn description(&self) -> Cow<'_, str>;
     /// The entrypoint of a Runnable.
@@ -36,7 +36,7 @@ pub trait Runnable: Sync {
 
 /// A simple command runner to show a emit a tracing span and show a spinner for
 /// a running command or for several concurrent commands.
-pub struct Runner;
+pub(crate) struct Runner;
 
 fn run_span(name: &str, description: &str) -> Span {
     let name = name.magenta().to_string();
@@ -48,14 +48,14 @@ fn run_span(name: &str, description: &str) -> Span {
 }
 
 impl Runner {
-    pub async fn run<R: Runnable>(runnable: R) -> eyre::Result<()> {
+    pub(crate) async fn run<R: Runnable>(runnable: R) -> eyre::Result<()> {
         let span = run_span(&runnable.name(), &runnable.description());
         let ctx = runnable.name().into_owned();
 
         runnable.run(TOK).instrument(span).await.wrap_err(ctx)
     }
 
-    pub async fn run_parallel<R, I>(name: &str, runnables: I) -> eyre::Result<()>
+    pub(crate) async fn run_parallel<R, I>(name: &str, runnables: I) -> eyre::Result<()>
     where
         R: Runnable,
         I: IntoIterator<Item = R>,
@@ -98,7 +98,7 @@ impl Runner {
 
 /// Run the given command, capturing all of its output and printing it ourselves, so it plays nicely
 /// with our spinners.
-pub async fn run_command(mut cmd: tokio::process::Command) -> eyre::Result<()> {
+pub(crate) async fn run_command(mut cmd: tokio::process::Command) -> eyre::Result<()> {
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
 
@@ -136,7 +136,7 @@ pub async fn run_command(mut cmd: tokio::process::Command) -> eyre::Result<()> {
 }
 
 // TODO: Remove this
-pub async fn run_cmd(argv: &[&str], dir: Option<&std::path::Path>) -> eyre::Result<()> {
+pub(crate) async fn run_cmd(argv: &[&str], dir: Option<&std::path::Path>) -> eyre::Result<()> {
     let mut cmd = tokio::process::Command::new(argv[0]);
     cmd.args(&argv[1..]);
     if let Some(d) = dir {

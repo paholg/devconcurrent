@@ -4,19 +4,19 @@ use std::path::Path;
 use owo_colors::OwoColorize;
 
 #[derive(Debug, Default)]
-pub struct GitStatus {
-    pub ahead: usize,
-    pub behind: usize,
-    pub staged: usize,
-    pub modified: usize,
-    pub deleted: usize,
-    pub untracked: usize,
-    pub conflicted: usize,
-    pub renamed: usize,
+pub(crate) struct GitStatus {
+    pub(crate) ahead: usize,
+    pub(crate) behind: usize,
+    pub(crate) staged: usize,
+    pub(crate) modified: usize,
+    pub(crate) deleted: usize,
+    pub(crate) untracked: usize,
+    pub(crate) conflicted: usize,
+    pub(crate) renamed: usize,
 }
 
 impl GitStatus {
-    pub async fn fetch(path: &Path) -> eyre::Result<Self> {
+    pub(crate) async fn fetch(path: &Path) -> eyre::Result<Self> {
         if !path.exists() {
             return Ok(Self::default());
         }
@@ -24,7 +24,7 @@ impl GitStatus {
         tokio::task::spawn_blocking(move || fetch_sync(&path)).await?
     }
 
-    pub fn is_dirty(&self) -> bool {
+    pub(crate) fn is_dirty(&self) -> bool {
         self.staged + self.modified + self.deleted + self.untracked + self.conflicted + self.renamed
             > 0
     }

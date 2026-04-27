@@ -2,7 +2,6 @@ use std::path::PathBuf;
 
 use eyre::{Context, eyre};
 use serde_json::json;
-use tokio::process::Command;
 
 use crate::{
     state::{DevcontainerState, State},
@@ -15,7 +14,7 @@ fn override_path(state: &State, workspace: &WorkspaceMini) -> PathBuf {
         .join(format!("{}-override.yml", workspace.name))
 }
 
-pub fn remove_override_file(state: &State, workspace: &WorkspaceMini) {
+pub(crate) fn remove_override_file(state: &State, workspace: &WorkspaceMini) {
     let path = override_path(state, workspace);
 
     if path.exists()
@@ -26,7 +25,7 @@ pub fn remove_override_file(state: &State, workspace: &WorkspaceMini) {
 }
 
 /// Write the compose override and return docker compose base args.
-pub fn compose_cmd(
+pub(crate) fn compose_cmd(
     state: &State,
     devcontainer: &DevcontainerState,
     workspace: &WorkspaceMini,
@@ -35,7 +34,8 @@ pub fn compose_cmd(
 
     let mut cmd = tokio::process::Command::new("docker");
 
-    cmd.args(["compose", "-p"]).arg(&override_file_path);
+    cmd.args(["compose", "-p"])
+        .arg(&workspace.compose_project_name());
 
     for f in &devcontainer.compose().docker_compose_file {
         cmd.arg("-f")
@@ -46,7 +46,7 @@ pub fn compose_cmd(
     Ok(cmd)
 }
 
-pub async fn compose_ps_q(
+pub(crate) async fn compose_ps_q(
     state: &State,
     devcontainer: &DevcontainerState,
     workspace: &WorkspaceMini,
@@ -147,88 +147,4 @@ fn write_compose_override(
     std::fs::write(&override_path, content)
         .wrap_err_with(|| format!("failed to write {}", override_path.display()))?;
     Ok(override_path)
-}
-
-pub async fn docker(args: &[&str]) -> eyre::Result<()> {
-    let out = Command::new("docker").args(args).output().await?;
-    if !out.status.success() {
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        return Err(eyre!("docker {} failed: {}", args[0], stderr.trim()));
-    }
-    Ok(())
-}
-
-pub async fn remove_fwd_sidecars(compose_project: &str) -> eyre::Result<()> {
-    let filter = format!("label=dev.devconcurrent.workspace={compose_project}");
-
-    // Remove containers
-    let out = Command::new("docker")
-        .args(["ps", "-a", "-q", "--filter", &filter])
-        .output()
-        .await?;
-    let stdout = String::from_utf8(out.stdout)?;
-    let ids: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
-    if !ids.is_empty() {
-        let mut args = vec!["rm", "-f"];
-        args.extend(ids);
-        docker(&args).await?;
-    }
-
-    // Remove volumes
-    let out = Command::new("docker")
-        .args(["volume", "ls", "-q", "--filter", &filter])
-        .output()
-        .await?;
-    let stdout = String::from_utf8(out.stdout)?;
-    for vol in stdout.lines().filter(|l| !l.is_empty()) {
-        let _ = docker(&["volume", "rm", vol]).await;
-    }
-
-    Ok(())
-}
-
-pub async fn list_project_volumes(compose_project: &str) -> eyre::Result<Vec<String>> {
-    let filter = format!("label=com.docker.compose.project={compose_project}");
-    let out = Command::new("docker")
-        .args(["volume", "ls", "-q", "--filter", &filter])
-        .output()
-        .await?;
-    eyre::ensure!(out.status.success(), "docker volume ls failed");
-    let stdout = String::from_utf8(out.stdout)?;
-    Ok(stdout
-        .lines()
-        .filter(|l| !l.is_empty())
-        .map(String::from)
-        .collect())
-}
-
-pub async fn resolve_backing_volume(vol_name: &str) -> Option<String> {
-    let out = Command::new("docker")
-        .args([
-            "volume",
-            "inspect",
-            "--format",
-            "{{ index .Labels \"dev.devconcurrent.backing_volume\" }}",
-            vol_name,
-        ])
-        .output()
-        .await
-        .ok()?;
-    let label = String::from_utf8(out.stdout).ok()?.trim().to_string();
-    if label.is_empty() { None } else { Some(label) }
-}
-
-pub async fn volume_mountpoint(vol_name: &str) -> eyre::Result<String> {
-    let out = Command::new("docker")
-        .args([
-            "volume",
-            "inspect",
-            "--format",
-            "{{ .Mountpoint }}",
-            vol_name,
-        ])
-        .output()
-        .await?;
-    eyre::ensure!(out.status.success(), "docker volume inspect failed");
-    Ok(String::from_utf8(out.stdout)?.trim().to_string())
 }

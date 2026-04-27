@@ -12,7 +12,7 @@ fn is_completion_candidate(prefix: &str, candidate: &str) -> bool {
     candidate.starts_with(prefix) && candidate != prefix
 }
 
-pub fn complete_project(current: &OsStr) -> Vec<CompletionCandidate> {
+pub(crate) fn complete_project(current: &OsStr) -> Vec<CompletionCandidate> {
     let prefix = current.to_string_lossy();
     let Ok(config) = Config::load() else {
         return vec![];
@@ -26,7 +26,7 @@ pub fn complete_project(current: &OsStr) -> Vec<CompletionCandidate> {
         .collect()
 }
 
-pub fn complete_workspace(current: &OsStr) -> Vec<CompletionCandidate> {
+pub(crate) fn complete_workspace(current: &OsStr) -> Vec<CompletionCandidate> {
     complete_workspace_inner(current).unwrap()
 }
 
@@ -60,7 +60,7 @@ fn parse_project_arg() -> Option<String> {
 ///
 /// Extracts the already-typed compose args from the completion command line
 /// then delegates to docker's cobra-based completer.
-pub fn complete_compose(_current: &OsStr) -> Vec<CompletionCandidate> {
+pub(crate) fn complete_compose(_current: &OsStr) -> Vec<CompletionCandidate> {
     // NOTE: We ignore current as we already get it when parsing the args.
     complete_compose_inner().unwrap_or_default()
 }
@@ -105,7 +105,7 @@ fn compose_prior_args() -> eyre::Result<Vec<String>> {
 ///
 /// The wrapper intercepts `dc go` and `eval`s the output so the `cd` takes effect in the
 /// calling shell.
-pub fn shell_function(shell: &Shell, binary: &str) -> eyre::Result<String> {
+pub(crate) fn shell_function(shell: &Shell, binary: &str) -> eyre::Result<String> {
     let quoted = shlex::try_quote(binary)?;
     let function = match shell {
         Shell::Bash | Shell::Zsh => format!(

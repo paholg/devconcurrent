@@ -5,7 +5,7 @@ use crate::{cli::State, cli::fwd};
 
 /// Show some value
 #[derive(Debug, Args)]
-pub struct Show {
+pub(crate) struct Show {
     #[command(subcommand)]
     command: ShowCommands,
 }
@@ -25,7 +25,7 @@ struct Ports;
 struct ShowWorkspace;
 
 impl Show {
-    pub async fn run(self, state: State) -> eyre::Result<()> {
+    pub(crate) async fn run(self, state: State) -> eyre::Result<()> {
         match self.command {
             ShowCommands::Ports(ports) => ports.run(state).await,
             ShowCommands::Workspace(ws) => ws.run(state).await,

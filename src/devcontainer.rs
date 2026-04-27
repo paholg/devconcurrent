@@ -6,9 +6,9 @@ use serde::{Deserialize, Serialize};
 use serde_inline_default::serde_inline_default;
 use serde_with::{OneOrMany, serde_as};
 
-pub mod dc_options;
-pub mod forward_port;
-pub mod lifecycle_command;
+pub(crate) mod dc_options;
+pub(crate) mod forward_port;
+pub(crate) mod lifecycle_command;
 mod unsupported;
 
 use crate::devcontainer::{dc_options::DcOptions, forward_port::ForwardPort};
@@ -17,26 +17,16 @@ use unsupported::Unsupported;
 
 /// Devcontainer config from devcontainer.json.
 #[derive(Deserialize, Serialize, Clone, Debug)]
-pub struct DevcontainerConfig {
+pub(crate) struct DevcontainerConfig {
     #[serde(flatten)]
-    pub common: Common,
+    pub(crate) common: Common,
     #[serde(flatten)]
-    pub kind: Kind,
-}
-
-impl DevcontainerConfig {
-    pub fn compose(&self) -> &Compose {
-        match &self.kind {
-            Kind::Compose(compose) => compose,
-            // This is already handled during deserialize.
-            _ => unimplemented!(),
-        }
-    }
+    pub(crate) kind: Kind,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(untagged)]
-pub enum Kind {
+pub(crate) enum Kind {
     Compose(Compose),
     #[serde(deserialize_with = "unsupported::Image::error")]
     Image(Image),
@@ -64,7 +54,7 @@ impl DevcontainerConfig {
     /// mechanism for users to select one when appropriate.
     ///
     // TODO: Allow a user to select from multiple devcontainer.json files.
-    pub fn find_config(dir: &Path) -> Option<PathBuf> {
+    pub(crate) fn find_config(dir: &Path) -> Option<PathBuf> {
         let candidates = [
             dir.join(".devcontainer/devcontainer.json"),
             dir.join(".devcontainer.json"),
@@ -88,7 +78,7 @@ impl DevcontainerConfig {
     }
 
     /// Load the given path
-    pub fn load(path: &Path) -> eyre::Result<Self> {
+    pub(crate) fn load(path: &Path) -> eyre::Result<Self> {
         // serde's flatten messes with the ability to trace what failed; so we parse the individual
         // sections separately.
         let json = std::fs::read_to_string(path)
@@ -114,142 +104,142 @@ impl DevcontainerConfig {
 #[serde_as]
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct Compose {
+pub(crate) struct Compose {
     /// The name of the docker-compose file(s) used to start the services.
     #[serde_as(as = "OneOrMany<_>")]
-    pub docker_compose_file: Vec<String>,
+    pub(crate) docker_compose_file: Vec<String>,
     /// The service you want to work on. This is considered the primary container for your dev
     /// environment which your editor will connect to.
-    pub service: String,
+    pub(crate) service: String,
     /// An array of services that should be started and stopped.
     #[serde(default)]
-    pub run_services: Option<Vec<String>>,
+    pub(crate) run_services: Option<Vec<String>>,
     /// The path of the workspace folder inside the container. This is typically the target path of
     /// a volume mount in the docker-compose.yml.
-    pub workspace_folder: PathBuf,
+    pub(crate) workspace_folder: PathBuf,
     /// Action to take when the user disconnects from the primary container in their editor. The
     /// default is to stop all of the compose containers.
     #[serde(default)]
-    pub shutdown_action: ComposeShutdownAction,
+    pub(crate) shutdown_action: ComposeShutdownAction,
     /// Whether to overwrite the command specified in the image. The default is false.
     #[serde(default)]
-    pub override_command: bool,
+    pub(crate) override_command: bool,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase", default)]
-pub struct Image {
-    pub image: String,
+pub(crate) struct Image {
+    pub(crate) image: String,
 
     #[serde(flatten)]
-    pub non_compose: NonComposeProperties,
+    pub(crate) non_compose: NonComposeProperties,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase", default)]
-pub struct Dockerfile {
+pub(crate) struct Dockerfile {
     /// The location of the Dockerfile that defines the contents of the container. The path is
     /// relative to the folder containing the `devcontainer.json` file
-    pub docker_file: Option<PathBuf>,
+    pub(crate) docker_file: Option<PathBuf>,
     /// The location of the context folder for building the Docker image. The path is relative to
     /// the folder containing the `devcontainer.json` file."
-    pub context: Option<PathBuf>,
-    pub build: Option<BuildOptions>,
+    pub(crate) context: Option<PathBuf>,
+    pub(crate) build: Option<BuildOptions>,
 
     #[serde(flatten)]
-    pub non_compose: NonComposeProperties,
+    pub(crate) non_compose: NonComposeProperties,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase", default)]
-pub struct Common {
+pub(crate) struct Common {
     /// The JSON schema of the devcontainer.json file.
     #[serde(rename = "$schema")]
-    pub schema: Option<String>,
+    pub(crate) schema: Option<String>,
     /// A name for the dev container which can be displayed to the user.
-    pub name: Option<String>,
+    pub(crate) name: Option<String>,
     /// Features to add to the dev container.
     #[serde(deserialize_with = "unsupported::features::warn")]
-    pub features: serde_json::Value,
+    pub(crate) features: serde_json::Value,
     /// Array consisting of the Feature id (without the semantic version) of Features in the order
     /// the user wants them to be installed.
     #[serde(deserialize_with = "unsupported::overrideFeatureInstallOrder::warn")]
-    pub override_feature_install_order: Vec<String>,
+    pub(crate) override_feature_install_order: Vec<String>,
     #[serde(deserialize_with = "unsupported::secrets::warn")]
-    pub secrets: serde_json::Value,
-    pub forward_ports: Vec<ForwardPort>,
-    pub ports_attributes: IndexMap<String, PortAttributes>,
+    pub(crate) secrets: serde_json::Value,
+    pub(crate) forward_ports: Vec<ForwardPort>,
+    pub(crate) ports_attributes: IndexMap<String, PortAttributes>,
     /// Set default properties that are applied to all ports that don't get properties from the
     /// setting `remote.portsAttributes`
     #[serde(deserialize_with = "unsupported::otherPortsAttributes::warn")]
-    pub other_ports_attributes: Option<PortAttributes>,
+    pub(crate) other_ports_attributes: Option<PortAttributes>,
     /// Controls whether on Linux the container's user should be updated with the local user's UID
     /// and GID. On by default when opening from a local folder.
-    pub update_remote_user_uid: Option<bool>,
+    pub(crate) update_remote_user_uid: Option<bool>,
     /// Container environment variables.
-    pub container_env: IndexMap<String, String>,
+    pub(crate) container_env: IndexMap<String, String>,
     /// The user the container will be started with. The default is the user on the Docker image.
-    pub container_user: Option<String>,
+    pub(crate) container_user: Option<String>,
     #[serde(deserialize_with = "unsupported::mounts::warn")]
-    pub mounts: Vec<MountEntry>,
+    pub(crate) mounts: Vec<MountEntry>,
     /// Passes the --init flag when creating the dev container.
-    pub init: Option<bool>,
+    pub(crate) init: Option<bool>,
     /// Passes the --privileged flag when creating the dev container.
-    pub privileged: Option<bool>,
+    pub(crate) privileged: Option<bool>,
     /// Passes docker capabilities to include when creating the dev container.
-    pub cap_add: Vec<String>,
+    pub(crate) cap_add: Vec<String>,
     /// Passes docker security options to include when creating the dev container.
-    pub security_opt: Vec<String>,
+    pub(crate) security_opt: Vec<String>,
     /// Remote environment variables to set for processes spawned in the
     /// container including lifecycle scripts and any remote editor/IDE server
     /// process.
-    pub remote_env: IndexMap<String, Option<String>>,
+    pub(crate) remote_env: IndexMap<String, Option<String>>,
     /// The username to use for spawning processes in the container including
     /// lifecycle scripts and any remote editor/IDE server process. The default
     /// is the same user as the container.
-    pub remote_user: Option<String>,
+    pub(crate) remote_user: Option<String>,
 
     /// A command to run locally (i.e Your host machine, cloud VM) before anything else. This
     /// command is run before "onCreateCommand".
-    pub initialize_command: Option<LifecycleCommand>,
+    pub(crate) initialize_command: Option<LifecycleCommand>,
     /// A command to run when creating the container. This command is run after "initializeCommand"
     /// and before "updateContentCommand".
-    pub on_create_command: Option<LifecycleCommand>,
+    pub(crate) on_create_command: Option<LifecycleCommand>,
     /// A command to run when creating the container and rerun when the workspace content was
     /// updated while creating the container. This command is run after "onCreateCommand" and before
     /// "postCreateCommand".
-    pub update_content_command: Option<LifecycleCommand>,
+    pub(crate) update_content_command: Option<LifecycleCommand>,
     /// A command to run after creating the container. This command is run after
     /// "updateContentCommand" and before "postStartCommand".
-    pub post_create_command: Option<LifecycleCommand>,
+    pub(crate) post_create_command: Option<LifecycleCommand>,
     /// A command to run after starting the container. This command is run after "postCreateCommand"
     /// and before "postAttachCommand".
-    pub post_start_command: Option<LifecycleCommand>,
+    pub(crate) post_start_command: Option<LifecycleCommand>,
     /// A command to run when attaching to the container. This command is run after
     /// "postStartCommand".
-    pub post_attach_command: Option<LifecycleCommand>,
+    pub(crate) post_attach_command: Option<LifecycleCommand>,
     /// The user command to wait for before continuing execution in the background while the UI is
     /// starting up.
-    pub wait_for: WaitFor,
+    pub(crate) wait_for: WaitFor,
     /// User environment probe to run.
-    pub user_env_probe: UserEnvProbe,
+    pub(crate) user_env_probe: UserEnvProbe,
 
     /// Host hardware requirements.
-    pub host_requirements: Option<HostRequirements>,
+    pub(crate) host_requirements: Option<HostRequirements>,
     /// Tool-specific configuration. Each tool should use a JSON object subproperty with a unique
     /// name to group its customizations.
-    pub customizations: Customizations,
+    pub(crate) customizations: Customizations,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
-pub struct Customizations {
+pub(crate) struct Customizations {
     #[serde(default)]
-    pub devconcurrent: DcOptions,
+    pub(crate) devconcurrent: DcOptions,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(untagged)]
-pub enum Port {
+pub(crate) enum Port {
     Number(u16),
     String(String),
 }
@@ -258,48 +248,48 @@ pub enum Port {
 #[serde_inline_default]
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase", default)]
-pub struct NonComposeProperties {
+pub(crate) struct NonComposeProperties {
     /// Application ports that are exposed by the container. This can be a single port or an array
     /// of ports. Each port can be a number or a string. A number is mapped to the same port on the
     /// host. A string is passed to Docker unchanged and can be used to map ports differently, e.g.
     /// "8000:8010".
     #[serde_as(as = "OneOrMany<_>")]
-    pub app_port: Vec<Port>,
+    pub(crate) app_port: Vec<Port>,
     /// The arguments required when starting in the container.
-    pub run_args: Vec<String>,
+    pub(crate) run_args: Vec<String>,
     /// Action to take when the user disconnects from the container in their editor. The default is
     /// to stop the container.
-    pub shutdown_action: NonComposeShutdownAction,
+    pub(crate) shutdown_action: NonComposeShutdownAction,
     /// Whether to overwrite the command specified in the image. The default is true.
     #[serde_inline_default(true)]
-    pub override_command: bool,
+    pub(crate) override_command: bool,
     /// The path of the workspace folder inside the container.
-    pub workspace_folder: Option<PathBuf>,
+    pub(crate) workspace_folder: Option<PathBuf>,
     /// The --mount parameter for docker run. The default is to mount the project folder at
     /// /workspaces/$project.
-    pub workspace_mount: Option<PathBuf>,
+    pub(crate) workspace_mount: Option<PathBuf>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(untagged)]
-pub enum MountEntry {
+pub(crate) enum MountEntry {
     String(String),
     Object(Mount),
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct Mount {
+pub(crate) struct Mount {
     #[serde(rename = "type")]
-    pub ty: MountType,
+    pub(crate) ty: MountType,
     #[serde(default)]
-    pub source: Option<String>,
-    pub target: String,
+    pub(crate) source: Option<String>,
+    pub(crate) target: String,
 }
 
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub enum MountType {
+pub(crate) enum MountType {
     Bind,
     Volume,
 }
@@ -307,31 +297,31 @@ pub enum MountType {
 #[serde_as]
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase", default)]
-pub struct BuildOptions {
-    pub target: Option<String>,
-    pub args: IndexMap<String, String>,
+pub(crate) struct BuildOptions {
+    pub(crate) target: Option<String>,
+    pub(crate) args: IndexMap<String, String>,
     #[serde_as(as = "OneOrMany<_>")]
-    pub cache_from: Vec<String>,
-    pub options: Vec<String>,
+    pub(crate) cache_from: Vec<String>,
+    pub(crate) options: Vec<String>,
 }
 
 #[serde_inline_default]
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase", default)]
-pub struct HostRequirements {
+pub(crate) struct HostRequirements {
     /// Number of required CPUs. Minimum 1.
     #[serde_inline_default(1)]
-    pub cpus: u64,
+    pub(crate) cpus: u64,
     /// Amount of required RAM in bytes. Supports units tb, gb, mb and kb.
-    pub memory: Option<String>,
+    pub(crate) memory: Option<String>,
     /// Amount of required RAM in bytes. Supports units tb, gb, mb and kb.
-    pub storage: Option<String>,
-    pub gpu: GpuRequirement,
+    pub(crate) storage: Option<String>,
+    pub(crate) gpu: GpuRequirement,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(untagged)]
-pub enum GpuRequirement {
+pub(crate) enum GpuRequirement {
     Bool(bool),
     String(GpuOptional),
     Object {
@@ -344,7 +334,7 @@ pub enum GpuRequirement {
 
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub enum GpuOptional {
+pub(crate) enum GpuOptional {
     Optional,
 }
 
@@ -357,22 +347,22 @@ impl Default for GpuRequirement {
 #[serde_inline_default]
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct PortAttributes {
+pub(crate) struct PortAttributes {
     #[serde(default)]
-    pub on_auto_forward: OnAutoForward,
+    pub(crate) on_auto_forward: OnAutoForward,
     #[serde(default)]
-    pub elevate_if_needed: bool,
+    pub(crate) elevate_if_needed: bool,
     #[serde_inline_default(String::from("Application"))]
-    pub label: String,
+    pub(crate) label: String,
     #[serde(default)]
-    pub protocol: Protocol,
+    pub(crate) protocol: Protocol,
     #[serde(default)]
-    pub require_local_port: bool,
+    pub(crate) require_local_port: bool,
 }
 
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
-pub enum Protocol {
+pub(crate) enum Protocol {
     #[default]
     Http,
     Https,
@@ -380,7 +370,7 @@ pub enum Protocol {
 
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
-pub enum OnAutoForward {
+pub(crate) enum OnAutoForward {
     #[default]
     Notify,
     OpenBrowser,
@@ -392,7 +382,7 @@ pub enum OnAutoForward {
 
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
-pub enum UserEnvProbe {
+pub(crate) enum UserEnvProbe {
     None,
     LoginShell,
     #[default]
@@ -402,7 +392,7 @@ pub enum UserEnvProbe {
 
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
-pub enum WaitFor {
+pub(crate) enum WaitFor {
     InitializeCommand,
     OnCreateCommand,
     #[default]
@@ -413,7 +403,7 @@ pub enum WaitFor {
 
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
-pub enum ComposeShutdownAction {
+pub(crate) enum ComposeShutdownAction {
     None,
     #[default]
     StopCompose,
@@ -421,7 +411,7 @@ pub enum ComposeShutdownAction {
 
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
-pub enum NonComposeShutdownAction {
+pub(crate) enum NonComposeShutdownAction {
     None,
     #[default]
     StopContainer,

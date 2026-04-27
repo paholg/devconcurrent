@@ -10,13 +10,13 @@ use crate::{
 };
 
 /// Group of containers by worktree path
-pub struct ContainerGroup {
-    pub path: PathBuf,
-    pub containers: Vec<ContainerInfo>,
+pub(crate) struct ContainerGroup {
+    pub(crate) path: PathBuf,
+    pub(crate) containers: Vec<ContainerInfo>,
 }
 
 impl ContainerGroup {
-    pub async fn list(
+    pub(crate) async fn list(
         state: &State,
         devcontainer: &DevcontainerState,
     ) -> eyre::Result<(Vec<Self>, HashMap<String, Vec<u16>>)> {
@@ -59,7 +59,7 @@ impl ContainerGroup {
         Ok((groups.into_values().collect(), fwd_ports))
     }
 
-    pub async fn into_workspace(
+    pub(crate) async fn into_workspace(
         self,
         state: &State,
         devcontainer: &DevcontainerState,
@@ -79,7 +79,7 @@ impl ContainerGroup {
         let (git_status, execs, stats) =
             tokio::try_join!(git_future, execs_futures, stats_futures)?;
 
-        let execs = execs.into_iter().flatten().collect();
+        let execs = execs.into_iter().sum();
         let stats = stats.into_iter().sum();
 
         let root = self.path == state.project.path;
@@ -112,7 +112,6 @@ impl ContainerGroup {
 
         Ok(Workspace {
             compose_project_name,
-            path: self.path,
             name,
             root,
             containers: self.containers,

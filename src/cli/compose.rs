@@ -9,18 +9,18 @@ use crate::docker::compose::compose_cmd;
 
 /// Run `docker compose` against the given workspace
 #[derive(Debug, Args)]
-pub struct Compose {
+pub(crate) struct Compose {
     /// Workspace name [default: current working directory]
     #[arg(short, long, add = ArgValueCompleter::new(complete_workspace))]
     workspace: Option<String>,
 
     /// Arguments to provide to `docker compose`
     #[arg(trailing_var_arg = true, allow_hyphen_values = true, add = ArgValueCompleter::new(complete::complete_compose))]
-    pub args: Vec<String>,
+    pub(crate) args: Vec<String>,
 }
 
 impl Compose {
-    pub async fn run(self, state: State) -> eyre::Result<()> {
+    pub(crate) async fn run(self, state: State) -> eyre::Result<()> {
         let devcontainer = state.try_devcontainer()?;
         let workspace = state.resolve_workspace(self.workspace).await?;
 

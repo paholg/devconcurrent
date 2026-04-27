@@ -6,13 +6,13 @@ use indexmap::IndexMap;
 use crate::run;
 use crate::run::cmd::Cmd;
 
-pub struct DockerExec<'a> {
-    pub name: &'a str,
-    pub container: &'a str,
-    pub cmd: &'a Cmd,
-    pub user: Option<&'a str>,
-    pub workdir: Option<&'a Path>,
-    pub env: &'a IndexMap<String, Option<String>>,
+pub(crate) struct DockerExec<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) container: &'a str,
+    pub(crate) cmd: &'a Cmd,
+    pub(crate) user: Option<&'a str>,
+    pub(crate) workdir: Option<&'a Path>,
+    pub(crate) env: &'a IndexMap<String, Option<String>>,
 }
 
 impl run::Runnable for DockerExec<'_> {

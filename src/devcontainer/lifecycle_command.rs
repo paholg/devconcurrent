@@ -9,13 +9,13 @@ use crate::run::docker_exec::DockerExec;
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(untagged)]
-pub enum LifecycleCommand {
+pub(crate) enum LifecycleCommand {
     Single(Cmd),
     Parallel(IndexMap<String, Cmd>),
 }
 
 impl LifecycleCommand {
-    pub async fn run_on_host(&self, name: &str, dir: Option<&Path>) -> eyre::Result<()> {
+    pub(crate) async fn run_on_host(&self, name: &str, dir: Option<&Path>) -> eyre::Result<()> {
         match self {
             LifecycleCommand::Single(cmd) => {
                 let cmd = NamedCmd { name, cmd, dir };
@@ -33,7 +33,7 @@ impl LifecycleCommand {
         }
     }
 
-    pub async fn run_in_container(
+    pub(crate) async fn run_in_container(
         &self,
         name: &str,
         container: &str,
