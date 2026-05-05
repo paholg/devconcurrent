@@ -219,6 +219,49 @@ impl DockerClient {
         Ok(ports)
     }
 
+    /// Return (compose_service, ip_address) for every compose container in this workspace's
+    /// project. Containers without a service label or without an IP are omitted.
+    pub(crate) async fn workspace_compose_ips(
+        &self,
+        workspace: &Workspace<'_>,
+    ) -> eyre::Result<Vec<(String, String)>> {
+        let label_filter = format!(
+            "com.docker.compose.project={}",
+            workspace.compose_project_name()
+        );
+        let containers = self
+            .docker
+            .list_containers(Some(ListContainersOptions {
+                all: true,
+                filters: Some(HashMap::from([("label".to_string(), vec![label_filter])])),
+                ..Default::default()
+            }))
+            .await?;
+
+        let mut result = Vec::new();
+        for c in containers {
+            let service = c
+                .labels
+                .as_ref()
+                .and_then(|l| l.get("com.docker.compose.service").cloned());
+            let ip = c
+                .network_settings
+                .as_ref()
+                .and_then(|ns| ns.networks.as_ref())
+                .and_then(|nets| {
+                    nets.values()
+                        .filter_map(|ep| ep.ip_address.as_deref())
+                        .find(|ip| !ip.is_empty())
+                        .map(str::to_string)
+                });
+            if let (Some(service), Some(ip)) = (service, ip) {
+                result.push((service, ip));
+            }
+        }
+        result.sort();
+        Ok(result)
+    }
+
     pub(crate) async fn execs(&self, container_id: &str) -> eyre::Result<usize> {
         let info = self
             .docker
