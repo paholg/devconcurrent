@@ -124,8 +124,11 @@ dc() {{
             r#"
 function dc --wraps {quoted}
     set -lx DC_SHELL_FD 3
-    set -l cmds (begin; {quoted} $argv 3>&1 >&4; end 4>&1)
+    set -l tmp (mktemp)
+    {quoted} $argv 3>$tmp
     set -l rc $status
+    set -l cmds (cat $tmp)
+    rm -f $tmp
     test -n "$cmds"
     and eval $cmds
     return $rc

@@ -11,7 +11,6 @@ use serde::Deserialize;
 pub(crate) fn forward_to_shell(command: &str) -> eyre::Result<()> {
     if let Ok(fd) = std::env::var("DC_SHELL_FD") {
         let mut f = std::fs::OpenOptions::new()
-            .write(true)
             .append(true)
             .open(format!("/dev/fd/{fd}"))?;
         writeln!(f, "{command}")?;

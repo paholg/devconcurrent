@@ -62,13 +62,13 @@ impl Config {
         let repo_root = std::env::current_dir()
             .ok()
             .and_then(|cwd| repo_root_for(&cwd));
-        if let Some(root) = repo_root {
-            if let Some(name) = self.project_name_for_repo_root(&root)? {
-                return Ok(self
-                    .projects
-                    .swap_remove_entry(&name)
-                    .expect("we just found this project"));
-            }
+        if let Some(root) = repo_root
+            && let Some(name) = self.project_name_for_repo_root(&root)?
+        {
+            return Ok(self
+                .projects
+                .swap_remove_entry(&name)
+                .expect("we just found this project"));
         }
 
         self.projects
