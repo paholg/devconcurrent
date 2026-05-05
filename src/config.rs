@@ -53,19 +53,52 @@ impl Config {
         mut self,
         project_name: Option<String>,
     ) -> eyre::Result<(String, Project)> {
-        let name = project_name.or_else(|| std::env::var("DC_PROJECT").ok());
-        match name {
-            Some(name) => self
+        if let Some(name) = project_name.or_else(|| std::env::var("DC_PROJECT").ok()) {
+            return self
                 .projects
                 .swap_remove_entry(&name)
-                .ok_or_else(|| eyre!("no project configured with name: {name:?}")),
-            None => self
-                .projects
-                .into_iter()
-                .next()
-                .ok_or_else(|| eyre!("no projects configured")),
+                .ok_or_else(|| eyre!("no project configured with name: {name:?}"));
         }
+        let repo_root = std::env::current_dir()
+            .ok()
+            .and_then(|cwd| repo_root_for(&cwd));
+        if let Some(root) = repo_root {
+            if let Some(name) = self.project_name_for_repo_root(&root)? {
+                return Ok(self
+                    .projects
+                    .swap_remove_entry(&name)
+                    .expect("we just found this project"));
+            }
+        }
+
+        self.projects
+            .into_iter()
+            .next()
+            .ok_or_else(|| eyre!("no projects configured"))
     }
+
+    fn project_name_for_repo_root(&self, repo_root: &Path) -> eyre::Result<Option<String>> {
+        let canonical_root = repo_root.canonicalize()?;
+        let name = self
+            .projects
+            .iter()
+            .find(|(_, p)| {
+                p.path == canonical_root
+                    || p.path
+                        .canonicalize()
+                        .map(|p| p == canonical_root)
+                        .unwrap_or(false)
+            })
+            .map(|(name, _)| name.clone());
+
+        Ok(name)
+    }
+}
+
+fn repo_root_for(cwd: &Path) -> Option<PathBuf> {
+    let repo = gix::discover(cwd).ok()?;
+    let main = repo.main_repo().ok()?;
+    main.workdir().map(Path::to_path_buf)
 }
 
 #[cfg(test)]
