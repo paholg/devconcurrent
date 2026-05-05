@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use eyre::{WrapErr, eyre};
 use indexmap::IndexMap;
@@ -37,11 +37,15 @@ impl Config {
         let dirs = directories::ProjectDirs::from("", "", "devconcurrent")
             .ok_or_else(|| eyre::eyre!("could not determine config directory"))?;
         let path = dirs.config_dir().join("config.toml");
-        let cfg = config::Config::builder()
-            .add_source(config::File::from(path.clone()))
-            .build()
+        Self::load_from_path(&path)
+    }
+
+    pub(crate) fn load_from_path(path: &Path) -> eyre::Result<Self> {
+        let contents = std::fs::read_to_string(path)
             .wrap_err_with(|| format!("failed to load {}", path.display()))?;
-        serde_path_to_error::deserialize(cfg)
+        let de = toml::Deserializer::parse(&contents)
+            .wrap_err_with(|| format!("failed to parse {}", path.display()))?;
+        serde_path_to_error::deserialize(de)
             .wrap_err_with(|| format!("failed to parse {}", path.display()))
     }
 
@@ -60,6 +64,38 @@ impl Config {
                 .into_iter()
                 .next()
                 .ok_or_else(|| eyre!("no projects configured")),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+
+    use super::*;
+
+    #[test]
+    fn project_order_is_stable() {
+        let names = [
+            "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india",
+            "juliet", "kilo", "lima",
+        ];
+        let mut toml = String::new();
+        for name in names {
+            toml.push_str(&format!("[projects.{name}]\npath = \"/tmp/{name}\"\n\n"));
+        }
+
+        let mut file = tempfile::Builder::new().suffix(".toml").tempfile().unwrap();
+        file.write_all(toml.as_bytes()).unwrap();
+
+        let first = Config::load_from_path(file.path()).unwrap();
+        let expected: Vec<&str> = first.projects.keys().map(String::as_str).collect();
+        assert_eq!(expected, names);
+
+        for i in 0..50 {
+            let cfg = Config::load_from_path(file.path()).unwrap();
+            let got: Vec<&str> = cfg.projects.keys().map(String::as_str).collect();
+            assert_eq!(got, expected, "project order changed on iteration {i}");
         }
     }
 }
