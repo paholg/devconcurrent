@@ -101,34 +101,34 @@ fn compose_prior_args() -> eyre::Result<Vec<String>> {
     Ok(compose.args)
 }
 
-/// Return a shell wrapper function for `dc go`.
+/// Return a shell wrapper function for `dc`.
 ///
-/// The wrapper intercepts `dc go` and `eval`s the output so the `cd` takes effect in the
-/// calling shell.
+/// The wrapper exposes FD 3 to the binary (advertised via DC_SHELL_FD); any
+/// shell command the binary writes there is `eval`ed in the calling shell.
+/// This lets subcommands like `go` cause a `cd` to take effect, without the
+/// wrapper needing to know which subcommands do what.
 pub(crate) fn shell_function(shell: &Shell, binary: &str) -> eyre::Result<String> {
     let quoted = shlex::try_quote(binary)?;
     let function = match shell {
         Shell::Bash | Shell::Zsh => format!(
             r#"
 dc() {{
-    if [ "$1" = "go" ]; then
-        local result
-        result="$({quoted} "$@")" && eval "$result"
-    else
-        {quoted} "$@"
-    fi
+    local cmds rc
+    {{ cmds=$(DC_SHELL_FD=3 {quoted} "$@" 3>&1 1>&4); rc=$?; }} 4>&1
+    [ -n "$cmds" ] && eval "$cmds"
+    return $rc
 }}
 "#
         ),
         Shell::Fish => format!(
             r#"
 function dc --wraps {quoted}
-    if test "$argv[1]" = "go"
-        set -l result ({quoted} $argv)
-        and eval "$result"
-    else
-        {quoted} $argv
-    end
+    set -lx DC_SHELL_FD 3
+    set -l cmds (begin; {quoted} $argv 3>&1 >&4; end 4>&1)
+    set -l rc $status
+    test -n "$cmds"
+    and eval $cmds
+    return $rc
 end
 "#
         ),

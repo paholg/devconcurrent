@@ -3,6 +3,7 @@ use clap_complete::engine::ArgValueCompleter;
 
 use crate::cli::State;
 use crate::complete::complete_workspace;
+use crate::helpers::forward_to_shell;
 
 /// Cd into the workspace directory (only if using via shell wrapper).
 #[derive(Debug, Args)]
@@ -17,7 +18,6 @@ impl Go {
         let ws = state.resolve_workspace(Some(self.workspace)).await?;
         let path = ws.path.to_string_lossy();
         let quoted = shlex::try_quote(&path)?;
-        println!("cd {quoted}");
-        Ok(())
+        forward_to_shell(&format!("cd {quoted}"))
     }
 }
