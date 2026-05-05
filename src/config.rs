@@ -110,8 +110,7 @@ mod tests {
     #[test]
     fn project_order_is_stable() {
         let names = [
-            "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india",
-            "juliet", "kilo", "lima",
+            "zebra", "alpha", "mike", "bravo", "yankee", "charlie", "xray", "delta",
         ];
         let mut toml = String::new();
         for name in names {
