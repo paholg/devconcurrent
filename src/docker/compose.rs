@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use eyre::{Context, eyre};
 use serde_json::json;
 
+use crate::devcontainer::substitution;
 use crate::{state::DevcontainerState, workspace::Workspace};
 
 fn override_path(workspace: &Workspace) -> PathBuf {
@@ -83,11 +84,13 @@ fn write_compose_override(
 
     let common = &devcontainer.config.common;
     let mut env = workspace.state.project.environment.clone();
+    let context =
+        substitution::Context::new(&workspace.path, &devcontainer.compose().workspace_folder);
     env.extend(
         common
             .container_env
             .iter()
-            .map(|(k, v)| (k.clone(), v.clone())),
+            .map(|(k, v)| (k.clone(), v.render(&context))),
     );
     if !env.is_empty() {
         service_obj["environment"] = json!(env);

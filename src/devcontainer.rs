@@ -9,9 +9,12 @@ use serde_with::{OneOrMany, serde_as};
 pub(crate) mod dc_options;
 pub(crate) mod forward_port;
 pub(crate) mod lifecycle_command;
+pub(crate) mod substitution;
 mod unsupported;
 
-use crate::devcontainer::{dc_options::DcOptions, forward_port::ForwardPort};
+use crate::devcontainer::{
+    dc_options::DcOptions, forward_port::ForwardPort, substitution::Template,
+};
 use lifecycle_command::LifecycleCommand;
 use unsupported::Unsupported;
 
@@ -177,7 +180,7 @@ pub(crate) struct Common {
     /// and GID. On by default when opening from a local folder.
     pub(crate) update_remote_user_uid: Option<bool>,
     /// Container environment variables.
-    pub(crate) container_env: IndexMap<String, String>,
+    pub(crate) container_env: IndexMap<String, Template>,
     /// The user the container will be started with. The default is the user on the Docker image.
     pub(crate) container_user: Option<String>,
     #[serde(deserialize_with = "unsupported::mounts::warn")]
@@ -193,7 +196,7 @@ pub(crate) struct Common {
     /// Remote environment variables to set for processes spawned in the
     /// container including lifecycle scripts and any remote editor/IDE server
     /// process.
-    pub(crate) remote_env: IndexMap<String, Option<String>>,
+    pub(crate) remote_env: IndexMap<String, Option<Template>>,
     /// The username to use for spawning processes in the container including
     /// lifecycle scripts and any remote editor/IDE server process. The default
     /// is the same user as the container.

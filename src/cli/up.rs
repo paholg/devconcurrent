@@ -1,6 +1,7 @@
 use clap::Args;
 use clap_complete::ArgValueCompleter;
 use color_eyre::owo_colors::OwoColorize;
+use indexmap::IndexMap;
 use tracing::info_span;
 use tracing_indicatif::span_ext::IndicatifSpanExt;
 
@@ -8,6 +9,7 @@ use crate::cli::State;
 use crate::cli::exec::exec_interactive;
 use crate::cli::fwd::forward;
 use crate::complete::complete_workspace;
+use crate::devcontainer::substitution;
 use crate::docker::compose::{compose_cmd, compose_ps_q};
 use crate::run::Runner;
 use crate::run::cmd::NamedCmd;
@@ -99,7 +101,17 @@ impl Up {
         let container_id = compose_ps_q(devcontainer, &workspace).await?;
         let user = devcontainer.config.common.remote_user.as_deref();
         let workdir = Some(compose_config.workspace_folder.as_path());
-        let remote_env = &devcontainer.config.common.remote_env;
+
+        let subst_ctx =
+            substitution::Context::new(&workspace.path, &compose_config.workspace_folder);
+        let rendered_remote_env: IndexMap<String, Option<String>> = devcontainer
+            .config
+            .common
+            .remote_env
+            .iter()
+            .map(|(k, v)| (k.clone(), v.as_ref().map(|t| t.render(&subst_ctx))))
+            .collect();
+        let remote_env = &rendered_remote_env;
 
         // Lifecycle commands: create-only commands run only on first creation
         // For now, though, we always recreate.
@@ -139,7 +151,13 @@ impl Up {
 
         // Interactive exec if requested
         if let Some(cmd_args) = self.exec {
-            exec_interactive(&container_id, &state, devcontainer, &cmd_args)?;
+            exec_interactive(
+                &container_id,
+                &state,
+                devcontainer,
+                &workspace.path,
+                &cmd_args,
+            )?;
         }
 
         Ok(())

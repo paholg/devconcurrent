@@ -1,5 +1,6 @@
 use std::io::IsTerminal;
 use std::os::unix::process::CommandExt;
+use std::path::Path;
 
 use bollard::plugin::ContainerSummaryStateEnum;
 use clap::Args;
@@ -8,6 +9,7 @@ use eyre::eyre;
 
 use crate::cli::State;
 use crate::complete::complete_workspace;
+use crate::devcontainer::substitution;
 use crate::state::DevcontainerState;
 
 /// Exec into a running devcontainer
@@ -35,7 +37,7 @@ impl Exec {
         }
         let cid = workspace_full.service_container_id()?;
 
-        exec_interactive(cid, &state, devcontainer, &self.cmd)
+        exec_interactive(cid, &state, devcontainer, &workspace.path, &self.cmd)
     }
 }
 
@@ -43,6 +45,7 @@ pub(crate) fn exec_interactive(
     container_id: &str,
     state: &State,
     devcontainer: &DevcontainerState,
+    local_workspace_folder: &Path,
     cmd_args: &[String],
 ) -> eyre::Result<()> {
     let mut cmd = std::process::Command::new("docker");
@@ -57,6 +60,17 @@ pub(crate) fn exec_interactive(
         cmd.args(["-u", u]);
     }
     cmd.arg("-w").arg(&devcontainer.compose().workspace_folder);
+
+    let ctx = substitution::Context::new(
+        local_workspace_folder,
+        &devcontainer.compose().workspace_folder,
+    );
+    for (k, v) in &devcontainer.config.common.remote_env {
+        if let Some(template) = v {
+            cmd.arg("-e").arg(format!("{k}={}", template.render(&ctx)));
+        }
+        // null in remoteEnv means "unset"; with docker exec there's nothing to unset, so skip.
+    }
 
     for (k, v) in &state.project.exec.environment {
         let expanded = shellexpand::env(v)?;
