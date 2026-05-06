@@ -23,6 +23,8 @@ use winnow::{
     token::{literal, take_till, take_while},
 };
 
+use crate::docker::probe::ContainerData;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Variable {
     LocalEnv {
@@ -46,15 +48,12 @@ pub(crate) enum Segment {
     Var(Variable),
 }
 
-/// `container_env` and `devcontainer_id` are optional because they're not always known when
-/// rendering runs (e.g. before the container is up, or before id labels are computed).
 #[derive(Debug, Clone)]
 pub(crate) struct Context<'a> {
     local_env: IndexMap<String, String>,
     local_workspace_folder: &'a Path,
     container_workspace_folder: &'a Path,
-    container_env: Option<&'a IndexMap<String, String>>,
-    devcontainer_id: Option<&'a str>,
+    container: Option<ContainerData>,
 }
 
 impl<'a> Context<'a> {
@@ -66,29 +65,24 @@ impl<'a> Context<'a> {
             local_env: std::env::vars().collect(),
             local_workspace_folder,
             container_workspace_folder,
-            container_env: None,
-            devcontainer_id: None,
+            container: None,
         }
     }
 
-    #[allow(unused)]
-    pub(crate) fn with_container_env(
-        mut self,
-        container_env: &'a IndexMap<String, String>,
-    ) -> Self {
-        self.container_env = Some(container_env);
-        self
-    }
-
-    #[allow(unused)]
-    pub(crate) fn with_devcontainer_id(mut self, devcontainer_id: &'a str) -> Self {
-        self.devcontainer_id = Some(devcontainer_id);
-        self
+    pub(crate) async fn with_container(mut self, container_id: &str) -> eyre::Result<Self> {
+        self.container = Some(ContainerData::inspect(container_id).await?);
+        Ok(self)
     }
 
     #[cfg(test)]
     fn with_local_env(mut self, local_env: IndexMap<String, String>) -> Self {
         self.local_env = local_env;
+        self
+    }
+
+    #[cfg(test)]
+    fn with_container_data(mut self, container: ContainerData) -> Self {
+        self.container = Some(container);
         self
     }
 }
@@ -160,12 +154,12 @@ impl Template {
             .expect("template parser should be infallible")
     }
 
-    pub(crate) fn render(&self, ctx: &Context<'_>) -> String {
+    pub(crate) fn render(&self, context: &Context<'_>) -> String {
         let mut out = String::new();
-        for seg in &self.0 {
-            match seg {
-                Segment::Literal(s) => out.push_str(s),
-                Segment::Var(v) => out.push_str(&v.evaluate(ctx)),
+        for segment in &self.0 {
+            match segment {
+                Segment::Literal(text) => out.push_str(text),
+                Segment::Var(variable) => out.push_str(&variable.evaluate(context)),
             }
         }
         out
@@ -173,43 +167,45 @@ impl Template {
 }
 
 impl Variable {
-    fn evaluate(&self, ctx: &Context<'_>) -> String {
+    fn evaluate(&self, context: &Context<'_>) -> String {
+        let basename = |path: &Path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        };
         match self {
             Variable::LocalEnv { name, default } => {
-                env_lookup(Some(&ctx.local_env), name, default.as_deref())
+                env_lookup(&context.local_env, name, default.as_deref())
             }
-            Variable::ContainerEnv { name, default } => {
-                env_lookup(ctx.container_env, name, default.as_deref())
-            }
+            Variable::ContainerEnv { name, default } => match &context.container {
+                Some(container) => env_lookup(&container.env, name, default.as_deref()),
+                None => default.clone().unwrap_or_default(),
+            },
             Variable::LocalWorkspaceFolder => {
-                ctx.local_workspace_folder.to_string_lossy().into_owned()
+                context.local_workspace_folder.to_string_lossy().into_owned()
             }
-            Variable::ContainerWorkspaceFolder => ctx
+            Variable::ContainerWorkspaceFolder => context
                 .container_workspace_folder
                 .to_string_lossy()
                 .into_owned(),
-            Variable::LocalWorkspaceFolderBasename => ctx
-                .local_workspace_folder
-                .file_name()
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_default(),
-            Variable::ContainerWorkspaceFolderBasename => ctx
-                .container_workspace_folder
-                .file_name()
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_default(),
-            Variable::DevcontainerId => ctx.devcontainer_id.unwrap_or("").to_string(),
+            Variable::LocalWorkspaceFolderBasename => basename(context.local_workspace_folder),
+            Variable::ContainerWorkspaceFolderBasename => {
+                basename(context.container_workspace_folder)
+            }
+            Variable::DevcontainerId => context
+                .container
+                .as_ref()
+                .expect("${devcontainerId} requires Context::with_container")
+                .devcontainer_id(),
         }
     }
 }
 
-fn env_lookup(env: Option<&IndexMap<String, String>>, name: &str, default: Option<&str>) -> String {
-    if let Some(env) = env
-        && let Some(v) = env.get(name)
-    {
-        return v.clone();
-    }
-    default.unwrap_or("").to_string()
+fn env_lookup(env: &IndexMap<String, String>, name: &str, default: Option<&str>) -> String {
+    env.get(name)
+        .cloned()
+        .or_else(|| default.map(str::to_string))
+        .unwrap_or_default()
 }
 
 fn template(input: &mut &str) -> ModalResult<Template> {
@@ -322,70 +318,66 @@ mod tests {
         Segment::Var(v)
     }
 
-    fn env(pairs: &[(&str, &str)]) -> IndexMap<String, String> {
+    fn string_map(pairs: &[(&str, &str)]) -> IndexMap<String, String> {
         pairs
             .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .map(|(key, value)| (key.to_string(), value.to_string()))
             .collect()
     }
 
-    struct CtxBuilder {
+    struct ContextBuilder {
         local_env: IndexMap<String, String>,
-        container_env: IndexMap<String, String>,
         local_workspace_folder: std::path::PathBuf,
         container_workspace_folder: std::path::PathBuf,
-        devcontainer_id: String,
+        container: Option<ContainerData>,
     }
 
-    impl CtxBuilder {
+    impl ContextBuilder {
         fn new() -> Self {
             Self {
                 local_env: IndexMap::new(),
-                container_env: IndexMap::new(),
                 local_workspace_folder: std::path::PathBuf::new(),
                 container_workspace_folder: std::path::PathBuf::new(),
-                devcontainer_id: String::new(),
+                container: None,
             }
         }
 
         fn local_env(mut self, pairs: &[(&str, &str)]) -> Self {
-            self.local_env = env(pairs);
+            self.local_env = string_map(pairs);
             self
         }
 
-        fn container_env(mut self, pairs: &[(&str, &str)]) -> Self {
-            self.container_env = env(pairs);
+        fn local_workspace_folder(mut self, path: &str) -> Self {
+            self.local_workspace_folder = path.into();
             self
         }
 
-        fn local_workspace_folder(mut self, p: &str) -> Self {
-            self.local_workspace_folder = p.into();
+        fn container_workspace_folder(mut self, path: &str) -> Self {
+            self.container_workspace_folder = path.into();
             self
         }
 
-        fn container_workspace_folder(mut self, p: &str) -> Self {
-            self.container_workspace_folder = p.into();
+        fn container(mut self, env: &[(&str, &str)], labels: &[(&str, &str)]) -> Self {
+            self.container = Some(ContainerData {
+                env: string_map(env),
+                labels: string_map(labels),
+            });
             self
         }
 
-        fn devcontainer_id(mut self, id: &str) -> Self {
-            self.devcontainer_id = id.to_string();
-            self
-        }
-
-        fn ctx(&self) -> Context<'_> {
-            Context::new(
-                &self.local_workspace_folder,
-                &self.container_workspace_folder,
-            )
-            .with_local_env(self.local_env.clone())
-            .with_container_env(&self.container_env)
-            .with_devcontainer_id(&self.devcontainer_id)
+        fn build(&self) -> Context<'_> {
+            let mut context =
+                Context::new(&self.local_workspace_folder, &self.container_workspace_folder)
+                    .with_local_env(self.local_env.clone());
+            if let Some(ref container) = self.container {
+                context = context.with_container_data(container.clone());
+            }
+            context
         }
     }
 
-    fn render_with(input: &str, b: CtxBuilder) -> String {
-        Template::parse(input).render(&b.ctx())
+    fn render_with(input: &str, builder: ContextBuilder) -> String {
+        Template::parse(input).render(&builder.build())
     }
 
     #[test]
@@ -555,7 +547,7 @@ mod tests {
         assert_eq!(
             render_with(
                 "${localEnv:HOME}",
-                CtxBuilder::new().local_env(&[("HOME", "/home/me")]),
+                ContextBuilder::new().local_env(&[("HOME", "/home/me")]),
             ),
             "/home/me",
         );
@@ -564,14 +556,14 @@ mod tests {
     #[test]
     fn render_local_env_missing_uses_default() {
         assert_eq!(
-            render_with("${localEnv:X:fallback}", CtxBuilder::new()),
+            render_with("${localEnv:X:fallback}", ContextBuilder::new()),
             "fallback",
         );
     }
 
     #[test]
     fn render_local_env_missing_no_default_is_empty() {
-        assert_eq!(render_with("${localEnv:X}", CtxBuilder::new()), "");
+        assert_eq!(render_with("${localEnv:X}", ContextBuilder::new()), "");
     }
 
     #[test]
@@ -579,7 +571,7 @@ mod tests {
         assert_eq!(
             render_with(
                 "${containerEnv:PATH}",
-                CtxBuilder::new().container_env(&[("PATH", "/usr/bin")]),
+                ContextBuilder::new().container(&[("PATH", "/usr/bin")], &[]),
             ),
             "/usr/bin",
         );
@@ -587,7 +579,7 @@ mod tests {
 
     #[test]
     fn render_workspace_folders() {
-        let b = CtxBuilder::new()
+        let b = ContextBuilder::new()
             .local_workspace_folder("/host/projects/myrepo")
             .container_workspace_folder("/workspaces/myrepo");
         assert_eq!(
@@ -610,19 +602,31 @@ mod tests {
 
     #[test]
     fn render_devcontainer_id() {
+        let labels = &[("devcontainer.local_folder", "/foo")];
+        let expected = ContainerData {
+            env: IndexMap::new(),
+            labels: string_map(labels),
+        }
+        .devcontainer_id();
         assert_eq!(
             render_with(
                 "${devcontainerId}",
-                CtxBuilder::new().devcontainer_id("abc123"),
+                ContextBuilder::new().container(&[], labels),
             ),
-            "abc123",
+            expected,
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "${devcontainerId} requires Context::with_container")]
+    fn render_devcontainer_id_panics_without_container() {
+        let _ = render_with("${devcontainerId}", ContextBuilder::new());
     }
 
     #[test]
     fn render_extra_colons_dropped_in_default() {
         assert_eq!(
-            render_with("${localEnv:X:def:extra}", CtxBuilder::new()),
+            render_with("${localEnv:X:def:extra}", ContextBuilder::new()),
             "def",
         );
     }
@@ -632,7 +636,7 @@ mod tests {
         assert_eq!(
             render_with(
                 "${localWorkspaceFolder}/.cache/${localEnv:USER}",
-                CtxBuilder::new()
+                ContextBuilder::new()
                     .local_env(&[("USER", "paho")])
                     .local_workspace_folder("/work/myrepo"),
             ),
@@ -643,7 +647,7 @@ mod tests {
     #[test]
     fn render_unknown_variable_passes_through() {
         assert_eq!(
-            render_with("hello ${nope:foo}!", CtxBuilder::new()),
+            render_with("hello ${nope:foo}!", ContextBuilder::new()),
             "hello ${nope:foo}!",
         );
     }
@@ -654,20 +658,19 @@ mod tests {
         assert_eq!(
             render_with(
                 "${localEnv:HOME}${localEnv:USERPROFILE}",
-                CtxBuilder::new().local_env(&[("HOME", "/home/me")]),
+                ContextBuilder::new().local_env(&[("HOME", "/home/me")]),
             ),
             "/home/me",
         );
     }
 
-    impl CtxBuilder {
-        fn clone_for_test(&self) -> CtxBuilder {
-            CtxBuilder {
+    impl ContextBuilder {
+        fn clone_for_test(&self) -> ContextBuilder {
+            ContextBuilder {
                 local_env: self.local_env.clone(),
-                container_env: self.container_env.clone(),
                 local_workspace_folder: self.local_workspace_folder.clone(),
                 container_workspace_folder: self.container_workspace_folder.clone(),
-                devcontainer_id: self.devcontainer_id.clone(),
+                container: self.container.clone(),
             }
         }
     }

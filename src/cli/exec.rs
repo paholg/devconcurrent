@@ -1,11 +1,11 @@
 use std::io::IsTerminal;
 use std::os::unix::process::CommandExt;
-use std::path::Path;
 
 use bollard::plugin::ContainerSummaryStateEnum;
 use clap::Args;
 use clap_complete::ArgValueCompleter;
 use eyre::eyre;
+use indexmap::IndexMap;
 
 use crate::cli::State;
 use crate::complete::complete_workspace;
@@ -35,9 +35,20 @@ impl Exec {
                 workspace.path.display()
             ));
         }
-        let cid = workspace_full.service_container_id()?;
+        let container_id = workspace_full.service_container_id()?;
+        let context =
+            substitution::Context::new(&workspace.path, &devcontainer.compose().workspace_folder)
+                .with_container(container_id)
+                .await?;
+        let remote_env: IndexMap<String, Option<String>> = devcontainer
+            .config
+            .common
+            .remote_env
+            .iter()
+            .map(|(k, v)| (k.clone(), v.as_ref().map(|t| t.render(&context))))
+            .collect();
 
-        exec_interactive(cid, &state, devcontainer, &workspace.path, &self.cmd)
+        exec_interactive(container_id, &state, devcontainer, &remote_env, &self.cmd)
     }
 }
 
@@ -45,7 +56,7 @@ pub(crate) fn exec_interactive(
     container_id: &str,
     state: &State,
     devcontainer: &DevcontainerState,
-    local_workspace_folder: &Path,
+    remote_env: &IndexMap<String, Option<String>>,
     cmd_args: &[String],
 ) -> eyre::Result<()> {
     let mut cmd = std::process::Command::new("docker");
@@ -61,13 +72,9 @@ pub(crate) fn exec_interactive(
     }
     cmd.arg("-w").arg(&devcontainer.compose().workspace_folder);
 
-    let ctx = substitution::Context::new(
-        local_workspace_folder,
-        &devcontainer.compose().workspace_folder,
-    );
-    for (k, v) in &devcontainer.config.common.remote_env {
-        if let Some(template) = v {
-            cmd.arg("-e").arg(format!("{k}={}", template.render(&ctx)));
+    for (k, v) in remote_env {
+        if let Some(value) = v {
+            cmd.arg("-e").arg(format!("{k}={value}"));
         }
         // null in remoteEnv means "unset"; with docker exec there's nothing to unset, so skip.
     }

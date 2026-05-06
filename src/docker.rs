@@ -12,6 +12,7 @@ use futures::{StreamExt, future::try_join_all};
 use crate::workspace::Workspace;
 
 pub(crate) mod compose;
+pub(crate) mod probe;
 
 #[derive(Debug)]
 pub(crate) struct ContainerInfo {

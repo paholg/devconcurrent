@@ -102,14 +102,15 @@ impl Up {
         let user = devcontainer.config.common.remote_user.as_deref();
         let workdir = Some(compose_config.workspace_folder.as_path());
 
-        let subst_ctx =
-            substitution::Context::new(&workspace.path, &compose_config.workspace_folder);
+        let context = substitution::Context::new(&workspace.path, &compose_config.workspace_folder)
+            .with_container(&container_id)
+            .await?;
         let rendered_remote_env: IndexMap<String, Option<String>> = devcontainer
             .config
             .common
             .remote_env
             .iter()
-            .map(|(k, v)| (k.clone(), v.as_ref().map(|t| t.render(&subst_ctx))))
+            .map(|(k, v)| (k.clone(), v.as_ref().map(|t| t.render(&context))))
             .collect();
         let remote_env = &rendered_remote_env;
 
@@ -151,13 +152,7 @@ impl Up {
 
         // Interactive exec if requested
         if let Some(cmd_args) = self.exec {
-            exec_interactive(
-                &container_id,
-                &state,
-                devcontainer,
-                &workspace.path,
-                &cmd_args,
-            )?;
+            exec_interactive(&container_id, &state, devcontainer, remote_env, &cmd_args)?;
         }
 
         Ok(())
