@@ -181,9 +181,10 @@ impl Variable {
                 Some(container) => env_lookup(&container.env, name, default.as_deref()),
                 None => default.clone().unwrap_or_default(),
             },
-            Variable::LocalWorkspaceFolder => {
-                context.local_workspace_folder.to_string_lossy().into_owned()
-            }
+            Variable::LocalWorkspaceFolder => context
+                .local_workspace_folder
+                .to_string_lossy()
+                .into_owned(),
             Variable::ContainerWorkspaceFolder => context
                 .container_workspace_folder
                 .to_string_lossy()
@@ -366,9 +367,11 @@ mod tests {
         }
 
         fn build(&self) -> Context<'_> {
-            let mut context =
-                Context::new(&self.local_workspace_folder, &self.container_workspace_folder)
-                    .with_local_env(self.local_env.clone());
+            let mut context = Context::new(
+                &self.local_workspace_folder,
+                &self.container_workspace_folder,
+            )
+            .with_local_env(self.local_env.clone());
             if let Some(ref container) = self.container {
                 context = context.with_container_data(container.clone());
             }

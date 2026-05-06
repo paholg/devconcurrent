@@ -20,6 +20,22 @@ pub(crate) fn forward_to_shell(command: &str) -> eyre::Result<()> {
     Ok(())
 }
 
+/// Simple validator for workspace and project names.
+///
+/// We use the same rules for both for simplicity.
+pub(crate) fn validate_name(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("must not be empty".into());
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(format!("{name:?} must contain only [a-zA-Z0-9-_]"));
+    }
+    Ok(())
+}
+
 pub(crate) fn deserialize_shell_path_opt<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> Result<Option<PathBuf>, D::Error> {

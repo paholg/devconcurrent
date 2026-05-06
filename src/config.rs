@@ -4,12 +4,47 @@ use eyre::{WrapErr, eyre};
 use indexmap::IndexMap;
 use serde::Deserialize;
 
-use crate::helpers::{deserialize_shell_path, deserialize_shell_path_opt};
+use crate::helpers::{deserialize_shell_path, deserialize_shell_path_opt, validate_name};
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct ProjectName(String);
+
+impl ProjectName {
+    pub(crate) fn new(s: String) -> Result<Self, String> {
+        validate_name(&s)?;
+        Ok(Self(s))
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for ProjectName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::ops::Deref for ProjectName {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for ProjectName {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        Self::new(s).map_err(|e| serde::de::Error::custom(format!("invalid project name: {e}")))
+    }
+}
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct Config {
     #[serde(default)]
-    pub(crate) projects: IndexMap<String, Project>,
+    pub(crate) projects: IndexMap<ProjectName, Project>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -52,8 +87,9 @@ impl Config {
     pub(crate) fn project(
         mut self,
         project_name: Option<String>,
-    ) -> eyre::Result<(String, Project)> {
+    ) -> eyre::Result<(ProjectName, Project)> {
         if let Some(name) = project_name.or_else(|| std::env::var("DC_PROJECT").ok()) {
+            let name = ProjectName::new(name).map_err(|e| eyre!("invalid project name: {e}"))?;
             return self
                 .projects
                 .swap_remove_entry(&name)
@@ -77,7 +113,7 @@ impl Config {
             .ok_or_else(|| eyre!("no projects configured"))
     }
 
-    fn project_name_for_repo_root(&self, repo_root: &Path) -> eyre::Result<Option<String>> {
+    fn project_name_for_repo_root(&self, repo_root: &Path) -> eyre::Result<Option<ProjectName>> {
         let canonical_root = repo_root.canonicalize()?;
         let name = self
             .projects
@@ -121,12 +157,12 @@ mod tests {
         file.write_all(toml.as_bytes()).unwrap();
 
         let first = Config::load_from_path(file.path()).unwrap();
-        let expected: Vec<&str> = first.projects.keys().map(String::as_str).collect();
+        let expected: Vec<&str> = first.projects.keys().map(ProjectName::as_str).collect();
         assert_eq!(expected, names);
 
         for i in 0..50 {
             let cfg = Config::load_from_path(file.path()).unwrap();
-            let got: Vec<&str> = cfg.projects.keys().map(String::as_str).collect();
+            let got: Vec<&str> = cfg.projects.keys().map(ProjectName::as_str).collect();
             assert_eq!(got, expected, "project order changed on iteration {i}");
         }
     }

@@ -22,7 +22,7 @@ pub(crate) fn complete_project(current: &OsStr) -> Vec<CompletionCandidate> {
         .projects
         .keys()
         .filter(|name| is_completion_candidate(&prefix, name))
-        .map(CompletionCandidate::new)
+        .map(|name| CompletionCandidate::new(name.as_str()))
         .collect()
 }
 

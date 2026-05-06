@@ -3,7 +3,7 @@ use std::{env, path::PathBuf};
 use eyre::OptionExt;
 
 use crate::{
-    config::{Config, Project},
+    config::{Config, Project, ProjectName},
     devcontainer::{self, DevcontainerConfig, dc_options::DcOptions},
     docker::DockerClient,
     workspace::Workspace,
@@ -11,7 +11,7 @@ use crate::{
 };
 
 pub(crate) struct State {
-    pub(crate) project_name: String,
+    pub(crate) project_name: ProjectName,
     pub(crate) project: Project,
     pub(crate) devcontainer: Option<DevcontainerState>,
 }

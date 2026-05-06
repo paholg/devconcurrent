@@ -4,24 +4,12 @@ use std::process::Output;
 use eyre::WrapErr;
 use tokio::process::Command;
 
+use crate::helpers::validate_name;
 use crate::run::run_cmd;
 use crate::workspace::Workspace;
 
 pub(crate) async fn create(workspace: &Workspace<'_>, detach: bool) -> eyre::Result<()> {
-    let valid = !workspace.name.is_empty()
-        && Path::new(&workspace.name)
-            .file_name()
-            .is_some_and(|f| f == workspace.name.as_str())
-        && workspace
-            .name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-    if !valid {
-        eyre::bail!(
-            "invalid workspace name {:?}: must contain only [a-zA-Z0-9-_]",
-            workspace.name
-        );
-    }
+    validate_name(&workspace.name).map_err(|e| eyre::eyre!("invalid workspace name: {e}"))?;
 
     let root_path = &workspace.state.project.path;
     let repo = gix::open(root_path)
