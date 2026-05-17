@@ -37,12 +37,11 @@ impl Exec {
         }
         let container_id = workspace_full.service_container_id()?;
         let context =
-            substitution::Context::new(&workspace.path, &devcontainer.compose().workspace_folder)
+            substitution::Context::new(&workspace.path, &devcontainer.config.workspace_folder)
                 .with_container(container_id)
                 .await?;
         let remote_env: IndexMap<String, Option<String>> = devcontainer
             .config
-            .common
             .remote_env
             .iter()
             .map(|(k, v)| (k.clone(), v.as_ref().map(|t| t.render(&context))))
@@ -66,10 +65,10 @@ pub(crate) fn exec_interactive(
 
     let dc_options = devcontainer.devconcurrent();
 
-    if let Some(u) = devcontainer.config.common.remote_user.as_deref() {
+    if let Some(u) = devcontainer.config.remote_user.as_deref() {
         cmd.args(["-u", u]);
     }
-    cmd.arg("-w").arg(&devcontainer.compose().workspace_folder);
+    cmd.arg("-w").arg(&devcontainer.config.workspace_folder);
 
     for (k, v) in remote_env {
         if let Some(value) = v {

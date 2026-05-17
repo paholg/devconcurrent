@@ -4,7 +4,7 @@ use eyre::OptionExt;
 
 use crate::{
     config::{Config, Project, ProjectName},
-    devcontainer::{self, DevcontainerConfig, dc_options::DcOptions},
+    devcontainer::{DevcontainerConfig, dc_options::DcOptions},
     docker::DockerClient,
     workspace::Workspace,
     worktree,
@@ -37,16 +37,8 @@ impl DevcontainerState {
         }))
     }
 
-    pub(crate) fn compose(&self) -> &devcontainer::Compose {
-        let crate::devcontainer::Kind::Compose(ref compose) = self.config.kind else {
-            // This is already handled during deserialize.
-            unimplemented!();
-        };
-        compose
-    }
-
     pub(crate) fn devconcurrent(&self) -> &DcOptions {
-        &self.config.common.customizations.devconcurrent
+        &self.config.customizations.devconcurrent
     }
 }
 
@@ -86,7 +78,6 @@ impl State {
             .or_else(|| {
                 self.devcontainer.as_ref().and_then(|dc| {
                     dc.config
-                        .common
                         .customizations
                         .devconcurrent
                         .worktree_folder

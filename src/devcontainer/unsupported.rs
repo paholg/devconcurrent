@@ -1,7 +1,7 @@
 //! We don't support all of devcontainer features, and we want to make that
 //! clear when we load devcontainer.json. These helpers are for that.
 
-use serde::{Deserialize, Deserializer, de::IgnoredAny};
+use serde::{Deserialize, Deserializer};
 
 pub(crate) trait Unsupported {
     const FIELD: &'static str;
@@ -11,20 +11,9 @@ pub(crate) trait Unsupported {
         D: Deserializer<'de>,
         T: Deserialize<'de>,
     {
-        tracing::error!("`{}` is not supported; ignoring", Self::FIELD);
+        tracing::warn!("`{}` is not supported; ignoring", Self::FIELD);
         let val = T::deserialize(deserializer)?;
         Ok(val)
-    }
-
-    fn error<'de, D, T>(deserializer: D) -> Result<T, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        IgnoredAny::deserialize(deserializer)?;
-        Err(serde::de::Error::custom(format!(
-            "`{}` is not supported at this time",
-            Self::FIELD
-        )))
     }
 }
 
@@ -43,8 +32,6 @@ macro_rules! unsupported {
 }
 
 unsupported!(
-    Image,
-    Dockerfile,
     features,
     overrideFeatureInstallOrder,
     secrets,

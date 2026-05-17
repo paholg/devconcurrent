@@ -35,7 +35,7 @@ pub(crate) fn compose_cmd(
     cmd.args(["compose", "-p"])
         .arg(workspace.compose_project_name());
 
-    for f in &devcontainer.compose().docker_compose_file {
+    for f in &devcontainer.config.docker_compose_file {
         cmd.arg("-f")
             .arg(workspace.path.join(".devcontainer").join(f));
     }
@@ -50,7 +50,7 @@ pub(crate) async fn compose_ps_q(
 ) -> eyre::Result<String> {
     let mut cmd = compose_cmd(devcontainer, workspace)?;
 
-    let service = &devcontainer.compose().service;
+    let service = &devcontainer.config.service;
     cmd.arg("ps").arg("-q").arg(service);
 
     let out = cmd.output().await?;
@@ -85,10 +85,10 @@ fn write_compose_override(
         "labels": [labels]
     });
 
-    let common = &devcontainer.config.common;
     let context =
-        substitution::Context::new(&workspace.path, &devcontainer.compose().workspace_folder);
-    let env: indexmap::IndexMap<String, String> = common
+        substitution::Context::new(&workspace.path, &devcontainer.config.workspace_folder);
+    let env: indexmap::IndexMap<String, String> = devcontainer
+        .config
         .container_env
         .iter()
         .map(|(k, v)| (k.clone(), v.render(&context)))
@@ -97,19 +97,19 @@ fn write_compose_override(
         service_obj["environment"] = json!(env);
     }
 
-    if let Some(init) = common.init {
+    if let Some(init) = devcontainer.config.init {
         service_obj["init"] = json!(init);
     }
-    if let Some(privileged) = common.privileged {
+    if let Some(privileged) = devcontainer.config.privileged {
         service_obj["privileged"] = json!(privileged);
     }
-    if !common.cap_add.is_empty() {
-        service_obj["cap_add"] = json!(common.cap_add);
+    if !devcontainer.config.cap_add.is_empty() {
+        service_obj["cap_add"] = json!(devcontainer.config.cap_add);
     }
-    if !common.security_opt.is_empty() {
-        service_obj["security_opt"] = json!(common.security_opt);
+    if !devcontainer.config.security_opt.is_empty() {
+        service_obj["security_opt"] = json!(devcontainer.config.security_opt);
     }
-    if let Some(ref user) = common.container_user {
+    if let Some(ref user) = devcontainer.config.container_user {
         service_obj["user"] = json!(user);
     }
 
@@ -124,7 +124,7 @@ fn write_compose_override(
         service_obj["volumes"] = json!(volumes);
     }
 
-    if devcontainer.compose().override_command {
+    if devcontainer.config.override_command {
         // I believe this is the reference devcontainer overrideCommand.
         service_obj["entrypoint"] = json!([
             "/bin/sh",
@@ -140,7 +140,7 @@ fn write_compose_override(
     }
 
     let content = serde_json::to_string_pretty(&json!({
-        "services": { &devcontainer.compose().service: service_obj }
+        "services": { &devcontainer.config.service: service_obj }
     }))?;
 
     workspace.state.ensure_project_working_dir()?;

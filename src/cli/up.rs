@@ -72,7 +72,7 @@ impl Up {
         };
 
         // initializeCommand runs on the host, from the worktree
-        if let Some(ref cmd) = devcontainer.config.common.initialize_command {
+        if let Some(ref cmd) = devcontainer.config.initialize_command {
             cmd.run_on_host("initializeCommand", Some(&workspace.path))
                 .await?;
         }
@@ -80,13 +80,12 @@ impl Up {
         let mut compose_up_cmd = compose_cmd(devcontainer, &workspace)?;
         compose_up_cmd.args(["up", "-d", "--build"]);
 
-        let compose_config = devcontainer.compose();
-        if let Some(ref services) = compose_config.run_services {
+        if let Some(ref services) = devcontainer.config.run_services {
             compose_up_cmd.args(services);
-            if !services.contains(&compose_config.service) {
+            if !services.contains(&devcontainer.config.service) {
                 // TODO: We probably want this in the `else` also, or maybe we
                 // don't need it at all?
-                compose_up_cmd.arg(&compose_config.service);
+                compose_up_cmd.arg(&devcontainer.config.service);
             }
         }
 
@@ -99,15 +98,15 @@ impl Up {
         Runner::run(cmd).await?;
 
         let container_id = compose_ps_q(devcontainer, &workspace).await?;
-        let user = devcontainer.config.common.remote_user.as_deref();
-        let workdir = Some(compose_config.workspace_folder.as_path());
+        let user = devcontainer.config.remote_user.as_deref();
+        let workdir = Some(devcontainer.config.workspace_folder.as_path());
 
-        let context = substitution::Context::new(&workspace.path, &compose_config.workspace_folder)
-            .with_container(&container_id)
-            .await?;
+        let context =
+            substitution::Context::new(&workspace.path, &devcontainer.config.workspace_folder)
+                .with_container(&container_id)
+                .await?;
         let rendered_remote_env: IndexMap<String, Option<String>> = devcontainer
             .config
-            .common
             .remote_env
             .iter()
             .map(|(k, v)| (k.clone(), v.as_ref().map(|t| t.render(&context))))
@@ -116,11 +115,11 @@ impl Up {
 
         // Lifecycle commands: create-only commands run only on first creation
         // For now, though, we always recreate.
-        if let Some(ref cmd) = devcontainer.config.common.on_create_command {
+        if let Some(ref cmd) = devcontainer.config.on_create_command {
             cmd.run_in_container("onCreateCommand", &container_id, user, workdir, remote_env)
                 .await?;
         }
-        if let Some(ref cmd) = devcontainer.config.common.update_content_command {
+        if let Some(ref cmd) = devcontainer.config.update_content_command {
             cmd.run_in_container(
                 "updateContentCommand",
                 &container_id,
@@ -130,7 +129,7 @@ impl Up {
             )
             .await?;
         }
-        if let Some(ref cmd) = devcontainer.config.common.post_create_command {
+        if let Some(ref cmd) = devcontainer.config.post_create_command {
             cmd.run_in_container(
                 "postCreateCommand",
                 &container_id,
@@ -140,7 +139,7 @@ impl Up {
             )
             .await?;
         }
-        if let Some(ref cmd) = devcontainer.config.common.post_start_command {
+        if let Some(ref cmd) = devcontainer.config.post_start_command {
             cmd.run_in_container("postStartCommand", &container_id, user, workdir, remote_env)
                 .await?;
         }

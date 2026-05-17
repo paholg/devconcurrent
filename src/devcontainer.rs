@@ -1,7 +1,10 @@
 use std::path::{Path, PathBuf};
 
 use eyre::WrapErr;
-use figment::{Figment, providers::Serialized};
+use figment::{
+    Figment,
+    providers::{Format, Json, Serialized},
+};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_inline_default::serde_inline_default;
@@ -21,135 +24,12 @@ use lifecycle_command::LifecycleCommand;
 use unsupported::Unsupported;
 
 /// Devcontainer config from devcontainer.json.
-#[derive(Deserialize, Serialize, Clone, Debug)]
-pub(crate) struct DevcontainerConfig {
-    #[serde(flatten)]
-    pub(crate) common: Common,
-    #[serde(flatten)]
-    pub(crate) kind: Kind,
-}
-
-#[derive(Deserialize, Serialize, Clone, Debug)]
-#[serde(untagged)]
-pub(crate) enum Kind {
-    Compose(Compose),
-    #[serde(deserialize_with = "unsupported::Image::error")]
-    Image(Image),
-    #[serde(deserialize_with = "unsupported::Dockerfile::error")]
-    Dockerfile(Box<Dockerfile>),
-}
-
-impl DevcontainerConfig {
-    /// Find the appropriate devcontainer.json file from the given root directory.
-    ///
-    /// Return None if there is no devcontainer.json file, and treat the project as one that
-    /// does not use devcontainers.
-    ///
-    /// From the devcontainer reference:
-    /// https://containers.dev/implementors/spec/#devcontainerjson
-    ///
-    /// Products using it should expect to find a devcontainer.json file in one or more of the
-    /// following locations (in order of precedence):
-    ///
-    /// * .devcontainer/devcontainer.json
-    /// * .devcontainer.json
-    /// * .devcontainer/<folder>/devcontainer.json (where <folder> is a sub-folder, one level deep)
-    ///
-    /// It is valid that these files may exist in more than one location, so consider providing a
-    /// mechanism for users to select one when appropriate.
-    pub(crate) fn find_config(dir: &Path) -> Option<PathBuf> {
-        let candidates = [
-            dir.join(".devcontainer/devcontainer.json"),
-            dir.join(".devcontainer.json"),
-        ];
-
-        candidates.into_iter().find(|p| p.is_file()).or_else(|| {
-            // .devcontainer/<folder>/devcontainer.json
-            let devcontainer_dir = dir.join(".devcontainer");
-            std::fs::read_dir(&devcontainer_dir)
-                .ok()
-                .and_then(|entries| {
-                    entries
-                        .filter_map(Result::ok)
-                        .find(|e| {
-                            e.file_type().is_ok_and(|ft| ft.is_dir())
-                                && e.path().join("devcontainer.json").is_file()
-                        })
-                        .map(|e| e.path().join("devcontainer.json"))
-                })
-        })
-    }
-
-    fn parse_json(path: &Path) -> eyre::Result<Self> {
-        // serde's flatten messes with the ability to trace what failed; so we parse the individual
-        // sections separately.
-        fn parse<'de, T: Deserialize<'de>>(
-            json: &'de str,
-            label: &str,
-            path: &Path,
-        ) -> eyre::Result<T> {
-            let jd = &mut serde_json::Deserializer::from_str(json);
-            serde_path_to_error::deserialize(jd)
-                .wrap_err_with(|| format!("failed to parse {label} in {}", path.display()))
-        }
-
-        let json = std::fs::read_to_string(path)
-            .wrap_err_with(|| format!("failed to read {}", path.display()))?;
-
-        Ok(DevcontainerConfig {
-            common: parse(&json, "common properties", path)?,
-            kind: parse(&json, "container type properties", path)?,
-        })
-    }
-
-    fn parse_toml(toml: &toml::Value) -> eyre::Result<Self> {
-        // serde's flatten messes with the ability to trace what failed; so we parse the individual
-        // sections separately.
-        fn parse<'de, T: Deserialize<'de>>(
-            value: &'de toml::Value,
-            label: &str,
-        ) -> eyre::Result<T> {
-            serde_path_to_error::deserialize(value.clone()).wrap_err_with(|| {
-                format!("failed to parse {label} in project devcontainer override")
-            })
-        }
-
-        Ok(DevcontainerConfig {
-            common: parse(toml, "common properties")?,
-            kind: parse(toml, "container type properties")?,
-        })
-    }
-
-    /// Load the merged devcontainer config from the given path (if any) and the project's
-    /// overrides. Returns `Ok(None)` if neither source provides any config.
-    pub(crate) fn load(path: Option<&Path>, project: &Project) -> eyre::Result<Option<Self>> {
-        if path.is_none() && project.devcontainer.is_none() {
-            return Ok(None);
-        }
-
-        let mut figment = Figment::new();
-
-        if let Some(path) = path {
-            figment = figment.admerge(Serialized::defaults(&DevcontainerConfig::parse_json(path)?));
-        }
-
-        if let Some(overrides) = &project.devcontainer {
-            figment = figment.admerge(Serialized::defaults(&DevcontainerConfig::parse_toml(
-                overrides,
-            )?));
-        }
-
-        figment
-            .extract()
-            .map(Some)
-            .wrap_err("failed to merge devcontainer config")
-    }
-}
-
 #[serde_as]
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct Compose {
+#[serde(rename_all = "camelCase", default)]
+pub(crate) struct DevcontainerConfig {
+    // -------------------------------------------------------------------------
+    // Compose section
     /// The name of the docker-compose file(s) used to start the services.
     #[serde_as(as = "OneOrMany<_>")]
     pub(crate) docker_compose_file: Vec<String>,
@@ -169,35 +49,8 @@ pub(crate) struct Compose {
     /// Whether to overwrite the command specified in the image. The default is false.
     #[serde(default)]
     pub(crate) override_command: bool,
-}
-
-#[derive(Deserialize, Serialize, Clone, Debug, Default)]
-#[serde(rename_all = "camelCase", default)]
-pub(crate) struct Image {
-    pub(crate) image: String,
-
-    #[serde(flatten)]
-    pub(crate) non_compose: NonComposeProperties,
-}
-
-#[derive(Deserialize, Serialize, Clone, Debug, Default)]
-#[serde(rename_all = "camelCase", default)]
-pub(crate) struct Dockerfile {
-    /// The location of the Dockerfile that defines the contents of the container. The path is
-    /// relative to the folder containing the `devcontainer.json` file
-    pub(crate) docker_file: Option<PathBuf>,
-    /// The location of the context folder for building the Docker image. The path is relative to
-    /// the folder containing the `devcontainer.json` file."
-    pub(crate) context: Option<PathBuf>,
-    pub(crate) build: Option<BuildOptions>,
-
-    #[serde(flatten)]
-    pub(crate) non_compose: NonComposeProperties,
-}
-
-#[derive(Deserialize, Serialize, Clone, Debug, Default)]
-#[serde(rename_all = "camelCase", default)]
-pub(crate) struct Common {
+    // -------------------------------------------------------------------------
+    // Common section
     /// The JSON schema of the devcontainer.json file.
     #[serde(rename = "$schema")]
     pub(crate) schema: Option<String>,
@@ -276,43 +129,75 @@ pub(crate) struct Common {
     pub(crate) customizations: Customizations,
 }
 
+impl DevcontainerConfig {
+    /// Find the appropriate devcontainer.json file from the given root directory.
+    ///
+    /// Return None if there is no devcontainer.json file, and treat the project as one that
+    /// does not use devcontainers.
+    ///
+    /// From the devcontainer reference:
+    /// https://containers.dev/implementors/spec/#devcontainerjson
+    ///
+    /// Products using it should expect to find a devcontainer.json file in one or more of the
+    /// following locations (in order of precedence):
+    ///
+    /// * .devcontainer/devcontainer.json
+    /// * .devcontainer.json
+    /// * .devcontainer/<folder>/devcontainer.json (where <folder> is a sub-folder, one level deep)
+    ///
+    /// It is valid that these files may exist in more than one location, so consider providing a
+    /// mechanism for users to select one when appropriate.
+    pub(crate) fn find_config(dir: &Path) -> Option<PathBuf> {
+        let candidates = [
+            dir.join(".devcontainer/devcontainer.json"),
+            dir.join(".devcontainer.json"),
+        ];
+
+        candidates.into_iter().find(|p| p.is_file()).or_else(|| {
+            // .devcontainer/<folder>/devcontainer.json
+            let devcontainer_dir = dir.join(".devcontainer");
+            std::fs::read_dir(&devcontainer_dir)
+                .ok()
+                .and_then(|entries| {
+                    entries
+                        .filter_map(Result::ok)
+                        .find(|e| {
+                            e.file_type().is_ok_and(|ft| ft.is_dir())
+                                && e.path().join("devcontainer.json").is_file()
+                        })
+                        .map(|e| e.path().join("devcontainer.json"))
+                })
+        })
+    }
+
+    /// Load the merged devcontainer config from the given path (if any) and the project's
+    /// overrides. Returns `Ok(None)` if neither source provides any config.
+    pub(crate) fn load(path: Option<&Path>, project: &Project) -> eyre::Result<Option<Self>> {
+        if path.is_none() && project.devcontainer.is_none() {
+            return Ok(None);
+        }
+
+        let mut figment = Figment::new();
+
+        if let Some(path) = path {
+            figment = figment.admerge(Json::file(path));
+        }
+
+        if let Some(overrides) = &project.devcontainer {
+            figment = figment.admerge(Serialized::defaults(overrides));
+        }
+
+        figment
+            .extract()
+            .map(Some)
+            .wrap_err("failed to merge devcontainer config")
+    }
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 pub(crate) struct Customizations {
     #[serde(default)]
     pub(crate) devconcurrent: DcOptions,
-}
-
-#[derive(Deserialize, Serialize, Clone, Debug)]
-#[serde(untagged)]
-pub(crate) enum Port {
-    Number(u16),
-    String(String),
-}
-
-#[serde_as]
-#[serde_inline_default]
-#[derive(Deserialize, Serialize, Clone, Debug, Default)]
-#[serde(rename_all = "camelCase", default)]
-pub(crate) struct NonComposeProperties {
-    /// Application ports that are exposed by the container. This can be a single port or an array
-    /// of ports. Each port can be a number or a string. A number is mapped to the same port on the
-    /// host. A string is passed to Docker unchanged and can be used to map ports differently, e.g.
-    /// "8000:8010".
-    #[serde_as(as = "OneOrMany<_>")]
-    pub(crate) app_port: Vec<Port>,
-    /// The arguments required when starting in the container.
-    pub(crate) run_args: Vec<String>,
-    /// Action to take when the user disconnects from the container in their editor. The default is
-    /// to stop the container.
-    pub(crate) shutdown_action: NonComposeShutdownAction,
-    /// Whether to overwrite the command specified in the image. The default is true.
-    #[serde_inline_default(true)]
-    pub(crate) override_command: bool,
-    /// The path of the workspace folder inside the container.
-    pub(crate) workspace_folder: Option<PathBuf>,
-    /// The --mount parameter for docker run. The default is to mount the project folder at
-    /// /workspaces/$project.
-    pub(crate) workspace_mount: Option<PathBuf>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -337,17 +222,6 @@ pub(crate) struct Mount {
 pub(crate) enum MountType {
     Bind,
     Volume,
-}
-
-#[serde_as]
-#[derive(Deserialize, Serialize, Clone, Debug, Default)]
-#[serde(rename_all = "camelCase", default)]
-pub(crate) struct BuildOptions {
-    pub(crate) target: Option<String>,
-    pub(crate) args: IndexMap<String, String>,
-    #[serde_as(as = "OneOrMany<_>")]
-    pub(crate) cache_from: Vec<String>,
-    pub(crate) options: Vec<String>,
 }
 
 #[serde_inline_default]
@@ -453,12 +327,4 @@ pub(crate) enum ComposeShutdownAction {
     None,
     #[default]
     StopCompose,
-}
-
-#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum NonComposeShutdownAction {
-    None,
-    #[default]
-    StopContainer,
 }
