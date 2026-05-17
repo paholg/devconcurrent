@@ -37,7 +37,8 @@ impl Exec {
             ));
         }
         let container_id = workspace_full.service_container_id()?;
-        let container = probe::ContainerData::inspect(container_id).await?;
+        let container =
+            probe::ContainerData::inspect(&devcontainer.docker.client, container_id).await?;
         let probed = probe::user_env(
             container_id,
             devcontainer.config.remote_user.as_deref(),

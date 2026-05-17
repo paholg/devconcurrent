@@ -719,6 +719,7 @@ dependencies = [
  "crossterm",
  "derive_more",
  "directories",
+ "docker",
  "eyre",
  "figment",
  "futures",

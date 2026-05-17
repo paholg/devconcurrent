@@ -106,7 +106,8 @@ impl Up {
         let user = devcontainer.config.remote_user.as_deref();
         let workdir = Some(devcontainer.config.workspace_folder.as_path());
 
-        let container = probe::ContainerData::inspect(&container_id).await?;
+        let container =
+            probe::ContainerData::inspect(&devcontainer.docker.client, &container_id).await?;
         let probed = probe::user_env(
             &container_id,
             user,

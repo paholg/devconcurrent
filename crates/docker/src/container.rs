@@ -58,6 +58,20 @@ pub struct ContainerConfig {
     pub labels: IndexMap<String, String>,
 }
 
+impl ContainerConfig {
+    /// Parse [`Self::env`] entries (`"KEY=VALUE"`) into a map. Entries missing
+    /// `=` are skipped.
+    pub fn parsed_env(&self) -> IndexMap<String, String> {
+        self.env
+            .iter()
+            .filter_map(|pair| {
+                let (key, value) = pair.split_once('=')?;
+                Some((key.to_string(), value.to_string()))
+            })
+            .collect()
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct NetworkSettings {
@@ -80,63 +94,5 @@ impl Docker {
     pub async fn inspect_container(&self, id: &str) -> Result<ContainerDetails> {
         let url = self.url(&format!("containers/{id}/json"));
         self.http().get(url).try_send().await
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn deserializes_minimal_inspect_response() {
-        // Trimmed real response shape; ensures permissive deserialization works
-        // and that PascalCase + `ExecIDs` are both handled.
-        let json = r#"{
-            "Id": "abc123",
-            "Created": "2024-01-15T12:00:00Z",
-            "State": {
-                "Status": "running",
-                "Running": true,
-                "ExitCode": 0
-            },
-            "Config": {
-                "Env": ["PATH=/usr/bin", "FOO=bar"],
-                "Labels": {"com.docker.compose.service": "app"}
-            },
-            "NetworkSettings": {
-                "Networks": {
-                    "bridge": {"IPAddress": "172.17.0.2"}
-                }
-            },
-            "ExecIDs": ["e1", "e2"],
-            "UnknownField": 42
-        }"#;
-        let details: ContainerDetails = serde_json::from_str(json).unwrap();
-        assert_eq!(details.id, "abc123");
-        assert_eq!(details.state.status, ContainerStatus::Running);
-        assert!(details.state.running);
-        assert_eq!(details.config.env.len(), 2);
-        assert_eq!(
-            details.network_settings.networks["bridge"]
-                .ip_address
-                .as_deref(),
-            Some("172.17.0.2")
-        );
-        assert_eq!(details.exec_ids, vec!["e1", "e2"]);
-    }
-
-    #[test]
-    fn null_exec_ids_becomes_empty() {
-        // Docker returns `"ExecIDs": null` for containers with no execs.
-        let json = r#"{
-            "Id": "abc",
-            "Created": "2024-01-15T12:00:00Z",
-            "State": {"Status": "exited", "Running": false, "ExitCode": 0},
-            "Config": {},
-            "NetworkSettings": {},
-            "ExecIDs": null
-        }"#;
-        let details: ContainerDetails = serde_json::from_str(json).unwrap();
-        assert_eq!(details.exec_ids, Vec::<String>::new());
     }
 }

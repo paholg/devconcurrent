@@ -67,7 +67,7 @@ pub(crate) async fn forward(
 
     if !available.is_empty() {
         // Get container's network name for the outer sidecar
-        let network_name = container_network(cid).await?;
+        let network_name = container_network(&devcontainer.docker.client, cid).await?;
 
         ensure_image().await?;
 
@@ -108,22 +108,14 @@ pub(crate) async fn forward(
     Ok(())
 }
 
-async fn container_network(cid: &str) -> eyre::Result<String> {
-    let out = Command::new("docker")
-        .args([
-            "inspect",
-            "-f",
-            "{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}",
-            cid,
-        ])
-        .output()
-        .await?;
-    eyre::ensure!(out.status.success(), "failed to inspect container {cid}");
-    let name = String::from_utf8(out.stdout)?.trim().to_string();
-    if name.is_empty() {
-        return Err(eyre!("container {cid} has no networks"));
-    }
-    Ok(name)
+async fn container_network(client: &docker::Docker, cid: &str) -> eyre::Result<String> {
+    let details = client.inspect_container(cid).await?;
+    details
+        .network_settings
+        .networks
+        .into_keys()
+        .next()
+        .ok_or_else(|| eyre!("container {cid} has no networks"))
 }
 
 /// Inner sidecar: shares the target container's network namespace.

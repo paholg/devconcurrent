@@ -15,6 +15,7 @@ color-eyre = "0.6.5"
 crossterm = "0.29"
 derive_more = { version = "2.1.1", features = ["add", "add_assign", "sum"] }
 directories = "6.0.0"
+docker = { path = "../docker" }
 eyre = "0.6.12"
 figment = { version = "0.10.19", features = ["json", "toml"] }
 futures = "0.3.32"

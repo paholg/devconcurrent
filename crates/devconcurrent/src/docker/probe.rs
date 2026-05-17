@@ -1,11 +1,10 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use eyre::eyre;
+use eyre::{WrapErr, eyre};
 use indexmap::IndexMap;
 use num_bigint::BigUint;
 use rand::distr::{Alphanumeric, SampleString};
-use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tracing::warn;
 
@@ -21,38 +20,15 @@ pub(crate) struct ContainerData {
 }
 
 impl ContainerData {
-    /// Read `Config.Env` and `Config.Labels` via `docker inspect`.
-    pub(crate) async fn inspect(container_id: &str) -> eyre::Result<Self> {
-        #[derive(Deserialize)]
-        struct Raw {
-            env: Option<Vec<String>>,
-            labels: Option<IndexMap<String, String>>,
-        }
-
-        let output = tokio::process::Command::new("docker")
-            .args([
-                "inspect",
-                "--format",
-                r#"{"env":{{json .Config.Env}},"labels":{{json .Config.Labels}}}"#,
-                container_id,
-            ])
-            .output()
-            .await?;
-        if !output.status.success() {
-            return Err(eyre!(
-                "docker inspect failed: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            ));
-        }
-        let raw: Raw = serde_json::from_slice(&output.stdout)?;
+    /// Read `Config.Env` and `Config.Labels` from the container.
+    pub(crate) async fn inspect(client: &docker::Docker, container_id: &str) -> eyre::Result<Self> {
+        let details = client
+            .inspect_container(container_id)
+            .await
+            .wrap_err_with(|| format!("failed to inspect container {container_id}"))?;
         Ok(Self {
-            env: raw
-                .env
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(parse_env_pair)
-                .collect(),
-            labels: raw.labels.unwrap_or_default(),
+            env: details.config.parsed_env(),
+            labels: details.config.labels,
         })
     }
 
@@ -72,11 +48,6 @@ impl ContainerData {
         let digest = Sha256::digest(json.as_bytes());
         format!("{:0>52}", BigUint::from_bytes_be(&digest).to_str_radix(32))
     }
-}
-
-fn parse_env_pair(pair: String) -> Option<(String, String)> {
-    let (key, value) = pair.split_once('=')?;
-    Some((key.to_string(), value.to_string()))
 }
 
 /// Run the configured `userEnvProbe` against `container_id`. Returns an empty map for

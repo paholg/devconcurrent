@@ -33,13 +33,17 @@ pub(crate) struct DockerClient {
     // TODO: Instead of making this public, we should move all docker functionality we need to this
     // module.
     pub(crate) docker: Docker,
+    pub(crate) client: docker::Docker,
 }
 
 impl DockerClient {
     pub(crate) async fn new() -> eyre::Result<Self> {
         let docker =
             Docker::connect_with_local_defaults().wrap_err("failed to connect to Docker")?;
-        Ok(Self { docker })
+        let client = docker::Docker::connect()
+            .await
+            .wrap_err("failed to connect via docker crate")?;
+        Ok(Self { docker, client })
     }
 
     /// Return containers for a specific workspace, filtered at the Docker API level.
@@ -265,11 +269,11 @@ impl DockerClient {
 
     pub(crate) async fn execs(&self, container_id: &str) -> eyre::Result<usize> {
         let info = self
-            .docker
-            .inspect_container(container_id, None)
+            .client
+            .inspect_container(container_id)
             .await
             .wrap_err_with(|| format!("failed to inspect container {container_id}"))?;
-        let exec_ids = info.exec_ids.unwrap_or_default();
+        let exec_ids = info.exec_ids;
 
         let futures = exec_ids.into_iter().map(async |eid| -> eyre::Result<bool> {
             let running = self

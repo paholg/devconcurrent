@@ -31,6 +31,10 @@ async fn inspect_returns_running_container_details() {
     assert!(details.state.running);
     assert_eq!(details.state.exit_code, 0);
     assert!(!details.id.is_empty(), "container id should be populated");
+    assert!(
+        details.config.parsed_env().contains_key("PATH"),
+        "alpine sets PATH; parsed_env must find it",
+    );
 }
 
 #[tokio::test]
