@@ -32,7 +32,12 @@
 
         craneLib = (crane.mkLib pkgs).overrideToolchain (p: rust);
 
+        crateName = craneLib.crateNameFromCargoToml {
+          cargoToml = ./crates/devconcurrent/Cargo.toml;
+        };
+
         commonArgs = {
+          inherit (crateName) pname version;
           src = ./.;
           strictDeps = true;
           nativeBuildInputs = [ ];
@@ -42,12 +47,10 @@
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
         };
 
-        cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
-
         package = craneLib.buildPackage (
           artifacts
           // {
-            meta.mainProgram = cargoToml.package.name;
+            meta.mainProgram = crateName.pname;
             doCheck = false;
           }
         );

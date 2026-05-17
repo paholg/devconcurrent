@@ -59,7 +59,8 @@ fn status_cell(status: ContainerSummaryStateEnum) -> String {
         ContainerSummaryStateEnum::CREATED
         | ContainerSummaryStateEnum::PAUSED
         | ContainerSummaryStateEnum::RESTARTING
-        | ContainerSummaryStateEnum::REMOVING => status.yellow().to_string(),
+        | ContainerSummaryStateEnum::REMOVING
+        | ContainerSummaryStateEnum::STOPPING => status.yellow().to_string(),
     }
 }
 

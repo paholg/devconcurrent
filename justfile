@@ -4,7 +4,7 @@ run *args:
     cargo run -- {{args}}
 
 test *args:
-    cargo nextest run --no-fail-fast {{args}}
+    cargo nextest run --all-features --no-fail-fast {{args}}
 
 up:
     nix flake update
