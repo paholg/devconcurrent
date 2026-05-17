@@ -51,20 +51,10 @@ pub(crate) struct Config {
 pub(crate) struct Project {
     #[serde(deserialize_with = "deserialize_shell_path")]
     pub(crate) path: PathBuf,
-    #[serde(default)]
-    pub(crate) environment: IndexMap<String, String>,
-    #[serde(default)]
-    pub(crate) volumes: Vec<String>,
-    #[serde(default)]
-    pub(crate) exec: Exec,
     #[serde(default, deserialize_with = "deserialize_shell_path_opt")]
     pub(crate) worktree_folder: Option<PathBuf>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-#[serde(default)]
-pub(crate) struct Exec {
-    pub(crate) environment: IndexMap<String, String>,
+    // We'll parse this properly when merging with Figment.
+    pub(crate) devcontainer: Option<toml::Value>,
 }
 
 impl Config {

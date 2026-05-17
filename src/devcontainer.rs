@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use eyre::WrapErr;
+use figment::{Figment, providers::Serialized};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_inline_default::serde_inline_default;
@@ -12,8 +13,9 @@ pub(crate) mod lifecycle_command;
 pub(crate) mod substitution;
 mod unsupported;
 
-use crate::devcontainer::{
-    dc_options::DcOptions, forward_port::ForwardPort, substitution::Template,
+use crate::{
+    config::Project,
+    devcontainer::{dc_options::DcOptions, forward_port::ForwardPort, substitution::Template},
 };
 use lifecycle_command::LifecycleCommand;
 use unsupported::Unsupported;
@@ -55,8 +57,6 @@ impl DevcontainerConfig {
     ///
     /// It is valid that these files may exist in more than one location, so consider providing a
     /// mechanism for users to select one when appropriate.
-    ///
-    // TODO: Allow a user to select from multiple devcontainer.json files.
     pub(crate) fn find_config(dir: &Path) -> Option<PathBuf> {
         let candidates = [
             dir.join(".devcontainer/devcontainer.json"),
@@ -80,27 +80,69 @@ impl DevcontainerConfig {
         })
     }
 
-    /// Load the given path
-    pub(crate) fn load(path: &Path) -> eyre::Result<Self> {
+    fn parse_json(path: &Path) -> eyre::Result<Self> {
         // serde's flatten messes with the ability to trace what failed; so we parse the individual
         // sections separately.
-        let json = std::fs::read_to_string(path)
-            .wrap_err_with(|| format!("failed to read {}", path.display()))?;
-
         fn parse<'de, T: Deserialize<'de>>(
             json: &'de str,
             label: &str,
-            path: &std::path::Path,
+            path: &Path,
         ) -> eyre::Result<T> {
             let jd = &mut serde_json::Deserializer::from_str(json);
             serde_path_to_error::deserialize(jd)
                 .wrap_err_with(|| format!("failed to parse {label} in {}", path.display()))
         }
 
+        let json = std::fs::read_to_string(path)
+            .wrap_err_with(|| format!("failed to read {}", path.display()))?;
+
         Ok(DevcontainerConfig {
             common: parse(&json, "common properties", path)?,
             kind: parse(&json, "container type properties", path)?,
         })
+    }
+
+    fn parse_toml(toml: &toml::Value) -> eyre::Result<Self> {
+        // serde's flatten messes with the ability to trace what failed; so we parse the individual
+        // sections separately.
+        fn parse<'de, T: Deserialize<'de>>(
+            value: &'de toml::Value,
+            label: &str,
+        ) -> eyre::Result<T> {
+            serde_path_to_error::deserialize(value.clone()).wrap_err_with(|| {
+                format!("failed to parse {label} in project devcontainer override")
+            })
+        }
+
+        Ok(DevcontainerConfig {
+            common: parse(toml, "common properties")?,
+            kind: parse(toml, "container type properties")?,
+        })
+    }
+
+    /// Load the merged devcontainer config from the given path (if any) and the project's
+    /// overrides. Returns `Ok(None)` if neither source provides any config.
+    pub(crate) fn load(path: Option<&Path>, project: &Project) -> eyre::Result<Option<Self>> {
+        if path.is_none() && project.devcontainer.is_none() {
+            return Ok(None);
+        }
+
+        let mut figment = Figment::new();
+
+        if let Some(path) = path {
+            figment = figment.admerge(Serialized::defaults(&DevcontainerConfig::parse_json(path)?));
+        }
+
+        if let Some(overrides) = &project.devcontainer {
+            figment = figment.admerge(Serialized::defaults(&DevcontainerConfig::parse_toml(
+                overrides,
+            )?));
+        }
+
+        figment
+            .extract()
+            .map(Some)
+            .wrap_err("failed to merge devcontainer config")
     }
 }
 

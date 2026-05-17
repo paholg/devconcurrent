@@ -1,19 +1,16 @@
 use std::path::PathBuf;
 
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use serde_inline_default::serde_inline_default;
-use serde_with::serde_as;
 
 use crate::helpers::deserialize_shell_path_opt;
 use crate::run::cmd::Cmd;
 
-#[serde_as]
-#[serde_inline_default]
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub(crate) struct DcOptions {
     pub(crate) default_exec: Option<Cmd>,
-    #[serde(default, deserialize_with = "deserialize_shell_path_opt")]
+    #[serde(deserialize_with = "deserialize_shell_path_opt")]
     pub(crate) worktree_folder: Option<PathBuf>,
     /// Whether to mount the project's git directory into each workspace's devcontainer.
     ///
@@ -21,6 +18,21 @@ pub(crate) struct DcOptions {
     /// directory isn't available, then no git commands will work in the worktree. By mounting it
     /// at its original path in the devcontainer, we allow you to use `git` freely for the workspace,
     /// both inside and out of the devcontainer.
-    #[serde_inline_default(true)]
-    pub(crate) mount_git: bool,
+    ///
+    /// Defaults to true, but we use Option so it can be overridden.
+    mount_git: Option<bool>,
+    pub(crate) volumes: Vec<String>,
+    pub(crate) exec: ExecOptions,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub(crate) struct ExecOptions {
+    pub(crate) environment: IndexMap<String, String>,
+}
+
+impl DcOptions {
+    pub(crate) fn mount_git(&self) -> bool {
+        self.mount_git.unwrap_or(true)
+    }
 }

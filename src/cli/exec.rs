@@ -48,13 +48,12 @@ impl Exec {
             .map(|(k, v)| (k.clone(), v.as_ref().map(|t| t.render(&context))))
             .collect();
 
-        exec_interactive(container_id, &state, devcontainer, &remote_env, &self.cmd)
+        exec_interactive(container_id, devcontainer, &remote_env, &self.cmd)
     }
 }
 
 pub(crate) fn exec_interactive(
     container_id: &str,
-    state: &State,
     devcontainer: &DevcontainerState,
     remote_env: &IndexMap<String, Option<String>>,
     cmd_args: &[String],
@@ -79,7 +78,7 @@ pub(crate) fn exec_interactive(
         // null in remoteEnv means "unset"; with docker exec there's nothing to unset, so skip.
     }
 
-    for (k, v) in &state.project.exec.environment {
+    for (k, v) in &dc_options.exec.environment {
         let expanded = shellexpand::env(v)?;
         cmd.arg("-e").arg(format!("{k}={expanded}"));
     }

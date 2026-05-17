@@ -17,17 +17,17 @@ pub(crate) struct State {
 }
 
 pub(crate) struct DevcontainerState {
-    pub(crate) path: PathBuf,
+    pub(crate) path: Option<PathBuf>,
     pub(crate) config: DevcontainerConfig,
     pub(crate) docker: DockerClient,
 }
 
 impl DevcontainerState {
     async fn new(project: &Project) -> eyre::Result<Option<Self>> {
-        let Some(path) = DevcontainerConfig::find_config(&project.path) else {
+        let path = DevcontainerConfig::find_config(&project.path);
+        let Some(config) = DevcontainerConfig::load(path.as_deref(), &project)? else {
             return Ok(None);
         };
-        let config = DevcontainerConfig::load(&path)?;
         let docker = DockerClient::new().await?;
 
         Ok(Some(Self {

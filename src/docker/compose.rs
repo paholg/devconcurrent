@@ -73,25 +73,26 @@ fn write_compose_override(
 ) -> eyre::Result<PathBuf> {
     let override_path = override_path(workspace);
 
+    let mut labels = vec![
+        format!("devcontainer.local_folder={}", workspace.path.display()),
+        "dev.devconcurrent.managed=true".to_string(),
+        format!("dev.devconcurrent.project={}", workspace.state.project_name),
+    ];
+    if let Some(path) = &devcontainer.path {
+        labels.push(format!("devcontainer.config_file={}", path.display()));
+    }
     let mut service_obj = json!({
-        "labels": [
-            format!("devcontainer.local_folder={}", workspace.path.display()),
-            format!("devcontainer.config_file={}", devcontainer.path.display()),
-            "dev.devconcurrent.managed=true".to_string(),
-            format!("dev.devconcurrent.project={}", workspace.state.project_name),
-        ]
+        "labels": [labels]
     });
 
     let common = &devcontainer.config.common;
-    let mut env = workspace.state.project.environment.clone();
     let context =
         substitution::Context::new(&workspace.path, &devcontainer.compose().workspace_folder);
-    env.extend(
-        common
-            .container_env
-            .iter()
-            .map(|(k, v)| (k.clone(), v.render(&context))),
-    );
+    let env: indexmap::IndexMap<String, String> = common
+        .container_env
+        .iter()
+        .map(|(k, v)| (k.clone(), v.render(&context)))
+        .collect();
     if !env.is_empty() {
         service_obj["environment"] = json!(env);
     }
@@ -114,8 +115,8 @@ fn write_compose_override(
 
     let devconcurrent_options = devcontainer.devconcurrent();
 
-    let mut volumes = workspace.state.project.volumes.clone();
-    if devconcurrent_options.mount_git && !workspace.is_root {
+    let mut volumes = devconcurrent_options.volumes.clone();
+    if devconcurrent_options.mount_git() && !workspace.is_root {
         let git_dir = workspace.state.project.path.join(".git");
         volumes.push(format!("{}:{}", git_dir.display(), git_dir.display()));
     }

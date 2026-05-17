@@ -152,7 +152,7 @@ impl Up {
 
         // Interactive exec if requested
         if let Some(cmd_args) = self.exec {
-            exec_interactive(&container_id, &state, devcontainer, remote_env, &cmd_args)?;
+            exec_interactive(&container_id, devcontainer, remote_env, &cmd_args)?;
         }
 
         Ok(())
