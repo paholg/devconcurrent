@@ -1,3 +1,5 @@
+check: lint test
+
 run *args: 
     cargo run -- {{args}}
 
@@ -13,8 +15,6 @@ fix: clippy-fix lint test
 clippy-fix:
     cargo clippy --fix --allow-staged
     cargo fmt
-
-check: lint test
 
 lint: fmt-check clippy
 

@@ -11,6 +11,7 @@ use crate::cli::fwd::forward;
 use crate::complete::complete_workspace;
 use crate::devcontainer::substitution;
 use crate::docker::compose::{compose_cmd, compose_ps_q};
+use crate::docker::probe;
 use crate::run::Runner;
 use crate::run::cmd::NamedCmd;
 use crate::worktree;
@@ -101,17 +102,25 @@ impl Up {
         let user = devcontainer.config.remote_user.as_deref();
         let workdir = Some(devcontainer.config.workspace_folder.as_path());
 
+        let container = probe::ContainerData::inspect(&container_id).await?;
+        let probed = probe::user_env(
+            &container_id,
+            user,
+            &container.env,
+            devcontainer.config.user_env_probe,
+        )
+        .await?;
         let context =
             substitution::Context::new(&workspace.path, &devcontainer.config.workspace_folder)
-                .with_container(&container_id)
-                .await?;
-        let rendered_remote_env: IndexMap<String, Option<String>> = devcontainer
-            .config
-            .remote_env
-            .iter()
-            .map(|(k, v)| (k.clone(), v.as_ref().map(|t| t.render(&context))))
-            .collect();
-        let remote_env = &rendered_remote_env;
+                .with_container(container);
+        // Spec merge order: probed env is the base; devcontainer.json `remoteEnv` overlays.
+        // A `None` (spec `null`) emits `-e KEY=` (empty) downstream.
+        let mut merged: IndexMap<String, Option<String>> =
+            probed.into_iter().map(|(k, v)| (k, Some(v))).collect();
+        for (key, template) in &devcontainer.config.remote_env {
+            merged.insert(key.clone(), template.as_ref().map(|t| t.render(&context)));
+        }
+        let remote_env = &merged;
 
         // Lifecycle commands: create-only commands run only on first creation
         // For now, though, we always recreate.

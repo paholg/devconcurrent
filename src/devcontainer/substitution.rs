@@ -69,20 +69,14 @@ impl<'a> Context<'a> {
         }
     }
 
-    pub(crate) async fn with_container(mut self, container_id: &str) -> eyre::Result<Self> {
-        self.container = Some(ContainerData::inspect(container_id).await?);
-        Ok(self)
+    pub(crate) fn with_container(mut self, container: ContainerData) -> Self {
+        self.container = Some(container);
+        self
     }
 
     #[cfg(test)]
     fn with_local_env(mut self, local_env: IndexMap<String, String>) -> Self {
         self.local_env = local_env;
-        self
-    }
-
-    #[cfg(test)]
-    fn with_container_data(mut self, container: ContainerData) -> Self {
-        self.container = Some(container);
         self
     }
 }
@@ -373,7 +367,7 @@ mod tests {
             )
             .with_local_env(self.local_env.clone());
             if let Some(ref container) = self.container {
-                context = context.with_container_data(container.clone());
+                context = context.with_container(container.clone());
             }
             context
         }

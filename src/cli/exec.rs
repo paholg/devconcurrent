@@ -10,6 +10,7 @@ use indexmap::IndexMap;
 use crate::cli::State;
 use crate::complete::complete_workspace;
 use crate::devcontainer::substitution;
+use crate::docker::probe;
 use crate::state::DevcontainerState;
 
 /// Exec into a running devcontainer
@@ -36,16 +37,22 @@ impl Exec {
             ));
         }
         let container_id = workspace_full.service_container_id()?;
+        let container = probe::ContainerData::inspect(container_id).await?;
+        let probed = probe::user_env(
+            container_id,
+            devcontainer.config.remote_user.as_deref(),
+            &container.env,
+            devcontainer.config.user_env_probe,
+        )
+        .await?;
         let context =
             substitution::Context::new(&workspace.path, &devcontainer.config.workspace_folder)
-                .with_container(container_id)
-                .await?;
-        let remote_env: IndexMap<String, Option<String>> = devcontainer
-            .config
-            .remote_env
-            .iter()
-            .map(|(k, v)| (k.clone(), v.as_ref().map(|t| t.render(&context))))
-            .collect();
+                .with_container(container);
+        let mut remote_env: IndexMap<String, Option<String>> =
+            probed.into_iter().map(|(k, v)| (k, Some(v))).collect();
+        for (key, template) in &devcontainer.config.remote_env {
+            remote_env.insert(key.clone(), template.as_ref().map(|t| t.render(&context)));
+        }
 
         exec_interactive(container_id, devcontainer, &remote_env, &self.cmd)
     }
@@ -71,10 +78,11 @@ pub(crate) fn exec_interactive(
     cmd.arg("-w").arg(&devcontainer.config.workspace_folder);
 
     for (k, v) in remote_env {
-        if let Some(value) = v {
-            cmd.arg("-e").arg(format!("{k}={value}"));
-        }
-        // null in remoteEnv means "unset"; with docker exec there's nothing to unset, so skip.
+        // null in remoteEnv means "unset" per spec; we can't truly unset PID-1-inherited vars via
+        // `docker exec`, so set to empty string — closer to intent than the reference's literal
+        // "null" stringification.
+        cmd.arg("-e")
+            .arg(format!("{k}={}", v.as_deref().unwrap_or("")));
     }
 
     for (k, v) in &dc_options.exec.environment {

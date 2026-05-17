@@ -25,7 +25,7 @@ pub(crate) struct DevcontainerState {
 impl DevcontainerState {
     async fn new(project: &Project) -> eyre::Result<Option<Self>> {
         let path = DevcontainerConfig::find_config(&project.path);
-        let Some(config) = DevcontainerConfig::load(path.as_deref(), &project)? else {
+        let Some(config) = DevcontainerConfig::load(path.as_deref(), project)? else {
             return Ok(None);
         };
         let docker = DockerClient::new().await?;

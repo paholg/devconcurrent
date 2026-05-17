@@ -34,13 +34,13 @@ impl run::Runnable for DockerExec<'_> {
             workdir_str = w.to_string_lossy();
             args.extend(["-w", &workdir_str]);
         }
+        // Per spec, `null` in remoteEnv means "unset" the variable. We can't actually unset PID-1
+        // inherited vars via `docker exec -e`, so we set to empty string — closer to spec intent
+        // than the reference impl, which stringifies `null` to the literal text "null".
         let env_args: Vec<String> = self
             .env
             .iter()
-            .map(|(k, v)| match v {
-                Some(v) => format!("{k}={v}"),
-                None => k.clone(),
-            })
+            .map(|(k, v)| format!("{k}={}", v.as_deref().unwrap_or("")))
             .collect();
         for e in &env_args {
             args.extend(["-e", e]);
