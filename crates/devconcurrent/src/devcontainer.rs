@@ -431,8 +431,7 @@ mod tests {
 
     #[test]
     fn mount_string_anonymous_volume() {
-        let entry: MountEntry =
-            serde_json::from_str(r#""type=volume,target=/data""#).unwrap();
+        let entry: MountEntry = serde_json::from_str(r#""type=volume,target=/data""#).unwrap();
         assert_eq!(entry.to_compose_volume(&ctx()).unwrap(), "/data");
     }
 
@@ -446,17 +445,14 @@ mod tests {
 
     #[test]
     fn mount_string_accepts_src_and_dst_aliases() {
-        let entry: MountEntry =
-            serde_json::from_str(r#""type=bind,src=/host,dst=/in""#).unwrap();
+        let entry: MountEntry = serde_json::from_str(r#""type=bind,src=/host,dst=/in""#).unwrap();
         assert_eq!(entry.to_compose_volume(&ctx()).unwrap(), "/host:/in");
     }
 
     #[test]
     fn mount_object_form() {
-        let entry: MountEntry = serde_json::from_str(
-            r#"{"type":"bind","source":"/host","target":"/in"}"#,
-        )
-        .unwrap();
+        let entry: MountEntry =
+            serde_json::from_str(r#"{"type":"bind","source":"/host","target":"/in"}"#).unwrap();
         assert_eq!(entry.to_compose_volume(&ctx()).unwrap(), "/host:/in");
     }
 
@@ -466,20 +462,21 @@ mod tests {
             r#"{"type":"bind","source":"${localWorkspaceFolder}/data","target":"/data"}"#,
         )
         .unwrap();
-        assert_eq!(entry.to_compose_volume(&ctx()).unwrap(), "/local/data:/data");
+        assert_eq!(
+            entry.to_compose_volume(&ctx()).unwrap(),
+            "/local/data:/data"
+        );
     }
 
     #[test]
     fn mount_string_missing_type_errors() {
-        let entry: MountEntry =
-            serde_json::from_str(r#""source=/host,target=/in""#).unwrap();
+        let entry: MountEntry = serde_json::from_str(r#""source=/host,target=/in""#).unwrap();
         assert!(entry.to_compose_volume(&ctx()).is_err());
     }
 
     #[test]
     fn mount_string_missing_target_errors() {
-        let entry: MountEntry =
-            serde_json::from_str(r#""type=bind,source=/host""#).unwrap();
+        let entry: MountEntry = serde_json::from_str(r#""type=bind,source=/host""#).unwrap();
         assert!(entry.to_compose_volume(&ctx()).is_err());
     }
 }
