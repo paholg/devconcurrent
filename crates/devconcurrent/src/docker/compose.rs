@@ -82,7 +82,7 @@ fn write_compose_override(
         labels.push(format!("devcontainer.config_file={}", path.display()));
     }
     let mut service_obj = json!({
-        "labels": [labels]
+        "labels": labels
     });
 
     let context =
