@@ -85,10 +85,6 @@ pub(crate) fn exec_interactive(
             .arg(format!("{k}={}", v.as_deref().unwrap_or("")));
     }
 
-    for (k, v) in &dc_options.exec.environment {
-        let expanded = shellexpand::env(v)?;
-        cmd.arg("-e").arg(format!("{k}={expanded}"));
-    }
     cmd.arg(container_id);
 
     if cmd_args.is_empty() {

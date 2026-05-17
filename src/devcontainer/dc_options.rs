@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::helpers::deserialize_shell_path_opt;
@@ -22,13 +21,6 @@ pub(crate) struct DcOptions {
     /// Defaults to true, but we use Option so it can be overridden.
     mount_git: Option<bool>,
     pub(crate) volumes: Vec<String>,
-    pub(crate) exec: ExecOptions,
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone, Default)]
-#[serde(rename_all = "camelCase", default)]
-pub(crate) struct ExecOptions {
-    pub(crate) environment: IndexMap<String, String>,
 }
 
 impl DcOptions {
