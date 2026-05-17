@@ -14,8 +14,8 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     needs:
-    - check
-
+      - check
+      - docker-crate
     steps:
       - name: Check if all jubs succeeded
         uses: re-actors/alls-green@release/v1
@@ -41,5 +41,45 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-      - run: nix build
       - run: nix flake check --print-build-logs
+
+  docker-crate:
+    name: docker crate (${{ matrix.os }} / ${{ matrix.runtime }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            runtime: docker
+          - os: ubuntu-latest
+            runtime: podman
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: extractions/setup-just@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      # Docker / podman setup
+      - if: matrix.os == 'ubuntu-latest' && matrix.runtime == 'docker'
+        name: "Ensure Docker"
+        run: docker version
+      - if: matrix.os == 'ubuntu-latest' && matrix.runtime == 'podman'
+        name: "Install Podman"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+          systemctl --user enable --now podman.socket
+          sock="/run/user/$(id -u)/podman/podman.sock"
+          # Wait briefly for the socket to come up.
+          for _ in $(seq 1 20); do [ -S "$sock" ] && break; sleep 0.5; done
+          test -S "$sock"
+          echo "DOCKER_HOST=unix://$sock" >> "$GITHUB_ENV"
+
+      # Run tests
+      - run: just test
