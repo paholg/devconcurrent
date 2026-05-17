@@ -78,7 +78,6 @@ pub(crate) struct DevcontainerConfig {
     pub(crate) container_env: IndexMap<String, Template>,
     /// The user the container will be started with. The default is the user on the Docker image.
     pub(crate) container_user: Option<String>,
-    #[serde(deserialize_with = "unsupported::mounts::warn")]
     pub(crate) mounts: Vec<MountEntry>,
     /// Passes the --init flag when creating the dev container.
     pub(crate) init: Option<bool>,
@@ -203,7 +202,8 @@ pub(crate) struct Customizations {
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(untagged)]
 pub(crate) enum MountEntry {
-    String(String),
+    /// Docker `--mount` short form: `type=bind,source=...,target=...`.
+    String(Template),
     Object(Mount),
 }
 
@@ -213,8 +213,8 @@ pub(crate) struct Mount {
     #[serde(rename = "type")]
     pub(crate) ty: MountType,
     #[serde(default)]
-    pub(crate) source: Option<String>,
-    pub(crate) target: String,
+    pub(crate) source: Option<Template>,
+    pub(crate) target: Template,
 }
 
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -222,6 +222,80 @@ pub(crate) struct Mount {
 pub(crate) enum MountType {
     Bind,
     Volume,
+}
+
+impl MountEntry {
+    /// Render to a compose-compatible volume entry. For bind mounts and named volumes alike,
+    /// `"source:target"` short form suffices: compose treats a leading `/` as a host path (bind)
+    /// and other leading characters as a named volume.
+    pub(crate) fn to_compose_volume(
+        &self,
+        context: &substitution::Context<'_>,
+    ) -> eyre::Result<String> {
+        match self {
+            MountEntry::String(template) => Ok(Mount::parse(&template.render(context))?.render()),
+            MountEntry::Object(mount) => Ok(mount.render_with(context)),
+        }
+    }
+}
+
+impl Mount {
+    /// Parse a docker `--mount` short form (`key=value,key=value,...`).
+    fn parse(text: &str) -> eyre::Result<MountFields> {
+        let mut ty = None;
+        let mut source = None;
+        let mut target = None;
+        for pair in text.split(',') {
+            let (key, value) = pair
+                .split_once('=')
+                .ok_or_else(|| eyre::eyre!("mount entry missing `=`: {pair}"))?;
+            match key.trim() {
+                "type" => {
+                    ty = Some(match value {
+                        "bind" => MountType::Bind,
+                        "volume" => MountType::Volume,
+                        other => eyre::bail!("unsupported mount type: {other}"),
+                    });
+                }
+                "source" | "src" => source = Some(value.to_string()),
+                "target" | "dst" | "destination" => target = Some(value.to_string()),
+                _ => {} // ignore `readonly`, `consistency`, etc. — extending later if needed.
+            }
+        }
+        Ok(MountFields {
+            ty: ty.ok_or_else(|| eyre::eyre!("mount entry missing `type`: {text}"))?,
+            source,
+            target: target.ok_or_else(|| eyre::eyre!("mount entry missing `target`: {text}"))?,
+        })
+    }
+
+    fn render_with(&self, context: &substitution::Context<'_>) -> String {
+        MountFields {
+            ty: self.ty,
+            source: self.source.as_ref().map(|t| t.render(context)),
+            target: self.target.render(context),
+        }
+        .render()
+    }
+}
+
+/// Post-rendering / post-parsing intermediate: all fields are plain strings, ready to format
+/// into a compose volume entry.
+struct MountFields {
+    ty: MountType,
+    source: Option<String>,
+    target: String,
+}
+
+impl MountFields {
+    fn render(self) -> String {
+        match (self.ty, self.source) {
+            (_, Some(source)) => format!("{source}:{}", self.target),
+            // Anonymous volume: compose accepts just the target.
+            (MountType::Volume, None) => self.target,
+            (MountType::Bind, None) => self.target, // unusual but pass through.
+        }
+    }
 }
 
 #[serde_inline_default]
@@ -327,4 +401,85 @@ pub(crate) enum ComposeShutdownAction {
     None,
     #[default]
     StopCompose,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    fn ctx() -> substitution::Context<'static> {
+        substitution::Context::new(Path::new("/local"), Path::new("/container"))
+    }
+
+    #[test]
+    fn mount_string_bind() {
+        let entry: MountEntry =
+            serde_json::from_str(r#""type=bind,source=/host/path,target=/in/container""#).unwrap();
+        assert_eq!(
+            entry.to_compose_volume(&ctx()).unwrap(),
+            "/host/path:/in/container",
+        );
+    }
+
+    #[test]
+    fn mount_string_named_volume() {
+        let entry: MountEntry =
+            serde_json::from_str(r#""type=volume,source=myvol,target=/data""#).unwrap();
+        assert_eq!(entry.to_compose_volume(&ctx()).unwrap(), "myvol:/data");
+    }
+
+    #[test]
+    fn mount_string_anonymous_volume() {
+        let entry: MountEntry =
+            serde_json::from_str(r#""type=volume,target=/data""#).unwrap();
+        assert_eq!(entry.to_compose_volume(&ctx()).unwrap(), "/data");
+    }
+
+    #[test]
+    fn mount_string_substitutes_local_workspace_folder() {
+        let entry: MountEntry =
+            serde_json::from_str(r#""type=bind,source=${localWorkspaceFolder}/.aws,target=/aws""#)
+                .unwrap();
+        assert_eq!(entry.to_compose_volume(&ctx()).unwrap(), "/local/.aws:/aws");
+    }
+
+    #[test]
+    fn mount_string_accepts_src_and_dst_aliases() {
+        let entry: MountEntry =
+            serde_json::from_str(r#""type=bind,src=/host,dst=/in""#).unwrap();
+        assert_eq!(entry.to_compose_volume(&ctx()).unwrap(), "/host:/in");
+    }
+
+    #[test]
+    fn mount_object_form() {
+        let entry: MountEntry = serde_json::from_str(
+            r#"{"type":"bind","source":"/host","target":"/in"}"#,
+        )
+        .unwrap();
+        assert_eq!(entry.to_compose_volume(&ctx()).unwrap(), "/host:/in");
+    }
+
+    #[test]
+    fn mount_object_form_with_substitution() {
+        let entry: MountEntry = serde_json::from_str(
+            r#"{"type":"bind","source":"${localWorkspaceFolder}/data","target":"/data"}"#,
+        )
+        .unwrap();
+        assert_eq!(entry.to_compose_volume(&ctx()).unwrap(), "/local/data:/data");
+    }
+
+    #[test]
+    fn mount_string_missing_type_errors() {
+        let entry: MountEntry =
+            serde_json::from_str(r#""source=/host,target=/in""#).unwrap();
+        assert!(entry.to_compose_volume(&ctx()).is_err());
+    }
+
+    #[test]
+    fn mount_string_missing_target_errors() {
+        let entry: MountEntry =
+            serde_json::from_str(r#""type=bind,source=/host""#).unwrap();
+        assert!(entry.to_compose_volume(&ctx()).is_err());
+    }
 }

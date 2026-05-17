@@ -115,8 +115,15 @@ fn write_compose_override(
 
     let devconcurrent_options = devcontainer.devconcurrent();
 
-    let mut volumes = devconcurrent_options.volumes.clone();
+    let mut volumes: Vec<String> = devcontainer
+        .config
+        .mounts
+        .iter()
+        .map(|entry| entry.to_compose_volume(&context))
+        .collect::<eyre::Result<_>>()?;
     if devconcurrent_options.mount_git() && !workspace.is_root {
+        // Git worktrees store a tiny `.git` file pointing to the real `.git` dir at the project
+        // root; mount the real dir at its original path so `git` works inside the container.
         let git_dir = workspace.state.project.path.join(".git");
         volumes.push(format!("{}:{}", git_dir.display(), git_dir.display()));
     }

@@ -20,7 +20,6 @@ pub(crate) struct DcOptions {
     ///
     /// Defaults to true, but we use Option so it can be overridden.
     mount_git: Option<bool>,
-    pub(crate) volumes: Vec<String>,
 }
 
 impl DcOptions {

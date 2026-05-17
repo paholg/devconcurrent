@@ -36,5 +36,4 @@ unsupported!(
     overrideFeatureInstallOrder,
     secrets,
     otherPortsAttributes,
-    mounts
 );
