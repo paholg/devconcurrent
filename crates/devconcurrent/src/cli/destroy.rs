@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 
-use bollard::query_parameters::RemoveContainerOptions;
 use clap::Args;
 use clap_complete::ArgValueCompleter;
 use eyre::eyre;
@@ -87,8 +86,6 @@ impl Runnable for Cleanup<'_> {
 
             // Remove any port-forward sidecars targeting this workspace
             let client = &devcontainer.docker.client;
-            let bollard = &devcontainer.docker.docker;
-
             if let Ok(summaries) = client
                 .list_containers()
                 .all(true)
@@ -98,15 +95,7 @@ impl Runnable for Cleanup<'_> {
                 .await
             {
                 for c in summaries {
-                    let _ = bollard
-                        .remove_container(
-                            &c.id,
-                            Some(RemoveContainerOptions {
-                                force: true,
-                                ..Default::default()
-                            }),
-                        )
-                        .await;
+                    let _ = client.remove_container(&c.id).force(true).call().await;
                 }
             }
         }

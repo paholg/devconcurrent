@@ -173,6 +173,40 @@ impl Docker {
     }
 }
 
+#[bon]
+impl Docker {
+    /// `DELETE /containers/{id}` — remove a container.
+    ///
+    /// Returns [`Error::NotFound`] if the container doesn't exist.
+    #[builder]
+    pub async fn remove_container(
+        &self,
+        #[builder(start_fn)] id: &str,
+        #[builder(default)] force: bool,
+        /// Remove anonymous volumes associated with the container.
+        #[builder(default)]
+        volumes: bool,
+        /// Remove the specified link associated with the container.
+        #[builder(default)]
+        link: bool,
+    ) -> Result<()> {
+        let mut url = self.url(&format!("containers/{id}"));
+        {
+            let mut pairs = url.query_pairs_mut();
+            if force {
+                pairs.append_pair("force", "true");
+            }
+            if volumes {
+                pairs.append_pair("v", "true");
+            }
+            if link {
+                pairs.append_pair("link", "true");
+            }
+        }
+        self.http().delete(url).try_send_empty().await
+    }
+}
+
 impl<S: docker_list_containers_builder::State> DockerListContainersBuilder<'_, S> {
     pub fn with_label(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.filters.push(Filter::Label {
