@@ -78,6 +78,9 @@ pub enum ContainerStatus {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct ContainerConfig {
+    /// Image reference as given at create time (e.g. `ghcr.io/foo/bar:1.2.3`).
+    #[serde(default)]
+    pub image: String,
     #[serde(default)]
     pub env: Vec<String>,
     #[serde(default)]
@@ -288,6 +291,8 @@ struct CreateRequest<'a> {
     entrypoint: Option<&'a [String]>,
     #[serde(skip_serializing_if = "Option::is_none")]
     cmd: Option<&'a [String]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    env: Option<&'a [String]>,
     host_config: HostConfig<'a>,
 }
 
@@ -324,6 +329,7 @@ impl Docker {
         #[builder(start_fn)] name: &str,
         #[builder(field)] labels: IndexMap<String, String>,
         #[builder(field)] binds: Vec<String>,
+        #[builder(field)] env: Vec<String>,
         #[builder(field)] port_bindings: IndexMap<String, Vec<PortBindingEntry>>,
         image: &str,
         #[builder(default)] entrypoint: Vec<String>,
@@ -338,6 +344,7 @@ impl Docker {
             labels: (!labels.is_empty()).then_some(&labels),
             entrypoint: (!entrypoint.is_empty()).then_some(&entrypoint),
             cmd: (!cmd.is_empty()).then_some(&cmd),
+            env: (!env.is_empty()).then_some(&env),
             host_config: HostConfig {
                 binds: (!binds.is_empty()).then_some(&binds),
                 port_bindings: (!port_bindings.is_empty()).then_some(&port_bindings),
@@ -363,6 +370,13 @@ impl<S: docker_create_container_builder::State> DockerCreateContainerBuilder<'_,
     /// `docker run --volume` accepts.
     pub fn with_bind(mut self, spec: impl Into<String>) -> Self {
         self.binds.push(spec.into());
+        self
+    }
+
+    /// Add an environment variable in `KEY=VALUE` form.
+    pub fn with_env(mut self, key: impl AsRef<str>, value: impl AsRef<str>) -> Self {
+        self.env
+            .push(format!("{}={}", key.as_ref(), value.as_ref()));
         self
     }
 

@@ -1,7 +1,7 @@
 check: lint test
 
 run *args: 
-    cargo run -- {{args}}
+    cargo run --bin devconcurrent -- {{args}}
 
 test *args:
     cargo nextest run --all-features --no-fail-fast {{args}}
@@ -38,6 +38,14 @@ release version:
     git tag v{{version}}
     git push
     git push --tags
+
+# Build the proxy docker image and tag it so it's used.
+run-proxy:
+    nix run .#docker-service-image.copyToDockerDaemon
+    v=$(cargo pkgid -p devconcurrent-proxy | sed 's/.*[@#]//'); \
+    docker tag "devconcurrent-proxy:$v" "ghcr.io/paholg/devconcurrent-proxy:$v" && \
+    echo "Tagged ghcr.io/paholg/devconcurrent-proxy:$v"
+    just run proxy up
 
 schema: schema-gen schema-open
 

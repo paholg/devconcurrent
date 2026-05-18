@@ -7,7 +7,7 @@ use tracing_indicatif::span_ext::IndicatifSpanExt;
 
 use crate::cli::exec::exec_interactive;
 use crate::cli::fwd::forward;
-use crate::cli::{State, go};
+use crate::cli::{State, go, proxy};
 use crate::complete::complete_workspace;
 use crate::devcontainer::substitution;
 use crate::docker::compose::{compose_cmd, compose_ps_q};
@@ -80,6 +80,14 @@ impl Up {
         if let Some(ref cmd) = devcontainer.config.initialize_command {
             cmd.run_on_host("initializeCommand", Some(&workspace.path))
                 .await?;
+        }
+
+        // If proxy is configured for this project, ensure it's running and the
+        // project's config is pushed BEFORE compose-up, so that the proxy
+        // already knows the project when it reacts to the container start
+        // event.
+        if proxy_enabled(devcontainer) {
+            proxy::ensure_up(&state).await?;
         }
 
         let mut compose_up_cmd = compose_cmd(devcontainer, &workspace)?;
@@ -174,4 +182,11 @@ impl Up {
 
         Ok(())
     }
+}
+
+fn proxy_enabled(dc: &crate::state::DevcontainerState) -> bool {
+    let Some(opts) = dc.config.customizations.devconcurrent.proxy.as_ref() else {
+        return false;
+    };
+    !opts.services.is_empty() || !dc.config.forward_ports.is_empty()
 }

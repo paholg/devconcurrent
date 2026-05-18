@@ -3,7 +3,7 @@ use std::{env, path::PathBuf};
 use eyre::OptionExt;
 
 use crate::{
-    config::{Config, Project, ProjectName},
+    config::{Config, Project, ProjectName, ProxyGlobal},
     devcontainer::{DevcontainerConfig, dc_options::DcOptions},
     docker::DockerClient,
     workspace::Workspace,
@@ -13,6 +13,7 @@ use crate::{
 pub(crate) struct State {
     pub(crate) project_name: ProjectName,
     pub(crate) project: Project,
+    pub(crate) proxy: ProxyGlobal,
     pub(crate) devcontainer: Option<DevcontainerState>,
 }
 
@@ -45,6 +46,7 @@ impl DevcontainerState {
 impl State {
     pub(crate) async fn new(specified_project: Option<String>) -> eyre::Result<Self> {
         let config = Config::load()?;
+        let proxy = config.proxy.clone();
         let (project_name, project) = config.project(specified_project)?;
 
         let devcontainer = DevcontainerState::new(&project).await?;
@@ -52,6 +54,7 @@ impl State {
         Ok(Self {
             project_name,
             project,
+            proxy,
             devcontainer,
         })
     }

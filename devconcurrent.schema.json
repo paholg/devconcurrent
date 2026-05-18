@@ -710,12 +710,18 @@
       "type": "object",
       "properties": {
         "port": {
-          "description": "The port the proxy listens on.\n\nThis is the one port consumed by devconcurrent when using the proxy.\n\nDefault: 43770",
+          "description": "The DNS port the proxy listens on, on `bindAddress`.\n\nDefault: 53",
           "type": "integer",
           "format": "uint16",
           "minimum": 0,
           "maximum": 65535,
-          "default": 43770
+          "default": 53
+        },
+        "bindAddress": {
+          "description": "Loopback address the proxy binds for DNS and configured ports.\n\nUsing a non-`127.0.0.1` loopback keeps the user's `127.0.0.1:*` free for\nother tools. On Linux, all of `127.0.0.0/8` is loopback out of the box;\non macOS, the alias must be added once (`dc proxy up` does this for you\nand prints LaunchDaemon instructions for persistence).\n\nAvoid `127.0.0.1`, `127.0.0.53`/`127.0.0.54` (systemd-resolved stub),\nand `127.0.53.53` (ICANN name-collision signaling).\n\nDefault: `127.43.77.0`",
+          "type": "string",
+          "format": "ip",
+          "default": "127.43.77.0"
         }
       }
     }

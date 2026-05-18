@@ -15,6 +15,7 @@ mod exec;
 pub(crate) mod fwd;
 mod go;
 mod list;
+pub(crate) mod proxy;
 mod show;
 mod up;
 
@@ -53,6 +54,7 @@ pub(crate) enum Commands {
     Show(show::Show),
     #[command()]
     Go(go::Go),
+    Proxy(proxy::Proxy),
 }
 
 /// Check that the workspace is safe to tear down (clean git, no active execs).
@@ -106,6 +108,7 @@ impl Cli {
             Commands::Show(show) => show.run(state).await,
             Commands::Destroy(destroy) => destroy.run(state).await,
             Commands::Go(go) => go.run(state).await,
+            Commands::Proxy(proxy) => proxy.run(state).await,
         }
     }
 }
