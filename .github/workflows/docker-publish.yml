@@ -13,7 +13,7 @@ permissions:
   packages: write
 
 env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/devconcurrent-service
+  IMAGE: ghcr.io/${{ github.repository_owner }}/devconcurrent-proxy
 
 jobs:
   build-and-push:

@@ -10,6 +10,6 @@ async fn main() {
         .init();
     info!(
         version = env!("CARGO_PKG_VERSION"),
-        "devconcurrent-service starting"
+        "devconcurrent-proxystarting"
     );
 }

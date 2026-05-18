@@ -30,7 +30,7 @@ clippy:
 
 release version:
     git diff --exit-code
-    cargo set-version -p devconcurrent -p devconcurrent-service {{version}}
+    cargo set-version -p devconcurrent -p devconcurrent-proxy {{version}}
     just lint
     just test
     git add -u

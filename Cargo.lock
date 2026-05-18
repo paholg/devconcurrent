@@ -765,7 +765,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "devconcurrent-service"
+name = "devconcurrent-proxy"
 version = "0.0.0"
 dependencies = [
  "tokio",

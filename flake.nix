@@ -41,7 +41,7 @@
           cargoToml = ./crates/devconcurrent/Cargo.toml;
         };
         serviceCrateName = craneLib.crateNameFromCargoToml {
-          cargoToml = ./crates/devconcurrent-service/Cargo.toml;
+          cargoToml = ./crates/devconcurrent-proxy/Cargo.toml;
         };
 
         commonArgs = {
@@ -68,7 +68,7 @@
           // {
             pname = serviceCrateName.pname;
             version = serviceCrateName.version;
-            cargoToml = ./crates/devconcurrent-service/Cargo.toml;
+            cargoToml = ./crates/devconcurrent-proxy/Cargo.toml;
             cargoExtraArgs = "--package ${serviceCrateName.pname}";
             meta.mainProgram = serviceCrateName.pname;
             doCheck = true;
@@ -77,7 +77,7 @@
 
         # OCI image for the service.
         dockerImage = nix2container.packages.${system}.nix2container.buildImage {
-          name = "devconcurrent-service";
+          name = "devconcurrent-proxy";
           tag = serviceCrateName.version;
           copyToRoot = [ pkgs.cacert ];
           maxLayers = 100;

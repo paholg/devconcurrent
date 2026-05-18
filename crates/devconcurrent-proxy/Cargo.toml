@@ -1,8 +1,8 @@
 [package]
-name = "devconcurrent-service"
+name = "devconcurrent-proxy"
 version = "0.0.0"
 edition = "2024"
-description = "DNS + reverse proxy service for devconcurrent devcontainers."
+description = "DNS + reverse proxy service for devconcurrent devcontainers"
 publish = false
 
 [dependencies]

@@ -69,7 +69,7 @@ pub(crate) struct Template {
 }
 
 impl Template {
-    // Consumed by `devconcurrent-service` once it lands; allowed for now.
+    // Consumed by `devconcurrent-proxy` once it lands; allowed for now.
     #[allow(dead_code)]
     pub(crate) fn source(&self) -> &str {
         &self.source
