@@ -5,9 +5,9 @@ use indexmap::IndexMap;
 use tracing::info_span;
 use tracing_indicatif::span_ext::IndicatifSpanExt;
 
-use crate::cli::State;
 use crate::cli::exec::exec_interactive;
 use crate::cli::fwd::forward;
+use crate::cli::{State, go};
 use crate::complete::complete_workspace;
 use crate::devcontainer::substitution;
 use crate::docker::compose::{compose_cmd, compose_ps_q};
@@ -26,6 +26,10 @@ pub(crate) struct Up {
     /// Detach worktree rather than creating a branch
     #[arg(short, long)]
     detach: bool,
+
+    /// Navigate to the directory after creating (if using via shell wrapper)
+    #[arg(short, long)]
+    go: bool,
 
     /// Workspace name
     #[arg(add = ArgValueCompleter::new(complete_workspace))]
@@ -161,6 +165,10 @@ impl Up {
         // Interactive exec if requested
         if let Some(cmd_args) = self.exec {
             exec_interactive(&container_id, devcontainer, remote_env, &cmd_args)?;
+        }
+
+        if self.go {
+            go::go(&workspace.path)?;
         }
 
         Ok(())

@@ -6,6 +6,7 @@ use clap_complete::engine::CompletionCandidate;
 
 use crate::cli::{Cli, Commands};
 use crate::config::Config;
+use crate::helpers::SHELL_FD;
 use crate::worktree;
 
 fn is_completion_candidate(prefix: &str, candidate: &str) -> bool {
@@ -103,7 +104,7 @@ fn compose_prior_args() -> eyre::Result<Vec<String>> {
 
 /// Return a shell wrapper function for `dc`.
 ///
-/// The wrapper exposes FD 3 to the binary (advertised via DC_SHELL_FD); any
+/// The wrapper exposes FD 3 to the binary (advertised via SHELL_FD); any
 /// shell command the binary writes there is `eval`ed in the calling shell.
 /// This lets subcommands like `go` cause a `cd` to take effect, without the
 /// wrapper needing to know which subcommands do what.
@@ -114,7 +115,7 @@ pub(crate) fn shell_function(shell: &Shell, binary: &str) -> eyre::Result<String
             r#"
 dc() {{
     local cmds rc
-    {{ cmds=$(DC_SHELL_FD=3 {quoted} "$@" 3>&1 1>&4); rc=$?; }} 4>&1
+    {{ cmds=$({SHELL_FD}=3 {quoted} "$@" 3>&1 1>&4); rc=$?; }} 4>&1
     [ -n "$cmds" ] && eval "$cmds"
     return $rc
 }}
@@ -123,7 +124,7 @@ dc() {{
         Shell::Fish => format!(
             r#"
 function dc --wraps {quoted}
-    set -lx DC_SHELL_FD 3
+    set -lx {SHELL_FD} 3
     set -l tmp (mktemp)
     {quoted} $argv 3>$tmp
     set -l rc $status

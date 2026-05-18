@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use clap::Args;
 use clap_complete::engine::ArgValueCompleter;
 
@@ -16,8 +18,12 @@ pub(crate) struct Go {
 impl Go {
     pub(crate) async fn run(self, state: State) -> eyre::Result<()> {
         let ws = state.resolve_workspace(Some(self.workspace)).await?;
-        let path = ws.path.to_string_lossy();
-        let quoted = shlex::try_quote(&path)?;
-        forward_to_shell(&format!("cd {quoted}"))
+        go(&ws.path)
     }
+}
+
+pub(crate) fn go(path: &Path) -> eyre::Result<()> {
+    let path_str = path.to_string_lossy();
+    let quoted = shlex::try_quote(&path_str)?;
+    forward_to_shell(&format!("cd {quoted}"))
 }

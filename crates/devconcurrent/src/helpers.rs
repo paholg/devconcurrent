@@ -3,13 +3,15 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 
+pub(crate) const SHELL_FD: &str = "DEVCONCURRENT_SHELL_FD";
+
 /// Send a shell command to the calling shell (via the `dc` wrapper function).
 ///
-/// If `DC_SHELL_FD` names an open file descriptor, write the command there and
-/// the wrapper will `eval` it. Otherwise print to stdout so the user can copy
-/// it (or pipe to `eval` themselves).
+/// If `DEVCONCURRENT_SHELL_FD` names an open file descriptor, write the command
+/// there and the wrapper will `eval` it. Otherwise print to stdout so the user
+/// can copy it (or pipe to `eval` themselves).
 pub(crate) fn forward_to_shell(command: &str) -> eyre::Result<()> {
-    if let Ok(fd) = std::env::var("DC_SHELL_FD") {
+    if let Ok(fd) = std::env::var(SHELL_FD) {
         let mut f = std::fs::OpenOptions::new()
             .append(true)
             .open(format!("/dev/fd/{fd}"))?;
