@@ -20,6 +20,22 @@ where
     Option::<T>::deserialize(d).map(Option::unwrap_or_default)
 }
 
+/// Treat a JSON empty string as `None`. Docker reports an unbound port's `IP`
+/// as `""` rather than omitting the field, which would otherwise fail to parse
+/// as an `IpAddr`.
+fn empty_string_as_none<'de, T, D>(d: D) -> std::result::Result<Option<T>, D::Error>
+where
+    T: std::str::FromStr,
+    T::Err: std::fmt::Display,
+    D: Deserializer<'de>,
+{
+    let opt = Option::<String>::deserialize(d)?;
+    match opt.as_deref() {
+        None | Some("") => Ok(None),
+        Some(s) => s.parse().map(Some).map_err(serde::de::Error::custom),
+    }
+}
+
 /// Result of `GET /containers/{id}/json` — i.e. `docker inspect`.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -116,7 +132,7 @@ pub struct ContainerSummary {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Port {
-    #[serde(rename = "IP")]
+    #[serde(rename = "IP", default, deserialize_with = "empty_string_as_none")]
     pub ip: Option<IpAddr>,
     pub private_port: u16,
     pub public_port: Option<u16>,
@@ -362,5 +378,34 @@ impl<S: docker_create_container_builder::State> DockerCreateContainerBuilder<'_,
             .or_default()
             .push(PortBindingEntry { host_ip, host_port });
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn port_empty_ip_is_none() {
+        let port: Port =
+            serde_json::from_str(r#"{"IP":"","PrivatePort":80,"PublicPort":8080,"Type":"tcp"}"#)
+                .expect("deserialize");
+        assert_eq!(port.ip, None);
+    }
+
+    #[test]
+    fn port_missing_ip_is_none() {
+        let port: Port =
+            serde_json::from_str(r#"{"PrivatePort":80,"Type":"tcp"}"#).expect("deserialize");
+        assert_eq!(port.ip, None);
+    }
+
+    #[test]
+    fn port_parses_ip() {
+        let port: Port = serde_json::from_str(
+            r#"{"IP":"0.0.0.0","PrivatePort":80,"PublicPort":8080,"Type":"tcp"}"#,
+        )
+        .expect("deserialize");
+        assert_eq!(port.ip, Some("0.0.0.0".parse().unwrap()));
     }
 }

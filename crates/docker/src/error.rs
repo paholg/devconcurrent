@@ -34,8 +34,11 @@ pub enum Error {
     #[snafu(display("not found"))]
     NotFound,
 
-    #[snafu(display("failed to decode JSON response"))]
-    Json { source: serde_json::Error },
+    #[snafu(display("failed to decode JSON response: {body}"))]
+    Json {
+        source: serde_json::Error,
+        body: String,
+    },
 
     #[snafu(display("io error"))]
     Io { source: std::io::Error },
@@ -46,11 +49,5 @@ pub type Result<T> = std::result::Result<T, Error>;
 impl From<reqwest::Error> for Error {
     fn from(source: reqwest::Error) -> Self {
         Self::Transport { source }
-    }
-}
-
-impl From<serde_json::Error> for Error {
-    fn from(source: serde_json::Error) -> Self {
-        Self::Json { source }
     }
 }

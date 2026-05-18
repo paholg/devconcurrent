@@ -1,8 +1,9 @@
 use reqwest::{RequestBuilder, StatusCode};
 use serde::de::DeserializeOwned;
+use snafu::ResultExt;
 
 use crate::Error;
-use crate::error::ApiSnafu;
+use crate::error::{ApiSnafu, JsonSnafu};
 
 pub(crate) trait ReqwestExt {
     async fn try_send<T: DeserializeOwned>(self) -> crate::Result<T>;
@@ -15,13 +16,9 @@ pub(crate) trait ReqwestExt {
 impl ReqwestExt for RequestBuilder {
     async fn try_send<T: DeserializeOwned>(self) -> crate::Result<T> {
         let body = check_response_body(self).await?;
-        match serde_json::from_slice(&body) {
-            Ok(r) => Ok(r),
-            Err(error) => {
-                tracing::debug!(?error, ?body, "failed to parse response");
-                Err(error.into())
-            }
-        }
+        serde_json::from_slice(&body).with_context(|_| JsonSnafu {
+            body: String::from_utf8_lossy(&body).into_owned(),
+        })
     }
 
     async fn try_send_empty(self) -> crate::Result<()> {
@@ -32,7 +29,11 @@ impl ReqwestExt for RequestBuilder {
         let body = check_response_body(self).await?;
         body.split(|b| *b == b'\n')
             .filter(|line| !line.iter().all(u8::is_ascii_whitespace))
-            .map(|line| serde_json::from_slice(line).map_err(Into::into))
+            .map(|line| {
+                serde_json::from_slice(line).with_context(|_| JsonSnafu {
+                    body: String::from_utf8_lossy(line).into_owned(),
+                })
+            })
             .collect()
     }
 }

@@ -2,9 +2,6 @@
 resolver = "3"
 members = ["crates/*"]
 
-[workspace.lints.rust]
-warnings = "deny"
-
 [workspace.dependencies]
 indexmap = { version = "2.14", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
@@ -12,6 +9,9 @@ serde_json = "1"
 tempfile = "3"
 tokio = "1"
 tracing = "0.1"
+
+[workspace.lints.rust]
+warnings = "deny"
 
 # The profile that 'dist' will build with
 [profile.dist]
