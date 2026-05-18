@@ -6,5 +6,5 @@ description = "Writes the JSON schema for the devconcurrent config to schemas/ a
 publish = false
 
 [build-dependencies]
-devconcurrent = { path = "../devconcurrent" }
+devconcurrent = { path = "../cli" }
 serde_json = "1"

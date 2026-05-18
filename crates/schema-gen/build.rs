@@ -7,7 +7,7 @@ fn main() {
         .and_then(|p| p.parent())
         .expect("schema-gen lives at <workspace>/crates/schema-gen");
 
-    let devconcurrent_src = workspace_root.join("crates/devconcurrent/src");
+    let devconcurrent_src = workspace_root.join("crates/cli/src");
     let cargo_lock = workspace_root.join("Cargo.lock");
     println!("cargo:rerun-if-changed={}", devconcurrent_src.display());
     println!("cargo:rerun-if-changed={}", cargo_lock.display());

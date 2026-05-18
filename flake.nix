@@ -38,10 +38,10 @@
         craneLib = (crane.mkLib pkgs).overrideToolchain (p: rust);
 
         crateName = craneLib.crateNameFromCargoToml {
-          cargoToml = ./crates/devconcurrent/Cargo.toml;
+          cargoToml = ./crates/cli/Cargo.toml;
         };
         serviceCrateName = craneLib.crateNameFromCargoToml {
-          cargoToml = ./crates/devconcurrent-proxy/Cargo.toml;
+          cargoToml = ./crates/proxy/Cargo.toml;
         };
 
         commonArgs = {
@@ -68,7 +68,7 @@
           // {
             pname = serviceCrateName.pname;
             version = serviceCrateName.version;
-            cargoToml = ./crates/devconcurrent-proxy/Cargo.toml;
+            cargoToml = ./crates/proxy/Cargo.toml;
             cargoExtraArgs = "--package ${serviceCrateName.pname}";
             meta.mainProgram = serviceCrateName.pname;
             doCheck = true;
