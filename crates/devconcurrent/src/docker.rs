@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 
-use bollard::{Docker, query_parameters::StatsOptions};
 use derive_more::{Add, Sum};
-use eyre::{WrapErr, eyre};
-use futures::{StreamExt, future::try_join_all};
+use eyre::WrapErr;
+use futures::future::try_join_all;
 
 use crate::workspace::Workspace;
 
@@ -49,20 +48,15 @@ fn container_info_from(c: docker::ContainerSummary) -> ContainerInfo {
 }
 
 pub(crate) struct DockerClient {
-    // TODO: Instead of making this public, we should move all docker functionality we need to this
-    // module.
-    pub(crate) docker: Docker,
     pub(crate) client: docker::Docker,
 }
 
 impl DockerClient {
     pub(crate) async fn new() -> eyre::Result<Self> {
-        let docker =
-            Docker::connect_with_local_defaults().wrap_err("failed to connect to Docker")?;
         let client = docker::Docker::connect()
             .await
-            .wrap_err("failed to connect via docker crate")?;
-        Ok(Self { docker, client })
+            .wrap_err("failed to connect to Docker")?;
+        Ok(Self { client })
     }
 
     /// Return containers for a specific workspace, filtered at the Docker API level.
@@ -81,25 +75,10 @@ impl DockerClient {
     }
 
     pub(crate) async fn stats(&self, container_id: &str) -> eyre::Result<Stats> {
-        let mut stream = self.docker.stats(
-            container_id,
-            Some(StatsOptions {
-                stream: false,
-                one_shot: true,
-            }),
-        );
-        match stream.next().await {
-            Some(Ok(stats)) => {
-                let ram = stats
-                    .memory_stats
-                    .as_ref()
-                    .and_then(|m| m.usage)
-                    .unwrap_or_default();
-                Ok(Stats { ram })
-            }
-            Some(Err(e)) => Err(e.into()),
-            None => Err(eyre!("no stats response for container {container_id}")),
-        }
+        let stats = self.client.stats(container_id).await?;
+        Ok(Stats {
+            ram: stats.memory_stats.usage.unwrap_or_default(),
+        })
     }
 
     /// Ports forwarded by `dc fwd`.

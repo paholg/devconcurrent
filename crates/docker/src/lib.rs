@@ -12,6 +12,7 @@ mod exec;
 mod filter;
 mod request_ext;
 mod socket;
+mod stats;
 mod types;
 
 pub use client::Docker;
@@ -23,4 +24,5 @@ pub use error::{Error, Result};
 pub use exec::ExecDetails;
 pub use filter::Filter;
 pub use socket::discover_socket;
+pub use stats::{ContainerStats, MemoryStats};
 pub use types::ApiVersion;
