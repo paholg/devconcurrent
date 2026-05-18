@@ -1,9 +1,9 @@
 use std::io::IsTerminal;
 use std::os::unix::process::CommandExt;
 
-use bollard::plugin::ContainerSummaryStateEnum;
 use clap::Args;
 use clap_complete::ArgValueCompleter;
+use docker::ContainerStatus;
 use eyre::eyre;
 use indexmap::IndexMap;
 
@@ -30,7 +30,7 @@ impl Exec {
         let workspace = state.resolve_workspace(self.workspace).await?;
         let devcontainer = state.try_devcontainer()?;
         let workspace_full = workspace.devcontainer(devcontainer).await?;
-        if workspace_full.status() != ContainerSummaryStateEnum::RUNNING {
+        if workspace_full.status() != Some(ContainerStatus::Running) {
             return Err(eyre!(
                 "workspace is not running: {}",
                 workspace.path.display()

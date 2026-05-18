@@ -4,6 +4,7 @@ use eyre::{Context, eyre};
 use serde_json::json;
 
 use crate::devcontainer::substitution;
+use crate::docker::{LOCAL_FOLDER_LABEL, MANAGED_LABEL, PROJECT_LABEL};
 use crate::{state::DevcontainerState, workspace::Workspace};
 
 fn override_path(workspace: &Workspace) -> PathBuf {
@@ -74,9 +75,9 @@ fn write_compose_override(
     let override_path = override_path(workspace);
 
     let mut labels = vec![
-        format!("devcontainer.local_folder={}", workspace.path.display()),
-        "dev.devconcurrent.managed=true".to_string(),
-        format!("dev.devconcurrent.project={}", workspace.state.project_name),
+        format!("{}={}", LOCAL_FOLDER_LABEL, workspace.path.display()),
+        format!("{}=true", MANAGED_LABEL),
+        format!("{}={}", PROJECT_LABEL, workspace.state.project_name),
     ];
     if let Some(path) = &devcontainer.path {
         labels.push(format!("devcontainer.config_file={}", path.display()));

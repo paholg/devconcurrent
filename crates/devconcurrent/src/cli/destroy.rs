@@ -1,7 +1,6 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
 
-use bollard::query_parameters::{ListContainersOptions, RemoveContainerOptions};
+use bollard::query_parameters::RemoveContainerOptions;
 use clap::Args;
 use clap_complete::ArgValueCompleter;
 use eyre::eyre;
@@ -10,6 +9,7 @@ use crate::ansi::{RED, RESET, YELLOW};
 use crate::cli::{State, confirm, safety_check};
 use crate::complete::complete_workspace;
 use crate::docker::compose::{compose_cmd, remove_override_file};
+use crate::docker::{PROJECT_LABEL, WORKSPACE_LABEL};
 use crate::run::{self, Runnable, Runner, run_command};
 use crate::state::DevcontainerState;
 use crate::workspace::Workspace;
@@ -86,31 +86,27 @@ impl Runnable for Cleanup<'_> {
             remove_override_file(self.workspace);
 
             // Remove any port-forward sidecars targeting this workspace
-            let mut filters = HashMap::new();
-            filters.insert("label".into(), self.workspace.docker_labels());
+            let client = &devcontainer.docker.client;
+            let bollard = &devcontainer.docker.docker;
 
-            let docker = &devcontainer.docker.docker;
-
-            if let Ok(containers) = docker
-                .list_containers(Some(ListContainersOptions {
-                    all: true,
-                    filters: Some(filters),
-                    ..Default::default()
-                }))
+            if let Ok(summaries) = client
+                .list_containers()
+                .all(true)
+                .with_label(PROJECT_LABEL, self.workspace.state.project_name.as_str())
+                .with_label(WORKSPACE_LABEL, self.workspace.name.as_str())
+                .call()
                 .await
             {
-                for c in containers {
-                    if let Some(id) = c.id {
-                        let _ = docker
-                            .remove_container(
-                                &id,
-                                Some(RemoveContainerOptions {
-                                    force: true,
-                                    ..Default::default()
-                                }),
-                            )
-                            .await;
-                    }
+                for c in summaries {
+                    let _ = bollard
+                        .remove_container(
+                            &c.id,
+                            Some(RemoveContainerOptions {
+                                force: true,
+                                ..Default::default()
+                            }),
+                        )
+                        .await;
                 }
             }
         }

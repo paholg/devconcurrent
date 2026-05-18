@@ -8,6 +8,7 @@ use color_eyre::owo_colors::OwoColorize;
 use crate::cli::State;
 use crate::complete::complete_workspace;
 use crate::devcontainer::forward_port::ForwardPort;
+use crate::docker::{FORWARD_LABEL, FORWARD_TARGET_LABEL, PROJECT_LABEL};
 use crate::state::DevcontainerState;
 use crate::workspace::Workspace;
 
@@ -143,7 +144,7 @@ async fn create_inner_sidecar(
 
     let inner_network = format!("container:{cid}");
     let inner_volume = format!("{volume_name}:/socks");
-    let fwd_target = format!("dev.devconcurrent.fwd.target={cid}");
+    let fwd_target = format!("{}={cid}", FORWARD_TARGET_LABEL);
     let labels = workspace.docker_fwd_labels();
     let mut args = vec![
         "run",
@@ -194,7 +195,7 @@ async fn create_outer_sidecar(
     let shell_cmd = join_background(&socat_cmds);
 
     let outer_volume = format!("{volume_name}:/socks");
-    let fwd_target = format!("dev.devconcurrent.fwd.target={cid}");
+    let fwd_target = format!("{}={cid}", FORWARD_TARGET_LABEL);
     let port_bindings: Vec<String> = ports
         .iter()
         .map(|p| format!("127.0.0.1:{}:{}", p.port, p.port))
@@ -243,8 +244,8 @@ async fn ensure_image() -> eyre::Result<()> {
 
 pub(crate) async fn remove_sidecars(state: &State) -> eyre::Result<()> {
     let project = &state.project_name;
-    let filter = "label=dev.devconcurrent.fwd=true".to_string();
-    let filter2 = format!("label=dev.devconcurrent.project={project}");
+    let filter = format!("label={}=true", FORWARD_LABEL);
+    let filter2 = format!("label={}={}", PROJECT_LABEL, project);
 
     let out = Command::new("docker")
         .args(["ps", "-a", "-q", "--filter", &filter, "--filter", &filter2])

@@ -1,4 +1,4 @@
-use bollard::plugin::ContainerSummaryStateEnum;
+use docker::ContainerStatus;
 use owo_colors::OwoColorize;
 use tabular::{Row, Table};
 
@@ -15,7 +15,7 @@ pub(crate) struct WorkspaceListRow {
 }
 
 pub(crate) struct DockerCells {
-    pub(crate) status: ContainerSummaryStateEnum,
+    pub(crate) status: Option<ContainerStatus>,
     pub(crate) created: Option<i64>,
     pub(crate) dc_managed: bool,
     pub(crate) stats: Stats,
@@ -49,18 +49,18 @@ fn format_age(created: Option<i64>) -> String {
     }
 }
 
-fn status_cell(status: ContainerSummaryStateEnum) -> String {
+fn status_cell(status: Option<ContainerStatus>) -> String {
     match status {
-        ContainerSummaryStateEnum::EMPTY => "-".dimmed().to_string(),
-        ContainerSummaryStateEnum::RUNNING => status.green().to_string(),
-        ContainerSummaryStateEnum::EXITED | ContainerSummaryStateEnum::DEAD => {
-            status.red().to_string()
-        }
-        ContainerSummaryStateEnum::CREATED
-        | ContainerSummaryStateEnum::PAUSED
-        | ContainerSummaryStateEnum::RESTARTING
-        | ContainerSummaryStateEnum::REMOVING
-        | ContainerSummaryStateEnum::STOPPING => status.yellow().to_string(),
+        None => "-".dimmed().to_string(),
+        Some(s @ ContainerStatus::Running) => s.green().to_string(),
+        Some(s @ (ContainerStatus::Exited | ContainerStatus::Dead)) => s.red().to_string(),
+        Some(
+            s @ (ContainerStatus::Created
+            | ContainerStatus::Paused
+            | ContainerStatus::Restarting
+            | ContainerStatus::Removing
+            | ContainerStatus::Stopping),
+        ) => s.yellow().to_string(),
     }
 }
 
@@ -129,7 +129,7 @@ pub(crate) fn workspace_table<'a>(
                 .with_cell("GIT"),
         );
         let empty = DockerCells {
-            status: ContainerSummaryStateEnum::EMPTY,
+            status: None,
             created: None,
             dc_managed: false,
             stats: Stats::default(),

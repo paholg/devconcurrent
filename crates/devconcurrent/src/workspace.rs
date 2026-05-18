@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
-use bollard::models::ContainerSummaryStateEnum;
+use docker::ContainerStatus;
 use eyre::eyre;
 use futures::future::try_join_all;
 
-use crate::docker::{ContainerInfo, Stats};
+use crate::docker::{ContainerInfo, FORWARD_LABEL, PROJECT_LABEL, Stats, WORKSPACE_LABEL};
 use crate::state::{DevcontainerState, State};
 use crate::worktree;
 
@@ -55,19 +55,15 @@ impl<'a> Workspace<'a> {
     }
 
     pub(crate) fn project_label(&self) -> String {
-        format!("dev.devconcurrent.project={}", self.state.project_name)
+        format!("{}={}", PROJECT_LABEL, self.state.project_name)
     }
 
     pub(crate) fn workspace_label(&self) -> String {
-        format!("dev.devconcurrent.workspace={}", self.name)
+        format!("{}={}", WORKSPACE_LABEL, self.name)
     }
 
     pub(crate) fn fwd_label(&self) -> String {
-        "dev.devconcurrent.fwd=true".to_string()
-    }
-
-    pub(crate) fn docker_labels(&self) -> Vec<String> {
-        vec![self.project_label(), self.workspace_label()]
+        format!("{}=true", FORWARD_LABEL)
     }
 
     pub(crate) fn docker_fwd_labels(&self) -> Vec<String> {
@@ -96,12 +92,10 @@ pub(crate) struct WorkspaceDevcontainer<'a> {
 }
 
 impl<'a> WorkspaceDevcontainer<'a> {
-    pub(crate) fn status(&self) -> ContainerSummaryStateEnum {
-        self.containers
-            .iter()
-            .map(|c| c.state)
-            .max()
-            .unwrap_or(ContainerSummaryStateEnum::EMPTY)
+    /// Highest "liveness" state across the workspace's containers, or `None`
+    /// if there are no containers at all.
+    pub(crate) fn status(&self) -> Option<ContainerStatus> {
+        self.containers.iter().map(|c| c.state).max()
     }
 
     pub(crate) fn service_container_id(&self) -> eyre::Result<&str> {
@@ -124,7 +118,7 @@ impl<'a> WorkspaceDevcontainer<'a> {
     }
 
     pub(crate) fn created(&self) -> Option<i64> {
-        self.containers.iter().filter_map(|c| c.created).min()
+        self.containers.iter().map(|c| c.created).min()
     }
 
     pub(crate) fn dc_managed(&self) -> bool {

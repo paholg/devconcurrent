@@ -321,6 +321,8 @@ fn coalesce_literals(segments: Vec<Segment>) -> Vec<Segment> {
 
 #[cfg(test)]
 mod tests {
+    use crate::docker::LOCAL_FOLDER_LABEL;
+
     use super::*;
 
     fn lit(s: &str) -> Segment {
@@ -617,7 +619,7 @@ mod tests {
 
     #[test]
     fn render_devcontainer_id() {
-        let labels = &[("devcontainer.local_folder", "/foo")];
+        let labels = &[(LOCAL_FOLDER_LABEL, "/foo")];
         let expected = ContainerData {
             env: IndexMap::new(),
             labels: string_map(labels),

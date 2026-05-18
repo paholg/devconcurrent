@@ -1,10 +1,6 @@
 use std::collections::HashMap;
 
-use bollard::{
-    Docker,
-    plugin::ContainerSummaryStateEnum,
-    query_parameters::{ListContainersOptions, StatsOptions},
-};
+use bollard::{Docker, query_parameters::StatsOptions};
 use derive_more::{Add, Sum};
 use eyre::{WrapErr, eyre};
 use futures::{StreamExt, future::try_join_all};
@@ -14,12 +10,23 @@ use crate::workspace::Workspace;
 pub(crate) mod compose;
 pub(crate) mod probe;
 
+pub(crate) const LOCAL_FOLDER_LABEL: &str = "devcontainer.local_folder";
+
+pub(crate) const COMPOSE_PROJECT_LABEL: &str = "com.docker.compose.project";
+pub(crate) const COMPOSE_SERVICE_LABEL: &str = "com.docker.compose.service";
+
+pub(crate) const MANAGED_LABEL: &str = "dev.devconcurrent.managed";
+pub(crate) const PROJECT_LABEL: &str = "dev.devconcurrent.project";
+pub(crate) const WORKSPACE_LABEL: &str = "dev.devconcurrent.workspace";
+pub(crate) const FORWARD_LABEL: &str = "dev.devconcurrent.fwd";
+pub(crate) const FORWARD_TARGET_LABEL: &str = "dev.devconcurrent.fwd.target";
+
 #[derive(Debug)]
 pub(crate) struct ContainerInfo {
     pub(crate) id: String,
-    pub(crate) state: ContainerSummaryStateEnum,
+    pub(crate) state: docker::ContainerStatus,
     pub(crate) dc_project: Option<String>,
-    pub(crate) created: Option<i64>,
+    pub(crate) created: i64,
     pub(crate) host_ports: Vec<u16>,
 }
 
@@ -27,6 +34,18 @@ pub(crate) struct ContainerInfo {
 pub(crate) struct Stats {
     /// Current memory use in bytes.
     pub(crate) ram: u64,
+}
+
+fn container_info_from(c: docker::ContainerSummary) -> ContainerInfo {
+    let dc_project = c.labels.get(PROJECT_LABEL).cloned();
+    let host_ports: Vec<u16> = c.ports.iter().filter_map(|p| p.public_port).collect();
+    ContainerInfo {
+        id: c.id,
+        state: c.state,
+        dc_project,
+        created: c.created,
+        host_ports,
+    }
 }
 
 pub(crate) struct DockerClient {
@@ -51,42 +70,14 @@ impl DockerClient {
         &self,
         workspace: &Workspace<'_>,
     ) -> eyre::Result<Vec<ContainerInfo>> {
-        let label_filter = format!("devcontainer.local_folder={}", workspace.path.display());
-        let containers = self
-            .docker
-            .list_containers(Some(ListContainersOptions {
-                all: true,
-                filters: Some(HashMap::from([("label".to_string(), vec![label_filter])])),
-                ..Default::default()
-            }))
+        let summaries = self
+            .client
+            .list_containers()
+            .all(true)
+            .with_label(LOCAL_FOLDER_LABEL, workspace.path.display().to_string())
+            .call()
             .await?;
-
-        let mut result = Vec::new();
-        for c in containers {
-            let dc_project = c
-                .labels
-                .as_ref()
-                .and_then(|l| l.get("dev.devconcurrent.project").cloned());
-            let id = c.id.ok_or_else(|| eyre!("container missing id"))?;
-            let state = c.state.ok_or_else(|| eyre!("container missing state"))?;
-
-            let host_ports: Vec<u16> = c
-                .ports
-                .unwrap_or_default()
-                .iter()
-                .filter_map(|p| p.public_port)
-                .collect();
-
-            result.push(ContainerInfo {
-                id,
-                state,
-                dc_project,
-                created: c.created,
-                host_ports,
-            });
-        }
-
-        Ok(result)
+        Ok(summaries.into_iter().map(container_info_from).collect())
     }
 
     pub(crate) async fn stats(&self, container_id: &str) -> eyre::Result<Stats> {
@@ -116,28 +107,19 @@ impl DockerClient {
         &self,
         project: &str,
     ) -> eyre::Result<HashMap<String, Vec<u16>>> {
-        let mut filters = HashMap::new();
-        filters.insert(
-            "label".into(),
-            vec![
-                "dev.devconcurrent.fwd=true".to_string(),
-                format!("dev.devconcurrent.project={project}"),
-            ],
-        );
-        let containers = self
-            .docker
-            .list_containers(Some(ListContainersOptions {
-                all: false,
-                filters: Some(filters),
-                ..Default::default()
-            }))
+        let summaries = self
+            .client
+            .list_containers()
+            .with_label(FORWARD_LABEL, "true")
+            .with_label(PROJECT_LABEL, project)
+            .call()
             .await?;
 
-        let result = containers
+        let result = summaries
             .into_iter()
             .filter_map(|c| {
-                let ws = c.labels?.get("dev.devconcurrent.workspace")?.clone();
-                let ports: Vec<u16> = c.ports?.into_iter().filter_map(|p| p.public_port).collect();
+                let ws = c.labels.get(WORKSPACE_LABEL)?.clone();
+                let ports: Vec<u16> = c.ports.into_iter().filter_map(|p| p.public_port).collect();
                 if ports.is_empty() {
                     None
                 } else {
@@ -155,40 +137,30 @@ impl DockerClient {
         &self,
         workspace: &Workspace<'_>,
     ) -> eyre::Result<bool> {
-        let mut labels = workspace.docker_labels();
-        labels.push("dev.devconcurrent.fwd=true".to_string());
-        let filters = HashMap::from([("label".into(), labels)]);
-
         let sidecars = self
-            .docker
-            .list_containers(Some(ListContainersOptions {
-                all: true,
-                filters: Some(filters),
-                ..Default::default()
-            }))
+            .client
+            .list_containers()
+            .all(true)
+            .with_label(PROJECT_LABEL, workspace.state.project_name.as_str())
+            .with_label(WORKSPACE_LABEL, workspace.name.as_str())
+            .with_label(FORWARD_LABEL, "true")
+            .call()
             .await?;
 
-        let target_id = sidecars.iter().find_map(|c| {
-            c.labels
-                .as_ref()?
-                .get("dev.devconcurrent.fwd.target")
-                .cloned()
-        });
+        let target_id = sidecars
+            .iter()
+            .find_map(|c| c.labels.get(FORWARD_TARGET_LABEL).cloned());
 
         let Some(target_id) = target_id else {
             return Ok(sidecars.is_empty());
         };
 
-        let mut filters = HashMap::new();
-        filters.insert("id".into(), vec![target_id]);
-        filters.insert("status".into(), vec!["running".to_string()]);
         let targets = self
-            .docker
-            .list_containers(Some(ListContainersOptions {
-                all: false,
-                filters: Some(filters),
-                ..Default::default()
-            }))
+            .client
+            .list_containers()
+            .with_id(target_id)
+            .with_status(docker::ContainerStatus::Running)
+            .call()
             .await?;
         Ok(!targets.is_empty())
     }
@@ -197,27 +169,18 @@ impl DockerClient {
         &self,
         workspace: &Workspace<'_>,
     ) -> eyre::Result<Vec<u16>> {
-        let mut labels = workspace.docker_labels();
-        labels.push("dev.devconcurrent.fwd=true".to_string());
-        let filters = HashMap::from([("label".into(), labels)]);
-
-        let containers = self
-            .docker
-            .list_containers(Some(ListContainersOptions {
-                all: false,
-                filters: Some(filters),
-                ..Default::default()
-            }))
+        let summaries = self
+            .client
+            .list_containers()
+            .with_label(PROJECT_LABEL, workspace.state.project_name.as_str())
+            .with_label(WORKSPACE_LABEL, workspace.name.as_str())
+            .with_label(FORWARD_LABEL, "true")
+            .call()
             .await?;
 
-        let mut ports: Vec<u16> = containers
+        let mut ports: Vec<u16> = summaries
             .into_iter()
-            .flat_map(|c| {
-                c.ports
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(|p| p.public_port)
-            })
+            .flat_map(|c| c.ports.into_iter().filter_map(|p| p.public_port))
             .collect();
         ports.sort_unstable();
         ports.dedup();
@@ -230,35 +193,24 @@ impl DockerClient {
         &self,
         workspace: &Workspace<'_>,
     ) -> eyre::Result<Vec<(String, String)>> {
-        let label_filter = format!(
-            "com.docker.compose.project={}",
-            workspace.compose_project_name()
-        );
-        let containers = self
-            .docker
-            .list_containers(Some(ListContainersOptions {
-                all: true,
-                filters: Some(HashMap::from([("label".to_string(), vec![label_filter])])),
-                ..Default::default()
-            }))
+        let summaries = self
+            .client
+            .list_containers()
+            .all(true)
+            .with_label(COMPOSE_PROJECT_LABEL, workspace.compose_project_name())
+            .call()
             .await?;
 
         let mut result = Vec::new();
-        for c in containers {
-            let service = c
-                .labels
-                .as_ref()
-                .and_then(|l| l.get("com.docker.compose.service").cloned());
+        for c in summaries {
+            let service = c.labels.get(COMPOSE_SERVICE_LABEL).cloned();
             let ip = c
                 .network_settings
-                .as_ref()
-                .and_then(|ns| ns.networks.as_ref())
-                .and_then(|nets| {
-                    nets.values()
-                        .filter_map(|ep| ep.ip_address.as_deref())
-                        .find(|ip| !ip.is_empty())
-                        .map(str::to_string)
-                });
+                .networks
+                .values()
+                .filter_map(|ep| ep.ip_address.as_deref())
+                .find(|ip| !ip.is_empty())
+                .map(str::to_string);
             if let (Some(service), Some(ip)) = (service, ip) {
                 result.push((service, ip));
             }

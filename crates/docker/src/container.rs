@@ -1,4 +1,3 @@
-use std::fmt;
 use std::net::IpAddr;
 
 use bon::bon;
@@ -42,30 +41,22 @@ pub struct ContainerState {
     pub exit_code: i64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+/// Container state values as reported by Docker. Ordering reflects "liveness":
+/// `Running` is highest, `Dead` is lowest. Callers that summarise across
+/// several containers (e.g. workspace status) can rely on `Ord` to pick the
+/// most-alive state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, strum::Display)]
 #[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum ContainerStatus {
     Created,
-    Running,
-    Paused,
-    Restarting,
-    Removing,
-    Exited,
     Dead,
-}
-
-impl fmt::Display for ContainerStatus {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Created => "created",
-            Self::Running => "running",
-            Self::Paused => "paused",
-            Self::Restarting => "restarting",
-            Self::Removing => "removing",
-            Self::Exited => "exited",
-            Self::Dead => "dead",
-        })
-    }
+    Exited,
+    Paused,
+    Removing,
+    Restarting,
+    Running,
+    Stopping,
 }
 
 #[derive(Debug, Clone, Deserialize)]
