@@ -13,6 +13,7 @@
       }
     }
   },
+  "x-tombi-toml-version": "v1.1.0",
   "$defs": {
     "Project": {
       "type": "object",
