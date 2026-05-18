@@ -6,15 +6,25 @@ description = "Minimal client for the Docker / Podman Engine API"
 publish = false
 
 [dependencies]
+bon = "3.9.1"
 bytes = "1.11"
 futures-util = "0.3"
 indexmap = { workspace = true }
-reqwest = { version = "0.13", default-features = false, features = ["json", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = [
+  "json",
+  "stream"
+] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 snafu = "0.9"
+strum = { version = "0.28.0", features = ["derive"] }
 tokio = { workspace = true, features = ["fs", "net", "process"] }
 tracing = { workspace = true }
+
+[dev-dependencies]
+rand = "0.10.1"
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [features]
 # Compile the integration tests in `tests/`. These talk to a real docker (or
@@ -22,8 +32,3 @@ tracing = { workspace = true }
 # the nix flake check sandbox). Off by default; enabled in CI and locally
 # when you want the live coverage.
 docker-tests = []
-
-[dev-dependencies]
-rand = "0.10.1"
-tempfile = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

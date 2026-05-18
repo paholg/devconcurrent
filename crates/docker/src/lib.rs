@@ -8,15 +8,17 @@
 mod client;
 mod container;
 mod error;
+mod filter;
 mod request_ext;
 mod socket;
 mod types;
 
 pub use client::Docker;
 pub use container::{
-    ContainerConfig, ContainerDetails, ContainerState, ContainerStatus, EndpointSettings,
-    NetworkSettings,
+    ContainerConfig, ContainerDetails, ContainerState, ContainerStatus, ContainerSummary,
+    EndpointSettings, NetworkSettings, Port, PortType,
 };
 pub use error::{Error, Result};
+pub use filter::Filter;
 pub use socket::discover_socket;
 pub use types::ApiVersion;

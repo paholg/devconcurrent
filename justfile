@@ -10,11 +10,14 @@ up:
     nix flake update
     cargo upgrade -i
 
-fix: clippy-fix lint test
+fix: clippy-fix tombi-fmt lint test
 
 clippy-fix:
-    cargo clippy --fix --allow-staged
+    cargo clippy --all-features --fix --allow-staged
     cargo fmt
+
+tombi-fmt:
+    tombi format
 
 lint: fmt-check clippy
 
@@ -22,7 +25,7 @@ fmt-check:
     cargo fmt --all -- --check
 
 clippy:
-    cargo clippy -- -D warnings
+    cargo clippy --all-features -- -D warnings
 
 release version:
     git diff --exit-code
