@@ -1,0 +1,11 @@
+[package]
+name = "devconcurrent-service"
+version = "0.0.0"
+edition = "2024"
+description = "DNS + reverse proxy service for devconcurrent devcontainers."
+publish = false
+
+[dependencies]
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

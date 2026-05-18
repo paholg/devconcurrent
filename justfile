@@ -30,10 +30,10 @@ clippy:
 
 release version:
     git diff --exit-code
-    cargo set-version {{version}}
+    cargo set-version -p devconcurrent -p devconcurrent-service {{version}}
     just lint
     just test
-    git add Cargo.toml Cargo.lock
+    git add -u
     git commit -m "Version {{version}}"
     git tag v{{version}}
     git push

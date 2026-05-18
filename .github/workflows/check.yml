@@ -16,6 +16,7 @@ jobs:
     needs:
       - check
       - docker-crate
+      - docker-image
     steps:
       - name: Check if all jubs succeeded
         uses: re-actors/alls-green@release/v1
@@ -83,3 +84,15 @@ jobs:
 
       # Run tests
       - run: just test
+
+  docker-image:
+    name: Build service image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: nixbuild/nix-quick-install-action@v32
+      - uses: nix-community/cache-nix-action@v6
+        with:
+          primary-key: nix-${{ runner.os }}-image-${{ hashFiles('flake.lock', '**/Cargo.lock') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-image-
+      - run: nix build .#docker-service-image --print-build-logs

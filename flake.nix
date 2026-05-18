@@ -7,6 +7,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     crane.url = "github:ipetkov/crane";
+    nix2container = {
+      url = "github:nlewo/nix2container";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -15,6 +19,7 @@
       flake-utils,
       rust-overlay,
       crane,
+      nix2container,
       ...
     }:
     flake-utils.lib.eachDefaultSystem (
@@ -34,6 +39,9 @@
 
         crateName = craneLib.crateNameFromCargoToml {
           cargoToml = ./crates/devconcurrent/Cargo.toml;
+        };
+        serviceCrateName = craneLib.crateNameFromCargoToml {
+          cargoToml = ./crates/devconcurrent-service/Cargo.toml;
         };
 
         commonArgs = {
@@ -55,6 +63,35 @@
           }
         );
 
+        servicePackage = craneLib.buildPackage (
+          artifacts
+          // {
+            pname = serviceCrateName.pname;
+            version = serviceCrateName.version;
+            cargoToml = ./crates/devconcurrent-service/Cargo.toml;
+            cargoExtraArgs = "--package ${serviceCrateName.pname}";
+            meta.mainProgram = serviceCrateName.pname;
+            doCheck = true;
+          }
+        );
+
+        # OCI image for the service.
+        dockerImage = nix2container.packages.${system}.nix2container.buildImage {
+          name = "devconcurrent-service";
+          tag = serviceCrateName.version;
+          copyToRoot = [ pkgs.cacert ];
+          maxLayers = 100;
+          config = {
+            Entrypoint = [ "${servicePackage}/bin/${serviceCrateName.pname}" ];
+            ExposedPorts = {
+              "53/udp" = { };
+              "53/tcp" = { };
+              "80/tcp" = { };
+              "443/tcp" = { };
+            };
+          };
+        };
+
       in
       {
         checks = {
@@ -67,7 +104,13 @@
           fmt = craneLib.cargoFmt artifacts;
           test = craneLib.cargoNextest artifacts;
         };
-        packages.default = package;
+        packages = {
+          default = package;
+          service = servicePackage;
+        }
+        // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+          docker-service-image = dockerImage;
+        };
         devShells.default = pkgs.mkShell {
           packages =
             with pkgs;
