@@ -1,6 +1,7 @@
-//! DNS server: answers A/AAAA queries for known hostnames with the proxy's
-//! `bind_address`. Unknown names get NXDOMAIN; known names with no matching
-//! record (wrong family, or non-address qtype) get NOERROR + empty answer.
+//! DNS server: answers A/AAAA queries for known hostnames with the
+//! workspace's devcontainer container IP. Unknown names get NXDOMAIN; known
+//! names with no matching record (wrong family, or non-address qtype) get
+//! NOERROR + empty answer.
 
 use std::net::{IpAddr, SocketAddr};
 
@@ -19,11 +20,8 @@ const TTL: u32 = 5;
 const TCP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 const TCP_RESPONSE_BUFFER: usize = 4096;
 
-pub async fn serve(bind: SocketAddr, registry: Registry, bind_address: IpAddr) -> Result<()> {
-    let handler = DnsHandler {
-        registry,
-        bind_address,
-    };
+pub async fn serve(bind: SocketAddr, registry: Registry) -> Result<()> {
+    let handler = DnsHandler { registry };
     let mut server = Server::new(handler);
 
     let udp = UdpSocket::bind(bind)
@@ -44,14 +42,8 @@ pub async fn serve(bind: SocketAddr, registry: Registry, bind_address: IpAddr) -
     Ok(())
 }
 
-/// Build a (bind_address, dns_port) socket address.
-pub fn dns_bind(bind_address: IpAddr, dns_port: u16) -> SocketAddr {
-    SocketAddr::new(bind_address, dns_port)
-}
-
 struct DnsHandler {
     registry: Registry,
-    bind_address: IpAddr,
 }
 
 #[async_trait::async_trait]
@@ -92,13 +84,13 @@ impl DnsHandler {
         let qtype = query.query_type();
 
         let host = trim_root_dot(&name.to_ascii()).to_lowercase();
-        if self.registry.http_route(&host).await.is_none() {
+        let Some(ip) = self.registry.resolve(&host).await else {
             return Some(ResponseCode::NXDomain);
-        }
+        };
 
         // Fall-through (non-address qtype, or family mismatch) yields an empty
         // answer with NOERROR — i.e. NODATA, not NXDOMAIN.
-        let record = match (qtype, self.bind_address) {
+        let record = match (qtype, ip) {
             (RecordType::A, IpAddr::V4(v4)) => {
                 let mut r = Record::from_rdata(name.clone(), TTL, RData::A(rdata::A(v4)));
                 r.dns_class = DNSClass::IN;

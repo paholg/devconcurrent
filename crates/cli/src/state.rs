@@ -41,6 +41,10 @@ impl DevcontainerState {
     pub(crate) fn devconcurrent(&self) -> &DcOptions {
         &self.config.customizations.devconcurrent
     }
+
+    pub(crate) fn proxy_enabled(&self) -> bool {
+        self.devconcurrent().proxy.enable
+    }
 }
 
 impl State {

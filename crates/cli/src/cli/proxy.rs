@@ -1,20 +1,20 @@
 //! `dc proxy` subcommand: lifecycle of the global proxy container plus the
 //! per-project config files in its shared volume.
 
-use std::net::IpAddr;
-use std::process::Command;
 use std::time::Duration;
 
 use clap::{Args, Subcommand};
 use color_eyre::owo_colors::OwoColorize;
 use docker::Docker;
 use eyre::{Result, WrapErr};
+use handlebars::Handlebars;
 use indexmap::IndexMap;
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use shared::{
-    ENV_BIND_ADDRESS, ENV_DNS_PORT, MANAGED_LABEL, PROXY_CONFIG_DIR, PROXY_CONFIG_HASH_LABEL,
-    PROXY_CONFIG_VOLUME, PROXY_CONTAINER_NAME, PROXY_LABEL, PROXY_SIDECAR_LABEL, PROXY_SOCKS_DIR,
-    PROXY_SOCKS_VOLUME, PortMapping, ProjectProxyConfig, ServiceConfig,
+    COMPOSE_SERVICE_LABEL, ENV_DNS_PORT, MANAGED_LABEL, PROJECT_LABEL, PROXY_CONFIG_DIR,
+    PROXY_CONFIG_HASH_LABEL, PROXY_CONFIG_VOLUME, PROXY_CONTAINER_NAME, PROXY_LABEL,
+    PROXY_SIDECAR_LABEL, PortMapping, ProjectProxyConfig, ServiceConfig, WORKSPACE_LABEL,
 };
 
 use crate::state::State;
@@ -35,7 +35,7 @@ enum ProxyCommands {
     Up,
     /// Stop and remove the proxy container and all of its sidecars.
     Down,
-    /// Show the proxy container's state and registered projects.
+    /// Show the proxy container's state.
     Status,
 }
 
@@ -65,14 +65,10 @@ impl ProxyContainerPlan {
         let image_ref = format!("{}:{}", PROXY_IMAGE, env!("CARGO_PKG_VERSION"));
         let socket_path = docker.socket().display().to_string();
         let binds = vec![
-            format!("{PROXY_SOCKS_VOLUME}:{PROXY_SOCKS_DIR}"),
             format!("{PROXY_CONFIG_VOLUME}:{PROXY_CONFIG_DIR}"),
             format!("{socket_path}:/var/run/docker.sock"),
         ];
-        let env = vec![
-            format!("{ENV_BIND_ADDRESS}={}", state.proxy.bind_address),
-            format!("{ENV_DNS_PORT}={}", state.proxy.port),
-        ];
+        let env = vec![format!("{ENV_DNS_PORT}={}", state.proxy.port)];
         Self {
             image_ref,
             network_mode: "host",
@@ -121,7 +117,6 @@ fn hex_encode(bytes: &[u8]) -> String {
 async fn proxy_up(state: &State) -> Result<()> {
     let docker = Docker::connect().await.wrap_err("connect to docker")?;
     let plan = ProxyContainerPlan::build(state, &docker);
-    ensure_loopback_alias(state.proxy.bind_address)?;
     docker
         .ensure_image(&plan.image_ref)
         .await
@@ -136,7 +131,6 @@ async fn proxy_up(state: &State) -> Result<()> {
 pub(crate) async fn ensure_up(state: &State) -> Result<()> {
     let docker = Docker::connect().await.wrap_err("connect to docker")?;
     let plan = ProxyContainerPlan::build(state, &docker);
-    ensure_loopback_alias(state.proxy.bind_address)?;
     docker
         .ensure_image(&plan.image_ref)
         .await
@@ -183,9 +177,23 @@ async fn recreate_with_config(
         .start_container(&id)
         .await
         .wrap_err("start proxy container")?;
-    // Give the daemon a moment to flip the container to running.
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    Ok(())
+    wait_for_running(docker, &id).await
+}
+
+async fn wait_for_running(docker: &Docker, id: &str) -> Result<()> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        match docker.inspect_container(id).await {
+            Ok(d) if d.state.running => return Ok(()),
+            Ok(_) => {}
+            Err(docker::Error::NotFound) => eyre::bail!("proxy container vanished after start"),
+            Err(e) => return Err(e).wrap_err("inspect proxy after start"),
+        }
+        if std::time::Instant::now() >= deadline {
+            eyre::bail!("proxy container did not reach running state within 5s");
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 }
 
 async fn proxy_healthy(docker: &Docker, plan: &ProxyContainerPlan) -> Result<bool> {
@@ -292,29 +300,164 @@ async fn status(state: &State) -> Result<()> {
         }
         Err(e) => return Err(e).wrap_err("inspect proxy"),
     }
-    println!(
-        "proxy bind: {}:{}",
-        state.proxy.bind_address, state.proxy.port
-    );
+    println!("proxy dns port: {}", state.proxy.port);
+
+    let Some(cfg) = build_project_config(state)? else {
+        println!();
+        println!("project: {}  (no proxy config)", state.project_name);
+        return Ok(());
+    };
+
+    println!();
+    println!("project: {}", cfg.project);
+    println!("  configured services:");
+    for svc in &cfg.services {
+        let ports = svc
+            .ports
+            .iter()
+            .map(|p| format!("{}->{}", p.host, p.container))
+            .collect::<Vec<_>>()
+            .join(", ");
+        println!("    - {}  ports: {}", svc.name, ports);
+    }
+
+    let running = list_running_services(&docker, &cfg).await?;
+    if running.is_empty() {
+        println!("  running workspaces: (none)");
+        return Ok(());
+    }
+    println!("  running workspaces:");
+    let mut by_ws: IndexMap<String, Vec<RunningServiceInfo>> = IndexMap::new();
+    for r in running {
+        by_ws.entry(r.workspace.clone()).or_default().push(r);
+    }
+    for (workspace, services) in by_ws {
+        println!("    {workspace}:");
+        for r in services {
+            let ip = r.ip.as_deref().unwrap_or("?");
+            let hostname = render_hostname(&cfg, &workspace, &r.service)
+                .unwrap_or_else(|| "<template error>".to_string());
+            println!(
+                "      {svc:<12} cid={cid}  ip={ip}  → {hostname}",
+                svc = r.service,
+                cid = short(&r.cid),
+            );
+        }
+    }
     Ok(())
+}
+
+struct RunningServiceInfo {
+    workspace: String,
+    service: String,
+    cid: String,
+    ip: Option<String>,
+}
+
+async fn list_running_services(
+    docker: &Docker,
+    cfg: &ProjectProxyConfig,
+) -> Result<Vec<RunningServiceInfo>> {
+    // Find primaries (containers with the user-set project label).
+    let primaries = docker
+        .list_containers()
+        .with_label(PROJECT_LABEL, &cfg.project)
+        .call()
+        .await
+        .wrap_err("list primary containers")?;
+    let mut out = Vec::new();
+    let mut seen_compose: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for primary in &primaries {
+        let Some(compose_project) = primary.labels.get(shared::COMPOSE_PROJECT_LABEL).cloned()
+        else {
+            continue;
+        };
+        if !seen_compose.insert(compose_project.clone()) {
+            continue;
+        }
+        let workspace = primary
+            .labels
+            .get(WORKSPACE_LABEL)
+            .filter(|s| !s.is_empty())
+            .cloned()
+            .unwrap_or_else(|| {
+                compose_project
+                    .strip_suffix("_devcontainer")
+                    .unwrap_or(&compose_project)
+                    .to_string()
+            });
+        let containers = docker
+            .list_containers()
+            .with_label(shared::COMPOSE_PROJECT_LABEL, &compose_project)
+            .call()
+            .await
+            .wrap_err_with(|| format!("list containers for {compose_project}"))?;
+        for c in containers {
+            if c.labels.contains_key(shared::PROXY_SIDECAR_LABEL) {
+                continue;
+            }
+            let Some(service) = c.labels.get(COMPOSE_SERVICE_LABEL).cloned() else {
+                continue;
+            };
+            let ip = c
+                .network_settings
+                .networks
+                .values()
+                .find_map(|n| n.ip_address.clone())
+                .filter(|s| !s.is_empty());
+            out.push(RunningServiceInfo {
+                workspace: workspace.clone(),
+                service,
+                cid: c.id,
+                ip,
+            });
+        }
+    }
+    out.sort_by(|a, b| {
+        (a.workspace.as_str(), a.service.as_str()).cmp(&(b.workspace.as_str(), b.service.as_str()))
+    });
+    Ok(out)
+}
+
+#[derive(Serialize)]
+struct TemplateContext<'a> {
+    root: bool,
+    project: &'a str,
+    workspace: &'a str,
+    service: &'a str,
+}
+
+fn render_hostname(cfg: &ProjectProxyConfig, workspace: &str, service: &str) -> Option<String> {
+    let mut hbs = Handlebars::new();
+    hbs.set_strict_mode(false);
+    let ctx = TemplateContext {
+        root: workspace == cfg.project,
+        project: &cfg.project,
+        workspace,
+        service,
+    };
+    hbs.render_template(&cfg.domain_template, &ctx).ok()
+}
+
+fn short(cid: &str) -> &str {
+    let end = cid.len().min(12);
+    &cid[..end]
 }
 
 fn build_project_config(state: &State) -> Result<Option<ProjectProxyConfig>> {
     let Some(dc) = state.devcontainer.as_ref() else {
         return Ok(None);
     };
-    let Some(opts) = dc.config.customizations.devconcurrent.proxy.as_ref() else {
-        return Ok(None);
-    };
-    if opts.services.is_empty() && dc.config.forward_ports.is_empty() {
+    if !dc.proxy_enabled() {
         return Ok(None);
     }
+    let opts = &dc.config.customizations.devconcurrent.proxy;
 
     let domain_template = opts
         .domain_name
         .as_ref()
         .map(|t| t.source().to_string())
-        .unwrap_or_else(|| crate::devcontainer::proxy::DEFAULT_TEMPLATE.to_string());
+        .unwrap_or_else(|| crate::devcontainer::proxy_options::DEFAULT_TEMPLATE.to_string());
 
     let mut services_map: IndexMap<String, Vec<PortMapping>> = IndexMap::new();
     for (name, svc) in &opts.services {
@@ -323,21 +466,23 @@ fn build_project_config(state: &State) -> Result<Option<ProjectProxyConfig>> {
                 .entry(name.clone())
                 .or_default()
                 .push(PortMapping {
-                    ip: port.ip,
                     host: port.host,
                     container: port.container,
                 });
         }
     }
+    // `forwardPorts` declares dev-server-on-localhost ports: the app inside
+    // the container binds 127.0.0.1:<port> only, so the sidecar can bind
+    // 0.0.0.0:<port> in the same netns without colliding and forward to
+    // 127.0.0.1:<port>. host == container.
     for fp in &dc.config.forward_ports {
         let svc_name = fp
             .service
             .clone()
             .unwrap_or_else(|| dc.config.service.clone());
         let entry = services_map.entry(svc_name).or_default();
-        if !entry.iter().any(|p| p.container == fp.port) {
+        if !entry.iter().any(|p| p.host == fp.port) {
             entry.push(PortMapping {
-                ip: state.proxy.bind_address,
                 host: fp.port,
                 container: fp.port,
             });
@@ -351,7 +496,6 @@ fn build_project_config(state: &State) -> Result<Option<ProjectProxyConfig>> {
 
     Ok(Some(ProjectProxyConfig {
         project: state.project_name.to_string(),
-        devcontainer_service: dc.config.service.clone(),
         domain_template,
         services,
     }))
@@ -366,72 +510,4 @@ async fn push_config(docker: &Docker, cfg: &ProjectProxyConfig) -> Result<()> {
         .await
         .wrap_err("upload project config to proxy")?;
     Ok(())
-}
-
-fn ensure_loopback_alias(addr: IpAddr) -> Result<()> {
-    if !cfg!(target_os = "macos") {
-        return Ok(());
-    }
-    if alias_present_macos(addr)? {
-        return Ok(());
-    }
-    eprintln!(
-        "{} {addr} not aliased on lo0; running `sudo ifconfig lo0 alias {addr} up`",
-        "?".yellow()
-    );
-    let status = Command::new("sudo")
-        .args(["ifconfig", "lo0", "alias", &addr.to_string(), "up"])
-        .status()
-        .wrap_err("invoke sudo ifconfig")?;
-    if !status.success() {
-        eyre::bail!("failed to add loopback alias for {addr}");
-    }
-    print_macos_persistence_hint(addr);
-    Ok(())
-}
-
-fn alias_present_macos(addr: IpAddr) -> Result<bool> {
-    let out = Command::new("ifconfig")
-        .arg("lo0")
-        .output()
-        .wrap_err("run ifconfig lo0")?;
-    if !out.status.success() {
-        eyre::bail!(
-            "ifconfig lo0 failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    Ok(stdout.contains(&addr.to_string()))
-}
-
-fn print_macos_persistence_hint(addr: IpAddr) {
-    let plist_path = "/Library/LaunchDaemons/dev.devconcurrent.lo0-alias.plist";
-    let plist = format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>dev.devconcurrent.lo0-alias</string>
-  <key>RunAtLoad</key><true/>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/sbin/ifconfig</string>
-    <string>lo0</string>
-    <string>alias</string>
-    <string>{addr}</string>
-    <string>up</string>
-  </array>
-</dict>
-</plist>"#
-    );
-    eprintln!();
-    eprintln!("To make this loopback alias survive reboots, save the following as");
-    eprintln!("  {plist_path}");
-    eprintln!("then run:");
-    eprintln!("  sudo launchctl bootstrap system {plist_path}");
-    eprintln!();
-    eprintln!("---8<---");
-    eprintln!("{plist}");
-    eprintln!("--->8---");
 }

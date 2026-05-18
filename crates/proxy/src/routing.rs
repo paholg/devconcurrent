@@ -1,10 +1,8 @@
-//! Hostname template rendering + sidecar key derivation.
+//! Hostname template rendering.
 
 use handlebars::Handlebars;
 use serde::Serialize;
-use shared::{PROXY_SOCKS_DIR, ProjectProxyConfig};
-
-use crate::registry::HostRoute;
+use shared::ProjectProxyConfig;
 
 #[derive(Serialize)]
 struct TemplateContext<'a> {
@@ -41,73 +39,4 @@ pub fn render_hostname(
             None
         }
     }
-}
-
-/// Sidecar key for `(project, workspace, service, container_port)`. Used as
-/// both the unix-socket filename and the routing identifier. Sanitized so it's
-/// filename-safe on every OS.
-pub fn sidecar_key(project: &str, workspace: &str, service: &str, container_port: u16) -> String {
-    let raw = format!("{project}-{workspace}-{service}-{container_port}");
-    raw.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect()
-}
-
-/// Path to a sidecar's unix socket inside the proxy container.
-pub fn socket_path(key: &str) -> String {
-    format!("{PROXY_SOCKS_DIR}/{key}.sock")
-}
-
-/// Compute all `(hostname, HostRoute)` pairs for a workspace's port-80 services.
-pub fn compute_http_routes(
-    cfg: &ProjectProxyConfig,
-    workspace: &str,
-    root: bool,
-) -> Vec<(String, HostRoute)> {
-    let mut out = Vec::new();
-    for svc in &cfg.services {
-        let Some(hostname) = render_hostname(cfg, workspace, &svc.name, root) else {
-            continue;
-        };
-        if let Some(port_80) = svc.ports.iter().find(|p| p.host == 80) {
-            let key = sidecar_key(&cfg.project, workspace, &svc.name, port_80.container);
-            out.push((
-                hostname,
-                HostRoute {
-                    socket_path: socket_path(&key),
-                },
-            ));
-        }
-    }
-    out
-}
-
-/// Compute all `(host_port, HostRoute)` pairs for a workspace's non-port-80 services.
-pub fn compute_tcp_routes(
-    cfg: &ProjectProxyConfig,
-    workspace: &str,
-    _root: bool,
-) -> Vec<(u16, HostRoute)> {
-    let mut out = Vec::new();
-    for svc in &cfg.services {
-        for port in &svc.ports {
-            if port.host == 80 {
-                continue;
-            }
-            let key = sidecar_key(&cfg.project, workspace, &svc.name, port.container);
-            out.push((
-                port.host,
-                HostRoute {
-                    socket_path: socket_path(&key),
-                },
-            ));
-        }
-    }
-    out
 }

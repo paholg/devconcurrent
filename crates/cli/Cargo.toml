@@ -34,7 +34,7 @@ serde_json = { workspace = true, features = ["preserve_order"] }
 serde_path_to_error = "0.1.20"
 serde_with = { version = "3.20", features = ["schemars_1"] }
 sha2 = "0.11.0"
-shared = { path = "../shared", version = "0.0.0" }
+shared = { path = "../shared" }
 shellexpand = "3.1.2"
 shlex = "2.0.1"
 tabular = { version = "0.2.0", features = ["ansi-cell"] }

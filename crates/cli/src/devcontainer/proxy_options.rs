@@ -5,8 +5,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Deserializer, Serialize, de};
 
 /// Default hostname template.
-pub(crate) const DEFAULT_TEMPLATE: &str =
-    "{{#unless root}}{{workspace}}.{{/unless}}{{service}}.{{project}}.test";
+pub(crate) const DEFAULT_TEMPLATE: &str = "{{workspace}}.{{service}}.test";
 
 /// Per-project proxy configuration.
 ///
@@ -14,6 +13,7 @@ pub(crate) const DEFAULT_TEMPLATE: &str =
 #[derive(Deserialize, Serialize, Clone, Debug, Default, JsonSchema)]
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct ProxyOptions {
+    pub(crate) enable: bool,
     /// Handlebars template for the proxied domain name.
     ///
     /// The default TLD (.test) is one guaranteed to never be registered on the
@@ -28,7 +28,7 @@ pub(crate) struct ProxyOptions {
     ///
     /// Default:
     /// ```
-    /// {{#unless root}}{{workspace}}.{{/unless}}{{service}}.{{project}}.test
+    /// {{workspace}}.{{service}}.test
     /// ```
     pub(crate) domain_name: Option<Template>,
 

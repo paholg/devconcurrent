@@ -86,7 +86,7 @@ impl Up {
         // project's config is pushed BEFORE compose-up, so that the proxy
         // already knows the project when it reacts to the container start
         // event.
-        if proxy_enabled(devcontainer) {
+        if devcontainer.proxy_enabled() {
             proxy::ensure_up(&state).await?;
         }
 
@@ -182,11 +182,4 @@ impl Up {
 
         Ok(())
     }
-}
-
-fn proxy_enabled(dc: &crate::state::DevcontainerState) -> bool {
-    let Some(opts) = dc.config.customizations.devconcurrent.proxy.as_ref() else {
-        return false;
-    };
-    !opts.services.is_empty() || !dc.config.forward_ports.is_empty()
 }

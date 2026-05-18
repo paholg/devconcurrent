@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::devcontainer::proxy::ProxyOptions;
+use crate::devcontainer::proxy_options::ProxyOptions;
 use crate::helpers::deserialize_shell_path_opt;
 use crate::run::cmd::Cmd;
 
@@ -25,7 +25,7 @@ pub(crate) struct DcOptions {
     /// Reverse-proxy configuration.
     ///
     /// Leave empty if you don't wish to use it.
-    pub(crate) proxy: Option<ProxyOptions>,
+    pub(crate) proxy: ProxyOptions,
 }
 
 impl DcOptions {

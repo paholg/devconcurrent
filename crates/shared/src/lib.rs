@@ -4,8 +4,6 @@
 //! The CLI writes one `<project>.json` file per project into the
 //! `devconcurrent-proxy-config` volume; the proxy reads them at startup.
 
-use std::net::IpAddr;
-
 use serde::{Deserialize, Serialize};
 
 // Container labels.
@@ -14,9 +12,7 @@ pub const WORKSPACE_LABEL: &str = "dev.devconcurrent.workspace";
 pub const MANAGED_LABEL: &str = "dev.devconcurrent.managed";
 /// Marks the global proxy container.
 pub const PROXY_LABEL: &str = "dev.devconcurrent.proxy";
-/// Marks a per-workspace socat sidecar created by the proxy. Distinct from
-/// [`PROXY_LABEL`] so the proxy's `sweep_orphans` doesn't mistake itself for a
-/// sidecar and tear itself down.
+/// Marks a per-workspace socat sidecar created by the proxy.
 pub const PROXY_SIDECAR_LABEL: &str = "dev.devconcurrent.proxy.sidecar";
 pub const PROXY_TARGET_LABEL: &str = "dev.devconcurrent.proxy.target";
 /// Hex sha256 of the proxy container's stable input config (image, binds, env,
@@ -28,25 +24,18 @@ pub const COMPOSE_SERVICE_LABEL: &str = "com.docker.compose.service";
 
 // Resource names.
 pub const PROXY_CONTAINER_NAME: &str = "devconcurrent-proxy";
-pub const PROXY_SOCKS_VOLUME: &str = "devconcurrent-proxy-socks";
 pub const PROXY_CONFIG_VOLUME: &str = "devconcurrent-proxy-config";
 
 // In-container paths.
-pub const PROXY_SOCKS_DIR: &str = "/socks";
 pub const PROXY_CONFIG_DIR: &str = "/etc/projects";
 
 // Environment variables read by the proxy on startup.
 pub const ENV_DNS_PORT: &str = "DC_PROXY_DNS_PORT";
-pub const ENV_BIND_ADDRESS: &str = "DC_PROXY_BIND_ADDRESS";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectProxyConfig {
     pub project: String,
-    /// Compose service name of the workspace's main devcontainer service.
-    /// Used by the proxy to identify which docker start event represents a
-    /// new workspace, and to net-join the sidecar to.
-    pub devcontainer_service: String,
     /// Handlebars source. Variables: `root` (bool), `project`, `workspace`, `service`.
     pub domain_template: String,
     pub services: Vec<ServiceConfig>,
@@ -55,8 +44,8 @@ pub struct ProjectProxyConfig {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServiceConfig {
-    /// Compose service name. The proxy uses `127.0.0.1` for the
-    /// `devcontainerService` and the compose service name otherwise.
+    /// Compose service name. The sidecar runs in this service's container
+    /// netns and forwards `host` → `127.0.0.1:container` locally.
     pub name: String,
     pub ports: Vec<PortMapping>,
 }
@@ -64,9 +53,7 @@ pub struct ServiceConfig {
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PortMapping {
-    /// IP the proxy listens on (typically the configured `bindAddress`).
-    pub ip: IpAddr,
-    /// Host-side TCP port the proxy listens on.
+    /// Port the sidecar listens on, in the devcontainer service's netns.
     pub host: u16,
     /// Destination port inside the target service container.
     pub container: u16,
@@ -75,18 +62,15 @@ pub struct PortMapping {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::Ipv4Addr;
 
     #[test]
     fn roundtrip() {
         let cfg = ProjectProxyConfig {
             project: "p".into(),
-            devcontainer_service: "app".into(),
             domain_template: "{{service}}.{{project}}.test".into(),
             services: vec![ServiceConfig {
                 name: "app".into(),
                 ports: vec![PortMapping {
-                    ip: IpAddr::V4(Ipv4Addr::new(127, 43, 77, 0)),
                     host: 80,
                     container: 3000,
                 }],

@@ -1,4 +1,3 @@
-use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 
 use eyre::{WrapErr, eyre};
@@ -9,10 +8,7 @@ use serde::Deserialize;
 use crate::devcontainer::DevcontainerConfig;
 use crate::helpers::{deserialize_shell_path, deserialize_shell_path_opt, validate_name};
 
-pub(crate) const DEFAULT_PROXY_PORT: u16 = 53;
-/// A loopback address in 127/8 that's outside the well-known set (avoiding
-/// 127.0.0.1, systemd-resolved's 127.0.0.53/.54, and ICANN's 127.0.53.53).
-pub(crate) const DEFAULT_PROXY_BIND_ADDRESS: IpAddr = IpAddr::V4(Ipv4Addr::new(127, 43, 77, 0));
+pub(crate) const DEFAULT_PROXY_PORT: u16 = 43770;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct ProjectName(String);
@@ -74,30 +70,16 @@ pub(crate) struct Config {
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct ProxyGlobal {
-    /// The DNS port the proxy listens on, on `bindAddress`.
+    /// The DNS port the proxy listens on.
     ///
-    /// Default: 53
+    /// Default: 43770
     pub(crate) port: u16,
-
-    /// Loopback address the proxy binds for DNS and configured ports.
-    ///
-    /// Using a non-`127.0.0.1` loopback keeps the user's `127.0.0.1:*` free for
-    /// other tools. On Linux, all of `127.0.0.0/8` is loopback out of the box;
-    /// on macOS, the alias must be added once (`dc proxy up` does this for you
-    /// and prints LaunchDaemon instructions for persistence).
-    ///
-    /// Avoid `127.0.0.1`, `127.0.0.53`/`127.0.0.54` (systemd-resolved stub),
-    /// and `127.0.53.53` (ICANN name-collision signaling).
-    ///
-    /// Default: `127.43.77.0`
-    pub(crate) bind_address: IpAddr,
 }
 
 impl Default for ProxyGlobal {
     fn default() -> Self {
         Self {
             port: DEFAULT_PROXY_PORT,
-            bind_address: DEFAULT_PROXY_BIND_ADDRESS,
         }
     }
 }

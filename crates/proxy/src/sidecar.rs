@@ -1,68 +1,58 @@
-//! Lifecycle of the per-workspace socat sidecar.
+//! Lifecycle of the per-service socat sidecar.
 //!
-//! Mirrors the two-container forwarding pattern used by `dc fwd`. The sidecar
-//! shares the devcontainer service container's network namespace and listens
-//! on per-(service,port) unix sockets in a shared volume.
+//! One sidecar per `(workspace, service)` that has port remappings, joined to
+//! that service's container network namespace. The sidecar binds each
+//! configured `host` port inside that netns and forwards locally to
+//! `127.0.0.1:<container>` — which inside the service's netns is the service
+//! itself.
+//!
+//! Clients reach the service by connecting to that container's IP at
+//! `<host>` — on Linux directly via the docker bridge, on macOS via a tunnel
+//! such as docker-mac-net-connect.
 
 use docker::Docker;
 use eyre::{Result, WrapErr};
 use shared::{
-    PROJECT_LABEL, PROXY_SIDECAR_LABEL, PROXY_SOCKS_DIR, PROXY_SOCKS_VOLUME, PROXY_TARGET_LABEL,
-    ProjectProxyConfig, WORKSPACE_LABEL,
+    PROJECT_LABEL, PROXY_SIDECAR_LABEL, PROXY_TARGET_LABEL, ServiceConfig, WORKSPACE_LABEL,
 };
-
-use crate::routing::sidecar_key;
 
 pub const SOCAT_IMAGE: &str = "docker.io/alpine/socat:latest";
 
-/// Create the inner sidecar joined to `target_cid`'s netns, listening on
-/// per-`(service, container_port)` unix sockets. Returns the sidecar's container ID.
-///
-/// `cfg` describes the project (and all its services + ports); `target_cid` is
-/// the devcontainer service container ID we net-join. The socket files live in
-/// the shared `PROXY_SOCKS_VOLUME` mounted at `PROXY_SOCKS_DIR`.
+/// Create the sidecar joined to `target_cid`'s netns and start it. Returns
+/// the sidecar's container ID, or `None` if `svc` has no port mappings.
 pub async fn create_sidecar(
     docker: &Docker,
-    cfg: &ProjectProxyConfig,
+    project: &str,
     workspace: &str,
+    svc: &ServiceConfig,
     target_cid: &str,
-) -> Result<String> {
+) -> Result<Option<String>> {
+    if svc.ports.is_empty() {
+        return Ok(None);
+    }
+
     docker
         .ensure_image(SOCAT_IMAGE)
         .await
         .wrap_err("ensure socat image")?;
 
-    let mut cmds: Vec<String> = Vec::new();
-    for svc in &cfg.services {
-        let target = if svc.name == cfg.devcontainer_service {
-            "127.0.0.1".to_string()
-        } else {
-            svc.name.clone()
-        };
-        for port in &svc.ports {
-            let key = sidecar_key(&cfg.project, workspace, &svc.name, port.container);
-            // `unlink-early` removes any leftover socket file from a prior
-            // sidecar before bind — without it socat exits with EADDRINUSE if
-            // the volume already has the file.
-            cmds.push(format!(
-                "socat UNIX-LISTEN:{PROXY_SOCKS_DIR}/{key}.sock,unlink-early,fork,reuseaddr TCP:{target}:{}",
-                port.container
-            ));
-        }
-    }
-
-    if cmds.is_empty() {
-        eyre::bail!(
-            "project {project:?} workspace {workspace:?} has no ports configured",
-            project = cfg.project
-        );
-    }
-
+    let cmds: Vec<String> = svc
+        .ports
+        .iter()
+        .map(|p| {
+            format!(
+                "socat TCP-LISTEN:{host},fork,reuseaddr TCP:127.0.0.1:{container}",
+                host = p.host,
+                container = p.container,
+            )
+        })
+        .collect();
     let shell_cmd = join_background(&cmds);
-    let name = format!("devconcurrent-proxy-sidecar-{}-{workspace}", cfg.project);
-    let name = sanitize_container_name(&name);
+    let name = sanitize_container_name(&format!(
+        "devconcurrent-proxy-sidecar-{project}-{workspace}-{}",
+        svc.name
+    ));
     let network_mode = format!("container:{target_cid}");
-    let bind = format!("{PROXY_SOCKS_VOLUME}:{PROXY_SOCKS_DIR}");
 
     // If a stale sidecar exists from a previous run, force-remove it first.
     match docker.remove_container(&name).force(true).call().await {
@@ -78,10 +68,9 @@ pub async fn create_sidecar(
         .network_mode(&network_mode)
         .entrypoint(vec!["sh".to_string()])
         .cmd(vec!["-c".to_string(), shell_cmd])
-        .with_bind(bind)
         .with_label(PROXY_SIDECAR_LABEL, "true")
         .with_label(PROXY_TARGET_LABEL, target_cid)
-        .with_label(PROJECT_LABEL, &cfg.project)
+        .with_label(PROJECT_LABEL, project)
         .with_label(WORKSPACE_LABEL, workspace)
         .call()
         .await
@@ -90,11 +79,10 @@ pub async fn create_sidecar(
         .start_container(&id)
         .await
         .wrap_err("start sidecar container")?;
-    Ok(id)
+    Ok(Some(id))
 }
 
-/// Remove sidecars by their container IDs. Errors are logged, not propagated;
-/// best-effort cleanup is the right behavior here.
+/// Remove a sidecar by its container ID. Errors are logged, not propagated.
 pub async fn remove_sidecar(docker: &Docker, id: &str) {
     match docker.remove_container(id).force(true).call().await {
         Ok(()) | Err(docker::Error::NotFound) => {}
@@ -102,8 +90,8 @@ pub async fn remove_sidecar(docker: &Docker, id: &str) {
     }
 }
 
-/// Find and remove every sidecar whose `PROXY_TARGET_LABEL` no longer points to
-/// a running container — for example, leftovers after a proxy crash.
+/// Remove every sidecar whose `PROXY_TARGET_LABEL` no longer points to a
+/// running container — leftovers after a proxy crash.
 pub async fn sweep_orphans(docker: &Docker) -> Result<()> {
     let sidecars = docker
         .list_containers()
@@ -134,9 +122,15 @@ pub async fn sweep_orphans(docker: &Docker) -> Result<()> {
 }
 
 fn join_background(cmds: &[String]) -> String {
-    let mut parts: Vec<String> = cmds.iter().map(|c| format!("{c} &")).collect();
+    // `set -e` + a trap kills the whole sidecar if any single socat dies, so
+    // failures aren't silently masked. The sidecar then restarts via its
+    // docker lifecycle (or the proxy re-creates it on the next start event).
+    let mut parts = vec!["set -e".to_string(), "trap 'kill 0' CHLD".to_string()];
+    for c in cmds {
+        parts.push(format!("{c} &"));
+    }
     parts.push("wait".to_string());
-    parts.join(" ")
+    parts.join("; ")
 }
 
 fn sanitize_container_name(s: &str) -> String {

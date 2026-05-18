@@ -40,12 +40,11 @@ release version:
     git push --tags
 
 # Build the proxy docker image and tag it so it's used.
-run-proxy:
+build-proxy:
     nix run .#docker-service-image.copyToDockerDaemon
     v=$(cargo pkgid -p devconcurrent-proxy | sed 's/.*[@#]//'); \
     docker tag "devconcurrent-proxy:$v" "ghcr.io/paholg/devconcurrent-proxy:$v" && \
     echo "Tagged ghcr.io/paholg/devconcurrent-proxy:$v"
-    just run proxy up
 
 schema: schema-gen schema-open
 

@@ -1,11 +1,30 @@
-//! Docker events listener: watches for workspace devcontainer containers
-//! starting/dying and drives sidecar lifecycle through the registry.
+//! Docker events listener: watches compose service containers and drives
+//! per-service sidecar lifecycle.
+//!
+//! Discovery is anchored to compose projects, not to our own container labels.
+//! A compose project is "ours" if it contains at least one container labeled
+//! `dev.devconcurrent.project=<name>` (the user puts this on their primary
+//! service in compose). Every container in such a project whose
+//! `com.docker.compose.service` matches an entry in the corresponding
+//! `ProjectProxyConfig.services` gets adopted.
+//!
+//! Every start/die event triggers a full sync of the affected compose
+//! project. This handles arbitrary startup orders (siblings before the
+//! primary, etc.) without explicit state machines or pending queues.
+
+use std::collections::HashSet;
+use std::net::IpAddr;
 
 use docker::{Docker, EventActor};
+use eyre::Result;
 use futures_util::StreamExt;
-use shared::{COMPOSE_PROJECT_LABEL, COMPOSE_SERVICE_LABEL, PROJECT_LABEL, WORKSPACE_LABEL};
+use indexmap::IndexMap;
+use shared::{
+    COMPOSE_PROJECT_LABEL, COMPOSE_SERVICE_LABEL, PROJECT_LABEL, PROXY_SIDECAR_LABEL,
+    ServiceConfig, WORKSPACE_LABEL,
+};
 
-use crate::registry::{Registry, RunningWorkspace};
+use crate::registry::{Registry, RunningService};
 use crate::sidecar;
 
 /// Run the event loop. Reconnects on connection drops with a brief backoff.
@@ -14,7 +33,6 @@ pub async fn run(docker: Docker, registry: Registry) {
         let stream = match docker
             .events()
             .with_type("container")
-            .with_label_key(PROJECT_LABEL)
             .with_event("start")
             .with_event("die")
             .with_event("destroy")
@@ -45,105 +63,225 @@ pub async fn run(docker: Docker, registry: Registry) {
 }
 
 async fn handle_event(docker: &Docker, registry: &Registry, ev: docker::EventMessage) {
+    // Ignore events on our own sidecars.
+    if ev.actor.attributes.contains_key(PROXY_SIDECAR_LABEL) {
+        return;
+    }
     let Some(action) = ev.action.as_deref() else {
         return;
     };
     match action {
-        "start" => on_start(docker, registry, ev.actor).await,
+        "start" => {
+            if let Some(cp) = ev.actor.attributes.get(COMPOSE_PROJECT_LABEL).cloned() {
+                sync_compose_project(docker, registry, &cp).await;
+            }
+        }
         "die" | "destroy" => on_die(docker, registry, ev.actor).await,
         _ => {}
     }
 }
 
-async fn on_start(docker: &Docker, registry: &Registry, actor: EventActor) {
-    let attrs = &actor.attributes;
-    let Some(project) = attrs.get(PROJECT_LABEL).cloned() else {
-        return;
-    };
-    let compose_service = attrs
-        .get(COMPOSE_SERVICE_LABEL)
-        .cloned()
-        .unwrap_or_default();
-
-    let Some(cfg) = registry.config_for(&project).await else {
-        tracing::debug!(
-            container = %actor.id,
-            project,
-            "container started but no config registered; ignoring"
-        );
-        return;
-    };
-
-    if compose_service != cfg.devcontainer_service {
-        // Sibling compose service — the existing sidecar (if any) already
-        // proxies it via compose DNS from inside the netns. Nothing to do.
-        return;
-    }
-
-    let Some(workspace) = derive_workspace(attrs) else {
-        tracing::warn!(
-            container = %actor.id,
-            project,
-            "container has project label but no workspace identifier; skipping"
-        );
-        return;
-    };
-
-    tracing::info!(
-        container = %actor.id,
-        project,
-        workspace,
-        "workspace devcontainer started; creating sidecar"
-    );
-
-    let sidecar_id = match sidecar::create_sidecar(docker, &cfg, &workspace, &actor.id).await {
-        Ok(id) => Some(id),
-        Err(e) => {
-            tracing::error!(
-                project,
-                workspace,
-                target_cid = %actor.id,
-                "create sidecar failed: {e:?}"
-            );
-            None
-        }
-    };
-
-    let ws = RunningWorkspace {
-        project,
-        workspace,
-        target_cid: actor.id.clone(),
-        sidecar_id,
-    };
-    registry.track_workspace(ws).await;
-}
-
 async fn on_die(docker: &Docker, registry: &Registry, actor: EventActor) {
-    let Some(ws) = registry.untrack_workspace(&actor.id).await else {
+    let Some(svc) = registry.untrack_service(&actor.id).await else {
         return;
     };
-    if let Some(sidecar_id) = ws.sidecar_id {
+    if let Some(sidecar_id) = svc.sidecar_id {
         sidecar::remove_sidecar(docker, &sidecar_id).await;
     }
 }
 
-/// Pick a workspace identifier from the available labels, preferring the
-/// explicit `WORKSPACE_LABEL` if set and falling back to the compose project
-/// label (with the `_devcontainer` suffix the CLI appends stripped, if
-/// present). The identifier is used as a sidecar key and as the `workspace`
-/// component of rendered hostnames.
-pub(crate) fn derive_workspace(attrs: &indexmap::IndexMap<String, String>) -> Option<String> {
-    if let Some(ws) = attrs.get(WORKSPACE_LABEL).filter(|s| !s.is_empty()) {
-        return Some(ws.clone());
+/// Re-sync one compose project: discover its primary (any container in the
+/// project labeled with `dev.devconcurrent.project`), look up the matching
+/// config, and adopt every container whose service name appears there.
+/// Already-adopted containers are skipped.
+pub(crate) async fn sync_compose_project(
+    docker: &Docker,
+    registry: &Registry,
+    compose_project: &str,
+) {
+    let containers = match docker
+        .list_containers()
+        .with_label(COMPOSE_PROJECT_LABEL, compose_project)
+        .call()
+        .await
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(compose_project, "list containers: {e}");
+            return;
+        }
+    };
+
+    let Some(primary) = containers
+        .iter()
+        .find(|c| c.labels.contains_key(PROJECT_LABEL))
+    else {
+        // No primary present (yet, or this project isn't ours). Siblings
+        // that arrived earlier will be picked up when the primary's start
+        // event fires.
+        return;
+    };
+
+    let Some(project) = primary.labels.get(PROJECT_LABEL).cloned() else {
+        return;
+    };
+    let Some(cfg) = registry.config_for(&project).await else {
+        tracing::debug!(
+            project,
+            "compose project references unknown devconcurrent project"
+        );
+        return;
+    };
+    let workspace = derive_workspace_for(&primary.labels, compose_project);
+
+    for c in &containers {
+        if registry.has_service(&c.id).await {
+            continue;
+        }
+        let Some(compose_service) = c.labels.get(COMPOSE_SERVICE_LABEL).cloned() else {
+            continue;
+        };
+        let port_config = cfg
+            .services
+            .iter()
+            .find(|s| s.name == compose_service)
+            .cloned();
+        adopt(
+            docker,
+            registry,
+            &cfg.project,
+            &workspace,
+            &compose_service,
+            port_config.as_ref(),
+            &c.id,
+        )
+        .await;
     }
-    let compose = attrs.get(COMPOSE_PROJECT_LABEL)?;
-    if compose.is_empty() {
-        return None;
+}
+
+/// Inspect the service container, create a sidecar if `port_config` lists
+/// ports, and register it. Services without listed ports register DNS only;
+/// they're reachable on their natural ports but the source IP isn't
+/// rewritten to 127.0.0.1.
+async fn adopt(
+    docker: &Docker,
+    registry: &Registry,
+    project: &str,
+    workspace: &str,
+    service: &str,
+    port_config: Option<&ServiceConfig>,
+    target_cid: &str,
+) {
+    let container_ip = match inspect_container_ip(docker, target_cid).await {
+        Ok(ip) => ip,
+        Err(e) => {
+            tracing::error!(
+                container = %target_cid,
+                project,
+                workspace,
+                service,
+                "couldn't read container IP, skipping: {e:?}"
+            );
+            return;
+        }
+    };
+
+    tracing::info!(
+        container = %target_cid,
+        project,
+        workspace,
+        service,
+        %container_ip,
+        has_port_remap = port_config.is_some_and(|s| !s.ports.is_empty()),
+        "adopting service"
+    );
+
+    let sidecar_id = if let Some(svc) = port_config.filter(|s| !s.ports.is_empty()) {
+        match sidecar::create_sidecar(docker, project, workspace, svc, target_cid).await {
+            Ok(id) => id,
+            Err(e) => {
+                tracing::error!(
+                    project,
+                    workspace,
+                    service,
+                    target_cid,
+                    "create sidecar failed: {e:?}"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    registry
+        .track_service(RunningService {
+            project: project.to_string(),
+            workspace: workspace.to_string(),
+            service: service.to_string(),
+            target_cid: target_cid.to_string(),
+            container_ip,
+            sidecar_id,
+        })
+        .await;
+}
+
+/// Workspace identifier: prefer the explicit `WORKSPACE_LABEL` (set by `dc
+/// up`'s compose override), otherwise fall back to the compose project name
+/// with the `_devcontainer` suffix stripped if present. The fallback is what
+/// makes VSCode-launched workspaces work.
+fn derive_workspace_for(labels: &IndexMap<String, String>, compose_project: &str) -> String {
+    if let Some(ws) = labels.get(WORKSPACE_LABEL).filter(|s| !s.is_empty()) {
+        return ws.clone();
     }
-    Some(
-        compose
-            .strip_suffix("_devcontainer")
-            .unwrap_or(compose)
-            .to_string(),
-    )
+    compose_project
+        .strip_suffix("_devcontainer")
+        .unwrap_or(compose_project)
+        .to_string()
+}
+
+/// Inspect the container and return the first non-empty IP from any of its
+/// networks. Compose puts each service on the project's default network; we
+/// don't care which network as long as we get an IP routable from the host
+/// (directly on Linux, via docker-mac-net-connect on macOS).
+pub(crate) async fn inspect_container_ip(docker: &Docker, cid: &str) -> Result<IpAddr> {
+    let details = docker
+        .inspect_container(cid)
+        .await
+        .map_err(|e| eyre::eyre!("inspect container {cid}: {e}"))?;
+    for endpoint in details.network_settings.networks.values() {
+        let Some(raw) = endpoint.ip_address.as_deref() else {
+            continue;
+        };
+        if raw.is_empty() {
+            continue;
+        }
+        return raw
+            .parse::<IpAddr>()
+            .map_err(|e| eyre::eyre!("parse container ip {raw:?}: {e}"));
+    }
+    eyre::bail!("container {cid} has no network with an IP");
+}
+
+/// Bootstrap: at startup, find every compose project containing at least one
+/// container with `PROJECT_LABEL` and sync it.
+pub(crate) async fn bootstrap(docker: &Docker, registry: &Registry) -> Result<()> {
+    let primaries = docker
+        .list_containers()
+        .with_label_key(PROJECT_LABEL)
+        .call()
+        .await?;
+    let mut seen: HashSet<String> = HashSet::new();
+    for c in primaries {
+        if c.labels.contains_key(PROXY_SIDECAR_LABEL) {
+            continue;
+        }
+        let Some(cp) = c.labels.get(COMPOSE_PROJECT_LABEL) else {
+            continue;
+        };
+        if seen.insert(cp.clone()) {
+            sync_compose_project(docker, registry, cp).await;
+        }
+    }
+    Ok(())
 }

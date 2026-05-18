@@ -331,7 +331,11 @@
               "defaultExec": null,
               "worktreeFolder": null,
               "mountGit": null,
-              "proxy": null
+              "proxy": {
+                "enable": false,
+                "domainName": null,
+                "services": {}
+              }
             }
           }
         }
@@ -586,7 +590,11 @@
             "defaultExec": null,
             "worktreeFolder": null,
             "mountGit": null,
-            "proxy": null
+            "proxy": {
+              "enable": false,
+              "domainName": null,
+              "services": {}
+            }
           }
         }
       }
@@ -622,15 +630,12 @@
         },
         "proxy": {
           "description": "Reverse-proxy configuration.\n\nLeave empty if you don't wish to use it.",
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ProxyOptions"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
+          "$ref": "#/$defs/ProxyOptions",
+          "default": {
+            "enable": false,
+            "domainName": null,
+            "services": {}
+          }
         }
       }
     },
@@ -638,8 +643,12 @@
       "description": "Per-project proxy configuration.\n\nPorts from `forwardPorts` are picked up automatically",
       "type": "object",
       "properties": {
+        "enable": {
+          "type": "boolean",
+          "default": false
+        },
         "domainName": {
-          "description": "Handlebars template for the proxied domain name.\n\nThe default TLD (.test) is one guaranteed to never be registered on the\ninternet, but whatever you use, you will need a DNS entry to point to\nthe devconcurrent proxy.\n\nAvailable variables:\n- `root` (bool) — whether this is the root workspace\n- `project` — project name\n- `workspace` — workspace name\n- `service` — name of the service from compose\n\nDefault:\n```\n{{#unless root}}{{workspace}}.{{/unless}}{{service}}.{{project}}.test\n```",
+          "description": "Handlebars template for the proxied domain name.\n\nThe default TLD (.test) is one guaranteed to never be registered on the\ninternet, but whatever you use, you will need a DNS entry to point to\nthe devconcurrent proxy.\n\nAvailable variables:\n- `root` (bool) — whether this is the root workspace\n- `project` — project name\n- `workspace` — workspace name\n- `service` — name of the service from compose\n\nDefault:\n```\n{{workspace}}.{{service}}.test\n```",
           "anyOf": [
             {
               "$ref": "#/$defs/ProxyHostnameTemplate"
@@ -710,18 +719,12 @@
       "type": "object",
       "properties": {
         "port": {
-          "description": "The DNS port the proxy listens on, on `bindAddress`.\n\nDefault: 53",
+          "description": "The DNS port the proxy listens on.\n\nDefault: 43770",
           "type": "integer",
           "format": "uint16",
           "minimum": 0,
           "maximum": 65535,
-          "default": 53
-        },
-        "bindAddress": {
-          "description": "Loopback address the proxy binds for DNS and configured ports.\n\nUsing a non-`127.0.0.1` loopback keeps the user's `127.0.0.1:*` free for\nother tools. On Linux, all of `127.0.0.0/8` is loopback out of the box;\non macOS, the alias must be added once (`dc proxy up` does this for you\nand prints LaunchDaemon instructions for persistence).\n\nAvoid `127.0.0.1`, `127.0.0.53`/`127.0.0.54` (systemd-resolved stub),\nand `127.0.53.53` (ICANN name-collision signaling).\n\nDefault: `127.43.77.0`",
-          "type": "string",
-          "format": "ip",
-          "default": "127.43.77.0"
+          "default": 43770
         }
       }
     }

@@ -1,43 +1,34 @@
-//! Shared in-memory state: pushed project configs + currently-tracked workspaces.
+//! Shared in-memory state: pushed project configs + currently-tracked service
+//! containers.
 //!
 //! The proxy reads `/etc/projects/*.json` from a docker volume on startup, and
-//! mutates the workspace map in response to docker container start/die events.
-//! Derived routing tables are rebuilt each time the registry changes.
+//! mutates the service map in response to docker container start/die events.
+//! The derived `names` map (hostname → container IP) is rebuilt on each
+//! change and consumed by the DNS server.
 
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::sync::Arc;
 
 use shared::ProjectProxyConfig;
 use tokio::sync::RwLock;
 
-/// A single (hostname, host_port) route to a sidecar's unix socket.
+/// One running compose service container tracked from docker start events.
 #[derive(Debug, Clone)]
-pub struct HostRoute {
-    /// Sidecar unix socket path, e.g. `/socks/<key>.sock`.
-    pub socket_path: String,
-}
-
-/// Routes for HTTP traffic on the alias's port 80, keyed by Host header
-/// (lowercased, port-stripped).
-pub type HttpRoutes = HashMap<String, HostRoute>;
-/// Routes for plain TCP traffic on non-HTTP host ports, keyed by host port.
-pub type TcpRoutes = HashMap<u16, HostRoute>;
-
-/// One running workspace tracked from docker start events.
-#[derive(Debug, Clone)]
-pub struct RunningWorkspace {
+pub struct RunningService {
     pub project: String,
     pub workspace: String,
+    pub service: String,
     pub target_cid: String,
+    pub container_ip: IpAddr,
     pub sidecar_id: Option<String>,
 }
 
 #[derive(Debug, Default)]
 pub struct RegistryInner {
     pub configs: HashMap<String, ProjectProxyConfig>,
-    pub workspaces: HashMap<String, RunningWorkspace>,
-    pub http_routes: HttpRoutes,
-    pub tcp_routes: TcpRoutes,
+    pub services: HashMap<String, RunningService>,
+    pub names: HashMap<String, IpAddr>,
 }
 
 #[derive(Clone, Default)]
@@ -56,80 +47,64 @@ impl Registry {
         for cfg in configs {
             inner.configs.insert(cfg.project.clone(), cfg);
         }
-        rebuild_routes(&mut inner);
+        rebuild_names(&mut inner);
     }
 
     pub async fn config_for(&self, project: &str) -> Option<ProjectProxyConfig> {
         self.inner.read().await.configs.get(project).cloned()
     }
 
-    pub async fn track_workspace(&self, ws: RunningWorkspace) {
+    pub async fn track_service(&self, svc: RunningService) {
         let mut inner = self.inner.write().await;
-        inner.workspaces.insert(ws.target_cid.clone(), ws);
-        rebuild_routes(&mut inner);
+        inner.services.insert(svc.target_cid.clone(), svc);
+        rebuild_names(&mut inner);
     }
 
-    pub async fn untrack_workspace(&self, target_cid: &str) -> Option<RunningWorkspace> {
+    pub async fn has_service(&self, target_cid: &str) -> bool {
+        self.inner.read().await.services.contains_key(target_cid)
+    }
+
+    pub async fn untrack_service(&self, target_cid: &str) -> Option<RunningService> {
         let mut inner = self.inner.write().await;
-        let removed = inner.workspaces.remove(target_cid);
+        let removed = inner.services.remove(target_cid);
         if removed.is_some() {
-            rebuild_routes(&mut inner);
+            rebuild_names(&mut inner);
         }
         removed
     }
 
-    pub async fn http_route(&self, host: &str) -> Option<HostRoute> {
-        let key = host.split(':').next().unwrap_or(host).to_lowercase();
-        self.inner.read().await.http_routes.get(&key).cloned()
-    }
-
-    pub async fn tcp_route(&self, host_port: u16) -> Option<HostRoute> {
-        self.inner.read().await.tcp_routes.get(&host_port).cloned()
-    }
-
-    /// Every non-80 host port across all currently-registered project configs.
-    /// Used at startup to decide which TCP listeners to bind.
-    pub async fn configured_tcp_ports(&self) -> Vec<u16> {
-        let inner = self.inner.read().await;
-        let mut ports: Vec<u16> = inner
-            .configs
-            .values()
-            .flat_map(|c| c.services.iter())
-            .flat_map(|s| s.ports.iter().map(|p| p.host))
-            .filter(|p| *p != 80)
-            .collect();
-        ports.sort_unstable();
-        ports.dedup();
-        ports
+    /// Lookup a hostname → IP for DNS. The caller is expected to have already
+    /// lowercased the host and trimmed any trailing dot.
+    pub async fn resolve(&self, host: &str) -> Option<IpAddr> {
+        self.inner.read().await.names.get(host).copied()
     }
 }
 
-fn rebuild_routes(inner: &mut RegistryInner) {
-    let mut http_routes = HashMap::new();
-    let mut tcp_routes: HashMap<u16, HostRoute> = HashMap::new();
-    for ws in inner.workspaces.values() {
-        let Some(cfg) = inner.configs.get(&ws.project) else {
+fn rebuild_names(inner: &mut RegistryInner) {
+    let mut names: HashMap<String, IpAddr> = HashMap::new();
+    for svc in inner.services.values() {
+        let Some(cfg) = inner.configs.get(&svc.project) else {
             continue;
         };
-        // The workspace whose name matches the project name is the "root"
-        // workspace and is rendered without the workspace label in front.
-        let root = ws.workspace == cfg.project;
-        for (hostname, route) in crate::routing::compute_http_routes(cfg, &ws.workspace, root) {
-            http_routes.insert(hostname.to_lowercase(), route);
-        }
-        for (host_port, route) in crate::routing::compute_tcp_routes(cfg, &ws.workspace, root) {
-            if let Some(existing) = tcp_routes.get(&host_port) {
+        let root = svc.workspace == cfg.project;
+        let Some(hostname) =
+            crate::routing::render_hostname(cfg, &svc.workspace, &svc.service, root)
+        else {
+            continue;
+        };
+        let key = hostname.to_lowercase();
+        if let Some(existing) = names.get(&key) {
+            if *existing != svc.container_ip {
                 tracing::warn!(
-                    host_port,
-                    existing = %existing.socket_path,
-                    new = %route.socket_path,
-                    "tcp port already mapped; keeping existing route"
+                    hostname = %key,
+                    existing = %existing,
+                    new = %svc.container_ip,
+                    "hostname collision; keeping existing"
                 );
-                continue;
             }
-            tcp_routes.insert(host_port, route);
+            continue;
         }
+        names.insert(key, svc.container_ip);
     }
-    inner.http_routes = http_routes;
-    inner.tcp_routes = tcp_routes;
+    inner.names = names;
 }
