@@ -70,7 +70,7 @@ pub(crate) async fn forward(
         // Get container's network name for the outer sidecar
         let network_name = container_network(&devcontainer.docker.client, cid).await?;
 
-        ensure_image().await?;
+        devcontainer.docker.client.ensure_image(SOCAT_IMAGE).await?;
 
         let volume_name = format!("devconcurrent-fwd-{}", workspace.compose_project_name());
 
@@ -227,19 +227,6 @@ fn join_background(cmds: &[String]) -> String {
     let mut parts: Vec<String> = cmds.iter().map(|c| format!("{c} &")).collect();
     parts.push("wait".to_string());
     parts.join(" ")
-}
-
-async fn ensure_image() -> eyre::Result<()> {
-    let out = Command::new("docker")
-        .args(["image", "inspect", SOCAT_IMAGE])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .await?;
-    if !out.success() {
-        docker(&["pull", SOCAT_IMAGE]).await?;
-    }
-    Ok(())
 }
 
 pub(crate) async fn remove_sidecars(state: &State, client: &docker::Docker) -> eyre::Result<()> {

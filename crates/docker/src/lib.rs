@@ -10,6 +10,7 @@ mod container;
 mod error;
 mod exec;
 mod filter;
+mod images;
 mod request_ext;
 mod socket;
 mod stats;
@@ -23,6 +24,7 @@ pub use container::{
 pub use error::{Error, Result};
 pub use exec::ExecDetails;
 pub use filter::Filter;
+pub use images::ImageDetails;
 pub use socket::discover_socket;
 pub use stats::{ContainerStats, MemoryStats};
 pub use types::ApiVersion;

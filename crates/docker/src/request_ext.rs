@@ -7,6 +7,9 @@ use crate::error::ApiSnafu;
 pub(crate) trait ReqwestExt {
     async fn try_send<T: DeserializeOwned>(self) -> crate::Result<T>;
     async fn try_send_empty(self) -> crate::Result<()>;
+    /// Drain a newline-delimited JSON response, parsing each non-empty line
+    /// into `T`. Drops any blank lines.
+    async fn try_send_ndjson<T: DeserializeOwned>(self) -> crate::Result<Vec<T>>;
 }
 
 impl ReqwestExt for RequestBuilder {
@@ -23,6 +26,14 @@ impl ReqwestExt for RequestBuilder {
 
     async fn try_send_empty(self) -> crate::Result<()> {
         check_response_body(self).await.map(drop)
+    }
+
+    async fn try_send_ndjson<T: DeserializeOwned>(self) -> crate::Result<Vec<T>> {
+        let body = check_response_body(self).await?;
+        body.split(|b| *b == b'\n')
+            .filter(|line| !line.iter().all(u8::is_ascii_whitespace))
+            .map(|line| serde_json::from_slice(line).map_err(Into::into))
+            .collect()
     }
 }
 
