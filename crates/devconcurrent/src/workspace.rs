@@ -54,20 +54,20 @@ impl<'a> Workspace<'a> {
             .collect()
     }
 
-    pub(crate) fn project_label(&self) -> String {
-        format!("{}={}", PROJECT_LABEL, self.state.project_name)
+    pub(crate) fn project_label(&self) -> (&str, &str) {
+        (PROJECT_LABEL, &self.state.project_name)
     }
 
-    pub(crate) fn workspace_label(&self) -> String {
-        format!("{}={}", WORKSPACE_LABEL, self.name)
+    pub(crate) fn workspace_label(&self) -> (&str, &str) {
+        (WORKSPACE_LABEL, &self.name)
     }
 
-    pub(crate) fn fwd_label(&self) -> String {
-        format!("{}=true", FORWARD_LABEL)
+    pub(crate) fn fwd_label(&self) -> (&str, &str) {
+        (FORWARD_LABEL, "true")
     }
 
-    pub(crate) fn docker_fwd_labels(&self) -> Vec<String> {
-        vec![
+    pub(crate) fn docker_fwd_labels(&self) -> [(&str, &str); 3] {
+        [
             self.project_label(),
             self.workspace_label(),
             self.fwd_label(),

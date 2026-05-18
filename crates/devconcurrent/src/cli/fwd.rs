@@ -1,7 +1,8 @@
+use std::net::{IpAddr, Ipv4Addr};
+
 use clap::{Args, Subcommand};
 use clap_complete::ArgValueCompleter;
 use eyre::eyre;
-use tokio::process::Command;
 
 use color_eyre::owo_colors::OwoColorize;
 
@@ -74,12 +75,14 @@ pub(crate) async fn forward(
 
         let volume_name = format!("devconcurrent-fwd-{}", workspace.compose_project_name());
 
-        let mut args = vec!["volume", "create", &volume_name];
-        let labels = workspace.docker_fwd_labels();
-        args.extend(labels.iter().flat_map(|l| ["--label", l]));
-        docker(&args).await?;
+        let mut create = devcontainer.docker.client.create_volume(&volume_name);
+        for (key, value) in workspace.docker_fwd_labels() {
+            create = create.with_label(key.to_owned(), value.to_owned());
+        }
+        create.call().await?;
 
         create_inner_sidecar(
+            &devcontainer.docker.client,
             workspace,
             &workspace.compose_project_name(),
             cid,
@@ -88,6 +91,7 @@ pub(crate) async fn forward(
         )
         .await?;
         create_outer_sidecar(
+            &devcontainer.docker.client,
             workspace,
             &workspace.compose_project_name(),
             cid,
@@ -122,6 +126,7 @@ async fn container_network(client: &docker::Docker, cid: &str) -> eyre::Result<S
 /// Inner sidecar: shares the target container's network namespace.
 /// For each port, listens on a Unix socket and connects to 127.0.0.1:<port>.
 async fn create_inner_sidecar(
+    client: &docker::Docker,
     workspace: &Workspace<'_>,
     compose_project_name: &str,
     cid: &str,
@@ -142,38 +147,28 @@ async fn create_inner_sidecar(
         .collect();
     let shell_cmd = join_background(&socat_cmds);
 
-    let inner_network = format!("container:{cid}");
-    let inner_volume = format!("{volume_name}:/socks");
-    let fwd_target = format!("{}={cid}", FORWARD_TARGET_LABEL);
-    let labels = workspace.docker_fwd_labels();
-    let mut args = vec![
-        "run",
-        "-d",
-        "--name",
-        &name,
-        "--network",
-        &inner_network,
-        "--volume",
-        &inner_volume,
-    ];
-    args.extend(labels.iter().flat_map(|l| ["--label", l]));
-    args.extend([
-        "--label",
-        &fwd_target,
-        "--entrypoint",
-        "sh",
-        SOCAT_IMAGE,
-        "-c",
-        &shell_cmd,
-    ]);
-
-    docker(&args).await?;
+    let network_mode = format!("container:{cid}");
+    let bind = format!("{volume_name}:/socks");
+    let mut create = client
+        .create_container(&name)
+        .image(SOCAT_IMAGE)
+        .network_mode(&network_mode)
+        .entrypoint(vec!["sh".to_string()])
+        .cmd(vec!["-c".to_string(), shell_cmd])
+        .with_bind(bind)
+        .with_label(FORWARD_TARGET_LABEL, cid);
+    for (key, value) in workspace.docker_fwd_labels() {
+        create = create.with_label(key, value);
+    }
+    let id = create.call().await?;
+    client.start_container(&id).await?;
     Ok(())
 }
 
 /// Outer sidecar: on the Docker network with host port bindings.
 /// For each port, listens on TCP and connects via the Unix socket.
 async fn create_outer_sidecar(
+    client: &docker::Docker,
     workspace: &Workspace<'_>,
     compose_project_name: &str,
     cid: &str,
@@ -194,31 +189,24 @@ async fn create_outer_sidecar(
         .collect();
     let shell_cmd = join_background(&socat_cmds);
 
-    let outer_volume = format!("{volume_name}:/socks");
-    let fwd_target = format!("{}={cid}", FORWARD_TARGET_LABEL);
-    let port_bindings: Vec<String> = ports
-        .iter()
-        .map(|p| format!("127.0.0.1:{}:{}", p.port, p.port))
-        .collect();
-    let labels = workspace.docker_fwd_labels();
-    let mut args = vec![
-        "run",
-        "-d",
-        "--name",
-        &name,
-        "--network",
-        network_name,
-        "--volume",
-        &outer_volume,
-    ];
-    args.extend(labels.iter().flat_map(|l| ["--label", l]));
-    args.extend(["--label", &fwd_target]);
-    for p in &port_bindings {
-        args.extend(["-p", p]);
+    let bind = format!("{volume_name}:/socks");
+    let loopback = IpAddr::V4(Ipv4Addr::LOCALHOST);
+    let mut create = client
+        .create_container(&name)
+        .image(SOCAT_IMAGE)
+        .network_mode(network_name)
+        .entrypoint(vec!["sh".to_string()])
+        .cmd(vec!["-c".to_string(), shell_cmd])
+        .with_bind(bind)
+        .with_label(FORWARD_TARGET_LABEL, cid);
+    for (key, value) in workspace.docker_fwd_labels() {
+        create = create.with_label(key, value);
     }
-    args.extend(["--entrypoint", "sh", SOCAT_IMAGE, "-c", &shell_cmd]);
-
-    docker(&args).await?;
+    for p in ports {
+        create = create.with_tcp_port_binding(p.port, loopback, p.port);
+    }
+    let id = create.call().await?;
+    client.start_container(&id).await?;
     Ok(())
 }
 
@@ -246,26 +234,17 @@ pub(crate) async fn remove_sidecars(state: &State, client: &docker::Docker) -> e
         }
     }
 
-    let label_fwd = format!("label={FORWARD_LABEL}=true");
-    let label_project = format!("label={PROJECT_LABEL}={project}");
-    let out = Command::new("docker")
-        .args([
-            "volume",
-            "ls",
-            "-q",
-            "--filter",
-            &label_fwd,
-            "--filter",
-            &label_project,
-        ])
-        .output()
+    let volumes = client
+        .list_volumes()
+        .with_label(FORWARD_LABEL, "true")
+        .with_label(PROJECT_LABEL, project)
+        .call()
         .await?;
-    let stdout = String::from_utf8(out.stdout)?;
-    for vol in stdout.lines().filter(|l| !l.is_empty()) {
-        let _ = Command::new("docker")
-            .args(["volume", "rm", vol])
-            .output()
-            .await;
+    for vol in volumes {
+        match client.remove_volume(&vol.name).call().await {
+            Ok(()) | Err(docker::Error::NotFound) => {}
+            Err(e) => tracing::warn!(volume = %vol.name, "failed to remove volume: {e}"),
+        }
     }
 
     Ok(())
@@ -273,13 +252,4 @@ pub(crate) async fn remove_sidecars(state: &State, client: &docker::Docker) -> e
 
 fn port_is_free(port: u16) -> bool {
     std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
-}
-
-async fn docker(args: &[&str]) -> eyre::Result<()> {
-    let out = Command::new("docker").args(args).output().await?;
-    if !out.status.success() {
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        return Err(eyre!("docker {} failed: {}", args[0], stderr.trim()));
-    }
-    Ok(())
 }

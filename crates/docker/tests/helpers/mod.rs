@@ -51,7 +51,21 @@ impl Drop for TestContainer {
     }
 }
 
-fn unique_name() -> String {
+pub fn unique_name() -> String {
     let suffix = Alphanumeric.sample_string(&mut rand::rng(), 24);
     format!("devconcurrent-docker-crate-test-{suffix}")
+}
+
+/// RAII cleanup of a container the test created itself (e.g. via the API
+/// under test). On drop, shells out to `docker rm -f` and ignores errors.
+pub struct ContainerCleanup {
+    pub name: String,
+}
+
+impl Drop for ContainerCleanup {
+    fn drop(&mut self) {
+        let _ = Command::new("docker")
+            .args(["rm", "-f", &self.name])
+            .output();
+    }
 }

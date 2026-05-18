@@ -2,8 +2,8 @@
 name = "schema-gen"
 version = "0.0.0"
 edition = "2024"
-publish = false
 description = "Writes the JSON schema for the devconcurrent config to schemas/ at build time."
+publish = false
 
 [build-dependencies]
 devconcurrent = { path = "../devconcurrent" }

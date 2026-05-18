@@ -2,7 +2,7 @@ use std::net::IpAddr;
 
 use bon::bon;
 use indexmap::IndexMap;
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::client::Docker;
 use crate::error::Result;
@@ -141,6 +141,12 @@ impl Docker {
         let url = self.url(&format!("containers/{id}/json"));
         self.http().get(url).try_send().await
     }
+
+    /// `POST /containers/{id}/start` — start a stopped container.
+    pub async fn start_container(&self, id: &str) -> Result<()> {
+        let url = self.url(&format!("containers/{id}/start"));
+        self.http().post(url).try_send_empty().await
+    }
 }
 
 #[bon]
@@ -236,6 +242,125 @@ impl<S: docker_list_containers_builder::State> DockerListContainersBuilder<'_, S
 
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.filters.push(Filter::Name(name.into()));
+        self
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+struct PortBindingEntry {
+    host_ip: IpAddr,
+    // Docker expects this as a string :(
+    #[serde(serialize_with = "as_display_string")]
+    host_port: u16,
+}
+
+fn as_display_string<T: std::fmt::Display, S: Serializer>(
+    value: &T,
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error> {
+    serializer.collect_str(value)
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+struct CreateRequest<'a> {
+    image: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    labels: Option<&'a IndexMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    entrypoint: Option<&'a [String]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cmd: Option<&'a [String]>,
+    host_config: HostConfig<'a>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+struct HostConfig<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    binds: Option<&'a [String]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    port_bindings: Option<&'a IndexMap<String, Vec<PortBindingEntry>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    network_mode: Option<&'a str>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct CreateResponse {
+    id: String,
+    #[serde(default)]
+    warnings: Vec<String>,
+}
+
+#[bon]
+impl Docker {
+    /// `POST /containers/create?name=<name>` — create (but don't start) a
+    /// container.
+    ///
+    /// Returns the new container ID. Surface-area is intentionally narrow:
+    /// only the options dc actually uses today (labels, binds, port bindings,
+    /// network mode, entrypoint, cmd). Add more as needed.
+    #[builder]
+    pub async fn create_container(
+        &self,
+        #[builder(start_fn)] name: &str,
+        #[builder(field)] labels: IndexMap<String, String>,
+        #[builder(field)] binds: Vec<String>,
+        #[builder(field)] port_bindings: IndexMap<String, Vec<PortBindingEntry>>,
+        image: &str,
+        #[builder(default)] entrypoint: Vec<String>,
+        #[builder(default)] cmd: Vec<String>,
+        network_mode: Option<&str>,
+    ) -> Result<String> {
+        let mut url = self.url("containers/create");
+        url.query_pairs_mut().append_pair("name", name);
+
+        let body = CreateRequest {
+            image,
+            labels: (!labels.is_empty()).then_some(&labels),
+            entrypoint: (!entrypoint.is_empty()).then_some(&entrypoint),
+            cmd: (!cmd.is_empty()).then_some(&cmd),
+            host_config: HostConfig {
+                binds: (!binds.is_empty()).then_some(&binds),
+                port_bindings: (!port_bindings.is_empty()).then_some(&port_bindings),
+                network_mode,
+            },
+        };
+
+        let resp: CreateResponse = self.http().post(url).json(&body).try_send().await?;
+        for warning in resp.warnings {
+            tracing::warn!(name = %name, "docker container create: {warning}");
+        }
+        Ok(resp.id)
+    }
+}
+
+impl<S: docker_create_container_builder::State> DockerCreateContainerBuilder<'_, '_, '_, '_, S> {
+    pub fn with_label(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.labels.insert(key.into(), value.into());
+        self
+    }
+
+    /// Add a `src:dst` (or `src:dst:options`) bind mount, in the same format
+    /// `docker run --volume` accepts.
+    pub fn with_bind(mut self, spec: impl Into<String>) -> Self {
+        self.binds.push(spec.into());
+        self
+    }
+
+    /// Publish `container_port/tcp` to `host_ip:host_port` on the host.
+    pub fn with_tcp_port_binding(
+        mut self,
+        container_port: u16,
+        host_ip: IpAddr,
+        host_port: u16,
+    ) -> Self {
+        self.port_bindings
+            .entry(format!("{container_port}/tcp"))
+            .or_default()
+            .push(PortBindingEntry { host_ip, host_port });
         self
     }
 }

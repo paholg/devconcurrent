@@ -15,6 +15,7 @@ mod request_ext;
 mod socket;
 mod stats;
 mod types;
+mod volumes;
 
 pub use client::Docker;
 pub use container::{
@@ -28,3 +29,4 @@ pub use images::ImageDetails;
 pub use socket::discover_socket;
 pub use stats::{ContainerStats, MemoryStats};
 pub use types::ApiVersion;
+pub use volumes::Volume;
