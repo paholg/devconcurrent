@@ -22,7 +22,7 @@ fn main() {
     );
     let json = serde_json::to_string_pretty(&schema).expect("schema serializes");
 
-    let out_path = workspace_root.join("schemas/devconcurrent.schema.json");
+    let out_path = workspace_root.join("devconcurrent.schema.json");
     std::fs::write(&out_path, format!("{json}\n"))
         .unwrap_or_else(|e| panic!("write {}: {e}", out_path.display()));
 }

@@ -11,6 +11,9 @@
           "$ref": "#/$defs/Project"
         }
       }
+    },
+    "proxy": {
+      "$ref": "#/$defs/ProxyGlobal"
     }
   },
   "x-tombi-toml-version": "v1.1.0",
@@ -327,7 +330,8 @@
             "devconcurrent": {
               "defaultExec": null,
               "worktreeFolder": null,
-              "mountGit": null
+              "mountGit": null,
+              "proxy": null
             }
           }
         }
@@ -581,7 +585,8 @@
           "default": {
             "defaultExec": null,
             "worktreeFolder": null,
-            "mountGit": null
+            "mountGit": null,
+            "proxy": null
           }
         }
       }
@@ -614,6 +619,103 @@
             "null"
           ],
           "default": null
+        },
+        "proxy": {
+          "description": "Reverse-proxy configuration.\n\nLeave empty if you don't wish to use it.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProxyOptions"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      }
+    },
+    "ProxyOptions": {
+      "description": "Per-project proxy configuration.\n\nPorts from `forwardPorts` are picked up automatically",
+      "type": "object",
+      "properties": {
+        "domainName": {
+          "description": "Handlebars template for the proxied domain name.\n\nThe default TLD (.test) is one guaranteed to never be registered on the\ninternet, but whatever you use, you will need a DNS entry to point to\nthe devconcurrent proxy.\n\nAvailable variables:\n- `root` (bool) — whether this is the root workspace\n- `project` — project name\n- `workspace` — workspace name\n- `service` — name of the service from compose\n\nDefault:\n```\n{{#unless root}}{{workspace}}.{{/unless}}{{service}}.{{project}}.test\n```",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProxyHostnameTemplate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "services": {
+          "description": "Per-compose service configuration.\n\nIn addition, any ports specified in `forwardPorts` will be proxied.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/ProxyService"
+          },
+          "default": {}
+        }
+      }
+    },
+    "ProxyHostnameTemplate": {
+      "description": "Handlebars template for the proxied hostname. Variables: `root` (bool), `project`, `workspace`, `service`.",
+      "type": "string"
+    },
+    "ProxyService": {
+      "type": "object",
+      "properties": {
+        "ports": {
+          "description": "Port mappings.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProxyPort"
+          },
+          "default": []
+        }
+      }
+    },
+    "ProxyPort": {
+      "description": "Port mapping.",
+      "type": "object",
+      "properties": {
+        "ip": {
+          "description": "The IP address to listen on. Defaults to 0.0.0.0, allowing traffic in\nfrom any source.",
+          "type": "string",
+          "format": "ip",
+          "default": "0.0.0.0"
+        },
+        "host": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "container": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        }
+      },
+      "required": [
+        "host",
+        "container"
+      ]
+    },
+    "ProxyGlobal": {
+      "description": "Global user proxy settings.",
+      "type": "object",
+      "properties": {
+        "port": {
+          "description": "The port the proxy listens on.\n\nThis is the one port consumed by devconcurrent when using the proxy.\n\nDefault: 43770",
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "default": 43770
         }
       }
     }

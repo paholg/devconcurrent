@@ -19,6 +19,7 @@ eyre = "0.6.12"
 figment = { version = "0.10.19", features = ["json", "toml"] }
 futures = "0.3.32"
 gix = "0.83.0"
+handlebars = "6.4.1"
 indexmap = { workspace = true }
 indicatif = "0.18"
 itertools = "0.14.0"
@@ -46,6 +47,3 @@ winnow = "1.0.3"
 
 [dev-dependencies]
 tempfile = { workspace = true }
-
-[lints]
-workspace = true

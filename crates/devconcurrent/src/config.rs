@@ -8,6 +8,8 @@ use serde::Deserialize;
 use crate::devcontainer::DevcontainerConfig;
 use crate::helpers::{deserialize_shell_path, deserialize_shell_path_opt, validate_name};
 
+pub(crate) const DEFAULT_PROXY_PORT: u16 = 43770;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct ProjectName(String);
 
@@ -60,6 +62,30 @@ impl<'de> Deserialize<'de> for ProjectName {
 pub(crate) struct Config {
     #[serde(default)]
     pub(crate) projects: IndexMap<ProjectName, Project>,
+    #[serde(default)]
+    // Not used yet.
+    #[allow(dead_code)]
+    pub(crate) proxy: ProxyGlobal,
+}
+
+/// Global user proxy settings.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(default)]
+pub(crate) struct ProxyGlobal {
+    /// The port the proxy listens on.
+    ///
+    /// This is the one port consumed by devconcurrent when using the proxy.
+    ///
+    /// Default: 43770
+    pub(crate) port: u16,
+}
+
+impl Default for ProxyGlobal {
+    fn default() -> Self {
+        Self {
+            port: DEFAULT_PROXY_PORT,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::devcontainer::proxy::ProxyOptions;
 use crate::helpers::deserialize_shell_path_opt;
 use crate::run::cmd::Cmd;
 
@@ -21,6 +22,10 @@ pub(crate) struct DcOptions {
     ///
     /// Defaults to true, but we use Option so it can be overridden.
     mount_git: Option<bool>,
+    /// Reverse-proxy configuration.
+    ///
+    /// Leave empty if you don't wish to use it.
+    pub(crate) proxy: Option<ProxyOptions>,
 }
 
 impl DcOptions {

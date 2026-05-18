@@ -14,7 +14,7 @@ up:
 fix: clippy-fix tombi-fmt lint test
 
 clippy-fix:
-    cargo clippy --all-features --fix --allow-staged
+    cargo clippy --all-features --all-targets --fix --allow-staged
     cargo fmt
 
 tombi-fmt:
@@ -26,7 +26,7 @@ fmt-check:
     cargo fmt --all -- --check
 
 clippy:
-    cargo clippy --all-features -- -D warnings
+    cargo clippy --all-features --all-targets -- -D warnings
 
 release version:
     git diff --exit-code
