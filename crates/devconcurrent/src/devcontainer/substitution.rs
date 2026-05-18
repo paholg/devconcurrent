@@ -134,6 +134,24 @@ impl Serialize for Template {
     }
 }
 
+impl schemars::JsonSchema for Template {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Template".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "string",
+            "description": "A string that may contain `${...}` variable substitutions. \
+                            Supported variables: `${localEnv:VAR[:default]}`, \
+                            `${containerEnv:VAR[:default]}`, `${localWorkspaceFolder}`, \
+                            `${containerWorkspaceFolder}`, `${localWorkspaceFolderBasename}`, \
+                            `${containerWorkspaceFolderBasename}`, `${devcontainerId}`. \
+                            See https://containers.dev/implementors/json_reference/#variables-in-devcontainerjson.",
+        })
+    }
+}
+
 impl<'de> Deserialize<'de> for Template {
     fn deserialize<D: Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
         let s = String::deserialize(de)?;

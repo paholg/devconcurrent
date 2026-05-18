@@ -6,6 +6,7 @@ use figment::{
     providers::{Format, Json, Serialized},
 };
 use indexmap::IndexMap;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_inline_default::serde_inline_default;
 use serde_with::{OneOrMany, serde_as};
@@ -25,7 +26,7 @@ use unsupported::Unsupported;
 
 /// Devcontainer config from devcontainer.json.
 #[serde_as]
-#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+#[derive(Deserialize, Serialize, Clone, Debug, Default, JsonSchema)]
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct DevcontainerConfig {
     // -------------------------------------------------------------------------
@@ -193,13 +194,13 @@ impl DevcontainerConfig {
     }
 }
 
-#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+#[derive(Deserialize, Serialize, Clone, Debug, Default, JsonSchema)]
 pub(crate) struct Customizations {
     #[serde(default)]
     pub(crate) devconcurrent: DcOptions,
 }
 
-#[derive(Deserialize, Serialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
 #[serde(untagged)]
 pub(crate) enum MountEntry {
     /// Docker `--mount` short form: `type=bind,source=...,target=...`.
@@ -207,7 +208,7 @@ pub(crate) enum MountEntry {
     Object(Mount),
 }
 
-#[derive(Deserialize, Serialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Mount {
     #[serde(rename = "type")]
@@ -217,7 +218,7 @@ pub(crate) struct Mount {
     pub(crate) target: Template,
 }
 
-#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum MountType {
     Bind,
@@ -299,7 +300,7 @@ impl MountFields {
 }
 
 #[serde_inline_default]
-#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+#[derive(Deserialize, Serialize, Clone, Debug, Default, JsonSchema)]
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct HostRequirements {
     /// Number of required CPUs. Minimum 1.
@@ -312,7 +313,7 @@ pub(crate) struct HostRequirements {
     pub(crate) gpu: GpuRequirement,
 }
 
-#[derive(Deserialize, Serialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
 #[serde(untagged)]
 pub(crate) enum GpuRequirement {
     Bool(bool),
@@ -325,7 +326,7 @@ pub(crate) enum GpuRequirement {
     },
 }
 
-#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum GpuOptional {
     Optional,
@@ -338,7 +339,7 @@ impl Default for GpuRequirement {
 }
 
 #[serde_inline_default]
-#[derive(Deserialize, Serialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PortAttributes {
     #[serde(default)]
@@ -353,7 +354,7 @@ pub(crate) struct PortAttributes {
     pub(crate) require_local_port: bool,
 }
 
-#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum Protocol {
     #[default]
@@ -361,7 +362,7 @@ pub(crate) enum Protocol {
     Https,
 }
 
-#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum OnAutoForward {
     #[default]
@@ -373,7 +374,7 @@ pub(crate) enum OnAutoForward {
     Ignore,
 }
 
-#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum UserEnvProbe {
     None,
@@ -384,7 +385,7 @@ pub(crate) enum UserEnvProbe {
 }
 
 #[allow(clippy::enum_variant_names)]
-#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum WaitFor {
     InitializeCommand,
@@ -395,7 +396,7 @@ pub(crate) enum WaitFor {
     PostStartCommand,
 }
 
-#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, Default, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum ComposeShutdownAction {
     None,

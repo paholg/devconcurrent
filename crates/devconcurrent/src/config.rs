@@ -2,12 +2,27 @@ use std::path::{Path, PathBuf};
 
 use eyre::{WrapErr, eyre};
 use indexmap::IndexMap;
+use schemars::JsonSchema;
 use serde::Deserialize;
 
+use crate::devcontainer::DevcontainerConfig;
 use crate::helpers::{deserialize_shell_path, deserialize_shell_path_opt, validate_name};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct ProjectName(String);
+
+impl JsonSchema for ProjectName {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "ProjectName".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "string",
+            "pattern": r"^[A-Za-z0-9_-]+$",
+        })
+    }
+}
 
 impl ProjectName {
     pub(crate) fn new(s: String) -> Result<Self, String> {
@@ -41,19 +56,20 @@ impl<'de> Deserialize<'de> for ProjectName {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 pub(crate) struct Config {
     #[serde(default)]
     pub(crate) projects: IndexMap<ProjectName, Project>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 pub(crate) struct Project {
     #[serde(deserialize_with = "deserialize_shell_path")]
     pub(crate) path: PathBuf,
     #[serde(default, deserialize_with = "deserialize_shell_path_opt")]
     pub(crate) worktree_folder: Option<PathBuf>,
     // We'll parse this properly when merging with Figment.
+    #[schemars(with = "Option<DevcontainerConfig>")]
     pub(crate) devcontainer: Option<toml::Value>,
 }
 

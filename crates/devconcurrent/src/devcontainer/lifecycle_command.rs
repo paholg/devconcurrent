@@ -1,13 +1,14 @@
 use std::path::Path;
 
 use indexmap::IndexMap;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::run::Runner;
 use crate::run::cmd::{Cmd, NamedCmd};
 use crate::run::docker_exec::DockerExec;
 
-#[derive(Deserialize, Serialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
 #[serde(untagged)]
 pub(crate) enum LifecycleCommand {
     Single(Cmd),

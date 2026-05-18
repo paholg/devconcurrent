@@ -1,15 +1,17 @@
 use std::borrow::Cow;
 use std::path::Path;
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use vec1::{Vec1, vec1};
 
 use crate::run;
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, JsonSchema)]
 #[serde(untagged)]
 pub(crate) enum Cmd {
     Shell(String),
+    #[schemars(with = "Vec<String>")]
     Args(Vec1<String>),
 }
 

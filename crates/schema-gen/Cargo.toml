@@ -1,0 +1,10 @@
+[package]
+name = "schema-gen"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Writes the JSON schema for the devconcurrent config to schemas/ at build time."
+
+[build-dependencies]
+devconcurrent = { path = "../devconcurrent" }
+serde_json = "1"

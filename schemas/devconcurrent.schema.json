@@ -1,0 +1,620 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Config",
+  "type": "object",
+  "properties": {
+    "projects": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[A-Za-z0-9_-]+$": {
+          "$ref": "#/$defs/Project"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "Project": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "worktree_folder": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "devcontainer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DevcontainerConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "path"
+      ]
+    },
+    "DevcontainerConfig": {
+      "description": "Devcontainer config from devcontainer.json.",
+      "type": "object",
+      "properties": {
+        "dockerComposeFile": {
+          "description": "The name of the docker-compose file(s) used to start the services.",
+          "$ref": "#/$defs/OneOrMany(string,PreferOne)",
+          "default": []
+        },
+        "service": {
+          "description": "The service you want to work on. This is considered the primary container for your dev\nenvironment which your editor will connect to.",
+          "type": "string",
+          "default": ""
+        },
+        "runServices": {
+          "description": "An array of services that should be started and stopped.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "default": null
+        },
+        "workspaceFolder": {
+          "description": "The path of the workspace folder inside the container. This is typically the target path of\na volume mount in the docker-compose.yml.",
+          "type": "string",
+          "default": ""
+        },
+        "shutdownAction": {
+          "description": "Action to take when the user disconnects from the primary container in their editor. The\ndefault is to stop all of the compose containers.",
+          "$ref": "#/$defs/ComposeShutdownAction",
+          "default": "stopCompose"
+        },
+        "overrideCommand": {
+          "description": "Whether to overwrite the command specified in the image. The default is false.",
+          "type": "boolean",
+          "default": false
+        },
+        "$schema": {
+          "description": "The JSON schema of the devcontainer.json file.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "name": {
+          "description": "A name for the dev container which can be displayed to the user.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "features": {
+          "description": "Features to add to the dev container.",
+          "default": null
+        },
+        "overrideFeatureInstallOrder": {
+          "description": "Array consisting of the Feature id (without the semantic version) of Features in the order\nthe user wants them to be installed.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "secrets": {
+          "default": null
+        },
+        "forwardPorts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ForwardPort"
+          },
+          "default": []
+        },
+        "portsAttributes": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/PortAttributes"
+          },
+          "default": {}
+        },
+        "otherPortsAttributes": {
+          "description": "Set default properties that are applied to all ports that don't get properties from the\nsetting `remote.portsAttributes`",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PortAttributes"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "updateRemoteUserUid": {
+          "description": "Controls whether on Linux the container's user should be updated with the local user's UID\nand GID. On by default when opening from a local folder.",
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "default": null
+        },
+        "containerEnv": {
+          "description": "Container environment variables.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Template"
+          },
+          "default": {}
+        },
+        "containerUser": {
+          "description": "The user the container will be started with. The default is the user on the Docker image.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "mounts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MountEntry"
+          },
+          "default": []
+        },
+        "init": {
+          "description": "Passes the --init flag when creating the dev container.",
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "default": null
+        },
+        "privileged": {
+          "description": "Passes the --privileged flag when creating the dev container.",
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "default": null
+        },
+        "capAdd": {
+          "description": "Passes docker capabilities to include when creating the dev container.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "securityOpt": {
+          "description": "Passes docker security options to include when creating the dev container.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "remoteEnv": {
+          "description": "Remote environment variables to set for processes spawned in the\ncontainer including lifecycle scripts and any remote editor/IDE server\nprocess.",
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Template"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "default": {}
+        },
+        "remoteUser": {
+          "description": "The username to use for spawning processes in the container including\nlifecycle scripts and any remote editor/IDE server process. The default\nis the same user as the container.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "initializeCommand": {
+          "description": "A command to run locally (i.e Your host machine, cloud VM) before anything else. This\ncommand is run before \"onCreateCommand\".",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LifecycleCommand"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "onCreateCommand": {
+          "description": "A command to run when creating the container. This command is run after \"initializeCommand\"\nand before \"updateContentCommand\".",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LifecycleCommand"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "updateContentCommand": {
+          "description": "A command to run when creating the container and rerun when the workspace content was\nupdated while creating the container. This command is run after \"onCreateCommand\" and before\n\"postCreateCommand\".",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LifecycleCommand"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "postCreateCommand": {
+          "description": "A command to run after creating the container. This command is run after\n\"updateContentCommand\" and before \"postStartCommand\".",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LifecycleCommand"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "postStartCommand": {
+          "description": "A command to run after starting the container. This command is run after \"postCreateCommand\"\nand before \"postAttachCommand\".",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LifecycleCommand"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "postAttachCommand": {
+          "description": "A command to run when attaching to the container. This command is run after\n\"postStartCommand\".",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LifecycleCommand"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "waitFor": {
+          "description": "The user command to wait for before continuing execution in the background while the UI is\nstarting up.",
+          "$ref": "#/$defs/WaitFor",
+          "default": "updateContentCommand"
+        },
+        "userEnvProbe": {
+          "description": "User environment probe to run.",
+          "$ref": "#/$defs/UserEnvProbe",
+          "default": "loginInteractiveShell"
+        },
+        "hostRequirements": {
+          "description": "Host hardware requirements.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostRequirements"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "customizations": {
+          "description": "Tool-specific configuration. Each tool should use a JSON object subproperty with a unique\nname to group its customizations.",
+          "$ref": "#/$defs/Customizations",
+          "default": {
+            "devconcurrent": {
+              "defaultExec": null,
+              "worktreeFolder": null,
+              "mountGit": null
+            }
+          }
+        }
+      }
+    },
+    "OneOrMany(string,PreferOne)": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "ComposeShutdownAction": {
+      "type": "string",
+      "enum": [
+        "none",
+        "stopCompose"
+      ]
+    },
+    "ForwardPort": {
+      "oneOf": [
+        {
+          "description": "A port to forward to the primary container.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        {
+          "description": "A `service:port` mapping selecting a compose service.",
+          "type": "string",
+          "pattern": "^[^:]+:\\d+$"
+        }
+      ]
+    },
+    "PortAttributes": {
+      "type": "object",
+      "properties": {
+        "onAutoForward": {
+          "$ref": "#/$defs/OnAutoForward",
+          "default": "notify"
+        },
+        "elevateIfNeeded": {
+          "type": "boolean",
+          "default": false
+        },
+        "label": {
+          "type": "string",
+          "default": "Application"
+        },
+        "protocol": {
+          "$ref": "#/$defs/Protocol",
+          "default": "http"
+        },
+        "requireLocalPort": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "OnAutoForward": {
+      "type": "string",
+      "enum": [
+        "notify",
+        "openBrowser",
+        "openBrowserOnce",
+        "openPreview",
+        "silent",
+        "ignore"
+      ]
+    },
+    "Protocol": {
+      "type": "string",
+      "enum": [
+        "http",
+        "https"
+      ]
+    },
+    "Template": {
+      "description": "A string that may contain `${...}` variable substitutions. Supported variables: `${localEnv:VAR[:default]}`, `${containerEnv:VAR[:default]}`, `${localWorkspaceFolder}`, `${containerWorkspaceFolder}`, `${localWorkspaceFolderBasename}`, `${containerWorkspaceFolderBasename}`, `${devcontainerId}`. See https://containers.dev/implementors/json_reference/#variables-in-devcontainerjson.",
+      "type": "string"
+    },
+    "MountEntry": {
+      "anyOf": [
+        {
+          "description": "Docker `--mount` short form: `type=bind,source=...,target=...`.",
+          "$ref": "#/$defs/Template"
+        },
+        {
+          "$ref": "#/$defs/Mount"
+        }
+      ]
+    },
+    "Mount": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/MountType"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Template"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "target": {
+          "$ref": "#/$defs/Template"
+        }
+      },
+      "required": [
+        "type",
+        "target"
+      ]
+    },
+    "MountType": {
+      "type": "string",
+      "enum": [
+        "bind",
+        "volume"
+      ]
+    },
+    "LifecycleCommand": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Cmd"
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Cmd"
+          }
+        }
+      ]
+    },
+    "Cmd": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "WaitFor": {
+      "type": "string",
+      "enum": [
+        "initializeCommand",
+        "onCreateCommand",
+        "updateContentCommand",
+        "postCreateCommand",
+        "postStartCommand"
+      ]
+    },
+    "UserEnvProbe": {
+      "type": "string",
+      "enum": [
+        "none",
+        "loginShell",
+        "loginInteractiveShell",
+        "interactiveShell"
+      ]
+    },
+    "HostRequirements": {
+      "type": "object",
+      "properties": {
+        "cpus": {
+          "description": "Number of required CPUs. Minimum 1.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "default": 1
+        },
+        "memory": {
+          "description": "Amount of required RAM in bytes. Supports units tb, gb, mb and kb.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "storage": {
+          "description": "Amount of required RAM in bytes. Supports units tb, gb, mb and kb.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "gpu": {
+          "$ref": "#/$defs/GpuRequirement",
+          "default": false
+        }
+      }
+    },
+    "GpuRequirement": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "$ref": "#/$defs/GpuOptional"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "cores": {
+              "description": "Number of cores. Minimum 1.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0
+            },
+            "memory": {
+              "description": "Amount of required RAM in bytes. Supports units tb, gb, mb and kb.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "GpuOptional": {
+      "type": "string",
+      "enum": [
+        "optional"
+      ]
+    },
+    "Customizations": {
+      "type": "object",
+      "properties": {
+        "devconcurrent": {
+          "$ref": "#/$defs/DcOptions",
+          "default": {
+            "defaultExec": null,
+            "worktreeFolder": null,
+            "mountGit": null
+          }
+        }
+      }
+    },
+    "DcOptions": {
+      "type": "object",
+      "properties": {
+        "defaultExec": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cmd"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "worktreeFolder": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "mountGit": {
+          "description": "Whether to mount the project's git directory into each workspace's devcontainer.\n\nGit worktrees have a simple `.git` file that points to the actual `.git` directory. If that\ndirectory isn't available, then no git commands will work in the worktree. By mounting it\nat its original path in the devcontainer, we allow you to use `git` freely for the workspace,\nboth inside and out of the devcontainer.\n\nDefaults to true, but we use Option so it can be overridden.",
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "default": null
+        }
+      }
+    }
+  }
+}

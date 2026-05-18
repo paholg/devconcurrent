@@ -26,11 +26,12 @@ jiff = "0.2"
 num-bigint = "0.4.6"
 owo-colors = "4.3.0"
 rand = "0.10.1"
+schemars = { version = "1.2.1", features = ["indexmap2", "preserve_order"] }
 serde = { workspace = true }
 serde-inline-default = "1.0.1"
 serde_json = { workspace = true, features = ["preserve_order"] }
 serde_path_to_error = "0.1.20"
-serde_with = "3"
+serde_with = { version = "3.20", features = ["schemars_1"] }
 sha2 = "0.11.0"
 shellexpand = "3.1.2"
 shlex = "2.0.1"

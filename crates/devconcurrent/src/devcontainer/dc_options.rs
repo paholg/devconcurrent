@@ -1,11 +1,12 @@
 use std::path::PathBuf;
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::helpers::deserialize_shell_path_opt;
 use crate::run::cmd::Cmd;
 
-#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct DcOptions {
     pub(crate) default_exec: Option<Cmd>,

@@ -1,5 +1,6 @@
 use std::fmt;
 
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::{self, Unexpected};
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -7,6 +8,30 @@ use serde::{Deserialize, Deserializer, Serialize};
 pub(crate) struct ForwardPort {
     pub(crate) service: Option<String>,
     pub(crate) port: u16,
+}
+
+impl JsonSchema for ForwardPort {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "ForwardPort".into()
+    }
+
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "oneOf": [
+                {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": u16::MAX,
+                    "description": "A port to forward to the primary container.",
+                },
+                {
+                    "type": "string",
+                    "pattern": r"^[^:]+:\d+$",
+                    "description": "A `service:port` mapping selecting a compose service.",
+                },
+            ]
+        })
+    }
 }
 
 impl fmt::Display for ForwardPort {
