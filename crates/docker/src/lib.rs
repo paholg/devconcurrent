@@ -8,6 +8,7 @@
 mod client;
 mod container;
 mod error;
+mod exec;
 mod filter;
 mod request_ext;
 mod socket;
@@ -19,6 +20,7 @@ pub use container::{
     EndpointSettings, NetworkSettings, Port, PortType,
 };
 pub use error::{Error, Result};
+pub use exec::ExecDetails;
 pub use filter::Filter;
 pub use socket::discover_socket;
 pub use types::ApiVersion;

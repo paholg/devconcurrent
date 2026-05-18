@@ -225,18 +225,13 @@ impl DockerClient {
             .inspect_container(container_id)
             .await
             .wrap_err_with(|| format!("failed to inspect container {container_id}"))?;
-        let exec_ids = info.exec_ids;
 
-        let futures = exec_ids.into_iter().map(async |eid| -> eyre::Result<bool> {
-            let running = self
-                .docker
-                .inspect_exec(&eid)
-                .await?
-                .running
-                .unwrap_or(false);
-
-            Ok(running)
-        });
+        let futures = info
+            .exec_ids
+            .into_iter()
+            .map(async |eid| -> eyre::Result<bool> {
+                Ok(self.client.inspect_exec(&eid).await?.running)
+            });
 
         let execs = try_join_all(futures)
             .await?
