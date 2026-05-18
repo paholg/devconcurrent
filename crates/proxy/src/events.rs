@@ -24,11 +24,12 @@ use shared::{
     ServiceConfig, WORKSPACE_LABEL,
 };
 
+use crate::certs::CaHolder;
 use crate::registry::{Registry, RunningService};
 use crate::sidecar;
 
 /// Run the event loop. Reconnects on connection drops with a brief backoff.
-pub async fn run(docker: Docker, registry: Registry) {
+pub async fn run(docker: Docker, registry: Registry, ca: Option<CaHolder>) {
     loop {
         let stream = match docker
             .events()
@@ -51,7 +52,7 @@ pub async fn run(docker: Docker, registry: Registry) {
 
         while let Some(item) = stream.next().await {
             match item {
-                Ok(ev) => handle_event(&docker, &registry, ev).await,
+                Ok(ev) => handle_event(&docker, &registry, ca.as_ref(), ev).await,
                 Err(e) => {
                     tracing::warn!("docker events stream error: {e}");
                     break;
@@ -62,7 +63,12 @@ pub async fn run(docker: Docker, registry: Registry) {
     }
 }
 
-async fn handle_event(docker: &Docker, registry: &Registry, ev: docker::EventMessage) {
+async fn handle_event(
+    docker: &Docker,
+    registry: &Registry,
+    ca: Option<&CaHolder>,
+    ev: docker::EventMessage,
+) {
     // Ignore events on our own sidecars.
     if ev.actor.attributes.contains_key(PROXY_SIDECAR_LABEL) {
         return;
@@ -73,7 +79,7 @@ async fn handle_event(docker: &Docker, registry: &Registry, ev: docker::EventMes
     match action {
         "start" => {
             if let Some(cp) = ev.actor.attributes.get(COMPOSE_PROJECT_LABEL).cloned() {
-                sync_compose_project(docker, registry, &cp).await;
+                sync_compose_project(docker, registry, ca, &cp).await;
             }
         }
         "die" | "destroy" => on_die(docker, registry, ev.actor).await,
@@ -97,6 +103,7 @@ async fn on_die(docker: &Docker, registry: &Registry, actor: EventActor) {
 pub(crate) async fn sync_compose_project(
     docker: &Docker,
     registry: &Registry,
+    ca: Option<&CaHolder>,
     compose_project: &str,
 ) {
     let containers = match docker
@@ -149,7 +156,8 @@ pub(crate) async fn sync_compose_project(
         adopt(
             docker,
             registry,
-            &cfg.project,
+            ca,
+            &cfg,
             &workspace,
             &compose_service,
             port_config.as_ref(),
@@ -163,10 +171,12 @@ pub(crate) async fn sync_compose_project(
 /// ports, and register it. Services without listed ports register DNS only;
 /// they're reachable on their natural ports but the source IP isn't
 /// rewritten to 127.0.0.1.
+#[allow(clippy::too_many_arguments)]
 async fn adopt(
     docker: &Docker,
     registry: &Registry,
-    project: &str,
+    ca: Option<&CaHolder>,
+    cfg: &shared::ProjectProxyConfig,
     workspace: &str,
     service: &str,
     port_config: Option<&ServiceConfig>,
@@ -177,7 +187,7 @@ async fn adopt(
         Err(e) => {
             tracing::error!(
                 container = %target_cid,
-                project,
+                project = %cfg.project,
                 workspace,
                 service,
                 "couldn't read container IP, skipping: {e:?}"
@@ -188,7 +198,7 @@ async fn adopt(
 
     tracing::info!(
         container = %target_cid,
-        project,
+        project = %cfg.project,
         workspace,
         service,
         %container_ip,
@@ -197,11 +207,24 @@ async fn adopt(
     );
 
     let sidecar_id = if let Some(svc) = port_config.filter(|s| !s.ports.is_empty()) {
-        match sidecar::create_sidecar(docker, project, workspace, svc, target_cid).await {
+        let root = workspace == cfg.project;
+        let hostname = crate::routing::render_hostname(cfg, workspace, &svc.name, root)
+            .unwrap_or_else(|| format!("{svc_name}.{}.test", cfg.project, svc_name = svc.name));
+        match sidecar::create_sidecar(
+            docker,
+            ca,
+            &cfg.project,
+            workspace,
+            svc,
+            &hostname,
+            target_cid,
+        )
+        .await
+        {
             Ok(id) => id,
             Err(e) => {
                 tracing::error!(
-                    project,
+                    project = %cfg.project,
                     workspace,
                     service,
                     target_cid,
@@ -216,7 +239,7 @@ async fn adopt(
 
     registry
         .track_service(RunningService {
-            project: project.to_string(),
+            project: cfg.project.clone(),
             workspace: workspace.to_string(),
             service: service.to_string(),
             target_cid: target_cid.to_string(),
@@ -265,7 +288,11 @@ pub(crate) async fn inspect_container_ip(docker: &Docker, cid: &str) -> Result<I
 
 /// Bootstrap: at startup, find every compose project containing at least one
 /// container with `PROJECT_LABEL` and sync it.
-pub(crate) async fn bootstrap(docker: &Docker, registry: &Registry) -> Result<()> {
+pub(crate) async fn bootstrap(
+    docker: &Docker,
+    registry: &Registry,
+    ca: Option<&CaHolder>,
+) -> Result<()> {
     let primaries = docker
         .list_containers()
         .with_label_key(PROJECT_LABEL)
@@ -280,7 +307,7 @@ pub(crate) async fn bootstrap(docker: &Docker, registry: &Registry) -> Result<()
             continue;
         };
         if seen.insert(cp.clone()) {
-            sync_compose_project(docker, registry, cp).await;
+            sync_compose_project(docker, registry, ca, cp).await;
         }
     }
     Ok(())

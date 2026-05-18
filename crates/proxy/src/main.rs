@@ -3,15 +3,18 @@ use std::path::Path;
 
 use docker::Docker;
 use eyre::{Result, WrapErr};
-use shared::{ENV_DNS_PORT, PROXY_CONFIG_DIR, ProjectProxyConfig};
+use shared::{ENV_CA_DIR, ENV_DNS_PORT, PROXY_CONFIG_DIR, ProjectProxyConfig};
 use tracing::info;
 
+mod certs;
 mod dns;
 mod events;
 mod registry;
 mod routing;
 mod sidecar;
+mod sidecar_mode;
 
+use certs::CaHolder;
 use registry::Registry;
 
 #[tokio::main]
@@ -23,6 +26,13 @@ async fn main() -> Result<()> {
         )
         .init();
 
+    // The same binary runs in two modes: proxy (default, no args) and sidecar
+    // (`devconcurrent-proxy sidecar`, used by the per-service sidecar
+    // containers the proxy creates).
+    if std::env::args().nth(1).as_deref() == Some("sidecar") {
+        return sidecar_mode::run().await;
+    }
+
     let dns_port: u16 = std::env::var(ENV_DNS_PORT)
         .wrap_err_with(|| format!("{ENV_DNS_PORT} not set"))?
         .parse()
@@ -32,6 +42,23 @@ async fn main() -> Result<()> {
         version = env!("CARGO_PKG_VERSION"),
         dns_port, "devconcurrent-proxy starting"
     );
+
+    let ca = match std::env::var(ENV_CA_DIR) {
+        Ok(dir) => match CaHolder::load(Path::new(&dir)) {
+            Ok(ca) => {
+                info!(dir, "loaded mkcert CA");
+                Some(ca)
+            }
+            Err(e) => {
+                tracing::warn!(dir, "failed to load CA: {e:?}; TLS ports disabled");
+                None
+            }
+        },
+        Err(_) => {
+            info!("no {ENV_CA_DIR}; TLS ports disabled");
+            None
+        }
+    };
 
     let docker = Docker::connect()
         .await
@@ -43,7 +70,7 @@ async fn main() -> Result<()> {
     registry.load_configs(configs).await;
 
     // Adopt any already-running service containers as if they'd just started.
-    events::bootstrap(&docker, &registry).await?;
+    events::bootstrap(&docker, &registry, ca.as_ref()).await?;
     // Drop sidecars whose targets no longer exist.
     if let Err(e) = sidecar::sweep_orphans(&docker).await {
         tracing::warn!("orphan sweep failed: {e:?}");
@@ -62,7 +89,8 @@ async fn main() -> Result<()> {
     let events_task = tokio::spawn({
         let docker = docker.clone();
         let registry = registry.clone();
-        async move { events::run(docker, registry).await }
+        let ca = ca.clone();
+        async move { events::run(docker, registry, ca).await }
     });
 
     tokio::select! {

@@ -1,0 +1,165 @@
+//! Sidecar mode of the proxy binary. The same image runs in this mode when
+//! invoked with the `sidecar` subcommand; the proxy creates these sidecars
+//! inside the netns of each compose service that needs port remapping (or
+//! TLS termination).
+//!
+//! The plan + optional cert/key are written into `/etc/sidecar/` by the
+//! proxy before the container starts. We read them once on boot and spawn
+//! one tokio task per listener.
+
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use eyre::{Context, Result};
+use rustls::ServerConfig;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
+use shared::{
+    SIDECAR_CERT_FILE, SIDECAR_KEY_FILE, SIDECAR_PLAN_DIR, SIDECAR_PLAN_FILE, SidecarPlan,
+};
+use tokio::io::{AsyncWriteExt, copy_bidirectional};
+use tokio::net::{TcpListener, TcpStream};
+use tokio_rustls::TlsAcceptor;
+use tracing::info;
+
+/// Entry point for sidecar mode.
+pub async fn run() -> Result<()> {
+    let dir = PathBuf::from(SIDECAR_PLAN_DIR);
+    let plan_path = dir.join(SIDECAR_PLAN_FILE);
+    let plan_bytes =
+        std::fs::read(&plan_path).wrap_err_with(|| format!("read {}", plan_path.display()))?;
+    let plan: SidecarPlan = serde_json::from_slice(&plan_bytes).wrap_err("parse sidecar plan")?;
+    info!(
+        hostname = %plan.hostname,
+        ports = plan.ports.len(),
+        "sidecar starting"
+    );
+
+    let tls_acceptor = load_tls(&dir, &plan.hostname);
+
+    let mut tasks = Vec::new();
+    for port in plan.ports {
+        if port.tls {
+            let Some(acceptor) = tls_acceptor.clone() else {
+                tracing::warn!(
+                    host = port.host,
+                    container = port.container,
+                    "TLS port skipped: no usable cert"
+                );
+                continue;
+            };
+            tasks.push(tokio::spawn(serve_tls(port.host, port.container, acceptor)));
+        } else {
+            tasks.push(tokio::spawn(serve_plain(port.host, port.container)));
+        }
+    }
+
+    if tasks.is_empty() {
+        eyre::bail!("no listeners configured");
+    }
+
+    // If any listener task exits, the sidecar exits — the proxy/docker
+    // lifecycle will recreate it.
+    let (result, _idx, _rest) = futures_util::future::select_all(tasks).await;
+    match result {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(e),
+        Err(e) => Err(eyre::eyre!("listener task panicked: {e}")),
+    }
+}
+
+fn load_tls(dir: &Path, hostname: &str) -> Option<TlsAcceptor> {
+    let cert_path = dir.join(SIDECAR_CERT_FILE);
+    let key_path = dir.join(SIDECAR_KEY_FILE);
+    if !cert_path.exists() || !key_path.exists() {
+        return None;
+    }
+    let certs: Vec<CertificateDer<'static>> = match CertificateDer::pem_file_iter(&cert_path)
+        .and_then(|it| it.collect::<Result<_, _>>())
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(hostname, path = %cert_path.display(), "load cert: {e}");
+            return None;
+        }
+    };
+    let key: PrivateKeyDer<'static> = match PrivateKeyDer::from_pem_file(&key_path) {
+        Ok(k) => k,
+        Err(e) => {
+            tracing::warn!(hostname, path = %key_path.display(), "load key: {e}");
+            return None;
+        }
+    };
+    let config = match ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(certs, key)
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(hostname, "build rustls config: {e}");
+            return None;
+        }
+    };
+    Some(TlsAcceptor::from(Arc::new(config)))
+}
+
+async fn serve_plain(host: u16, container: u16) -> Result<()> {
+    let listener = TcpListener::bind(("0.0.0.0", host))
+        .await
+        .wrap_err_with(|| format!("bind 0.0.0.0:{host}"))?;
+    info!(host, container, "plain listener ready");
+    loop {
+        let (mut inbound, peer) = match listener.accept().await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!(host, "accept: {e}");
+                continue;
+            }
+        };
+        tokio::spawn(async move {
+            let mut outbound = match TcpStream::connect(("127.0.0.1", container)).await {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::debug!(container, peer = %peer, "upstream connect: {e}");
+                    let _ = inbound.shutdown().await;
+                    return;
+                }
+            };
+            let _ = copy_bidirectional(&mut inbound, &mut outbound).await;
+        });
+    }
+}
+
+async fn serve_tls(host: u16, container: u16, acceptor: TlsAcceptor) -> Result<()> {
+    let listener = TcpListener::bind(("0.0.0.0", host))
+        .await
+        .wrap_err_with(|| format!("bind 0.0.0.0:{host}"))?;
+    info!(host, container, "tls listener ready");
+    loop {
+        let (raw, peer) = match listener.accept().await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!(host, "accept: {e}");
+                continue;
+            }
+        };
+        let acceptor = acceptor.clone();
+        tokio::spawn(async move {
+            let mut inbound = match acceptor.accept(raw).await {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::debug!(host, peer = %peer, "tls handshake: {e}");
+                    return;
+                }
+            };
+            let mut outbound = match TcpStream::connect(("127.0.0.1", container)).await {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::debug!(container, peer = %peer, "upstream connect: {e}");
+                    let _ = inbound.shutdown().await;
+                    return;
+                }
+            };
+            let _ = copy_bidirectional(&mut inbound, &mut outbound).await;
+        });
+    }
+}

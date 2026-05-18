@@ -23,11 +23,21 @@ impl Docker {
 /// to 0; `mode` is `0o644`. The output is a complete archive including the two
 /// trailing zero blocks tar(1) expects as an end-of-archive marker.
 pub fn build_single_file_tar(filename: &str, content: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(512 + round_up_512(content.len()) + 1024);
-    out.extend_from_slice(&ustar_header(filename, content.len()));
-    out.extend_from_slice(content);
-    let pad = round_up_512(content.len()) - content.len();
-    out.extend(std::iter::repeat_n(0, pad));
+    build_archive(&[(filename, content)])
+}
+
+/// Build a tar archive containing every `(filename, content)` entry, in order.
+/// Each entry is a regular 0o644 file. Output includes the two trailing zero
+/// blocks tar(1) expects.
+pub fn build_archive(files: &[(&str, &[u8])]) -> Vec<u8> {
+    let body_size: usize = files.iter().map(|(_, c)| 512 + round_up_512(c.len())).sum();
+    let mut out = Vec::with_capacity(body_size + 1024);
+    for (name, content) in files {
+        out.extend_from_slice(&ustar_header(name, content.len()));
+        out.extend_from_slice(content);
+        let pad = round_up_512(content.len()) - content.len();
+        out.extend(std::iter::repeat_n(0, pad));
+    }
     out.extend(std::iter::repeat_n(0, 1024));
     out
 }
@@ -108,5 +118,18 @@ mod tests {
         // First 600 bytes after header are content; next 424 are zeros.
         assert!(tar[512..1112].iter().all(|&b| b == b'a'));
         assert!(tar[1112..1536].iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn multi_file_archive() {
+        let tar = build_archive(&[("a.txt", b"AAA"), ("b.txt", b"BBBB")]);
+        // 512 (a hdr) + 512 (a body padded) + 512 (b hdr) + 512 (b body padded)
+        // + 1024 (eof) = 3072
+        assert_eq!(tar.len(), 3072);
+        assert_eq!(&tar[..5], b"a.txt");
+        assert_eq!(&tar[512..515], b"AAA");
+        // Second header begins at offset 1024.
+        assert_eq!(&tar[1024..1029], b"b.txt");
+        assert_eq!(&tar[1536..1540], b"BBBB");
     }
 }

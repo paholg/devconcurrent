@@ -54,6 +54,10 @@ pub(crate) struct ProxyPort {
     pub(crate) ip: IpAddr,
     pub(crate) host: u16,
     pub(crate) container: u16,
+    /// Terminate TLS on `host` and forward plaintext to `container`. Requires
+    /// `proxy.caRoot` to be configured globally. Default: false.
+    #[serde(default)]
+    pub(crate) tls: bool,
 }
 
 fn default_ip() -> IpAddr {

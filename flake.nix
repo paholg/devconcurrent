@@ -76,10 +76,19 @@
         );
 
         # OCI image for the service.
+        #
+        # `sidecarDir` is an empty `/etc/sidecar/` that exists at create time so
+        # the proxy can `PUT archive` plan.json (+ cert/key) into it before
+        # starting the sidecar — Docker's archive endpoint 404s if the target
+        # directory doesn't exist in the image.
+        sidecarDir = pkgs.runCommand "sidecar-dir" { } "mkdir -p $out/etc/sidecar";
         dockerImage = nix2container.packages.${system}.nix2container.buildImage {
           name = "devconcurrent-proxy";
           tag = serviceCrateName.version;
-          copyToRoot = [ pkgs.cacert ];
+          copyToRoot = [
+            pkgs.cacert
+            sidecarDir
+          ];
           maxLayers = 100;
           config = {
             Entrypoint = [ "${servicePackage}/bin/${serviceCrateName.pname}" ];

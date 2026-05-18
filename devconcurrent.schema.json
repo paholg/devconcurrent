@@ -707,6 +707,11 @@
           "format": "uint16",
           "minimum": 0,
           "maximum": 65535
+        },
+        "tls": {
+          "description": "Terminate TLS on `host` and forward plaintext to `container`. Requires\n`proxy.caRoot` to be configured globally. Default: false.",
+          "type": "boolean",
+          "default": false
         }
       },
       "required": [
@@ -725,6 +730,14 @@
           "minimum": 0,
           "maximum": 65535,
           "default": 43770
+        },
+        "caRoot": {
+          "description": "Path to mkcert's CAROOT directory on the host. Required for `tls: true`\nport mappings; leave unset to disable TLS termination. Find it with\n`mkcert -CAROOT`.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
         }
       }
     }

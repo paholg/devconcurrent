@@ -12,9 +12,10 @@ use indexmap::IndexMap;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use shared::{
-    COMPOSE_SERVICE_LABEL, ENV_DNS_PORT, MANAGED_LABEL, PROJECT_LABEL, PROXY_CONFIG_DIR,
-    PROXY_CONFIG_HASH_LABEL, PROXY_CONFIG_VOLUME, PROXY_CONTAINER_NAME, PROXY_LABEL,
-    PROXY_SIDECAR_LABEL, PortMapping, ProjectProxyConfig, ServiceConfig, WORKSPACE_LABEL,
+    COMPOSE_SERVICE_LABEL, ENV_CA_DIR, ENV_DNS_PORT, MANAGED_LABEL, PROJECT_LABEL, PROXY_CA_DIR,
+    PROXY_CONFIG_DIR, PROXY_CONFIG_HASH_LABEL, PROXY_CONFIG_VOLUME, PROXY_CONTAINER_NAME,
+    PROXY_LABEL, PROXY_SIDECAR_LABEL, PortMapping, ProjectProxyConfig, ServiceConfig,
+    WORKSPACE_LABEL,
 };
 
 use crate::state::State;
@@ -64,11 +65,20 @@ impl ProxyContainerPlan {
     fn build(state: &State, docker: &Docker) -> Self {
         let image_ref = format!("{}:{}", PROXY_IMAGE, env!("CARGO_PKG_VERSION"));
         let socket_path = docker.socket().display().to_string();
-        let binds = vec![
+        let mut binds = vec![
             format!("{PROXY_CONFIG_VOLUME}:{PROXY_CONFIG_DIR}"),
             format!("{socket_path}:/var/run/docker.sock"),
         ];
-        let env = vec![format!("{ENV_DNS_PORT}={}", state.proxy.port)];
+        let mut env = vec![format!("{ENV_DNS_PORT}={}", state.proxy.port)];
+
+        // CAROOT bind for TLS-enabled port mappings. Sidecars only enable TLS
+        // listeners if the proxy was able to load `rootCA*.pem` from this
+        // path; otherwise TLS ports come up disabled with a logged warning.
+        if let Some(ca_root) = &state.proxy.ca_root {
+            binds.push(format!("{}:{PROXY_CA_DIR}:ro", ca_root.display()));
+            env.push(format!("{ENV_CA_DIR}={PROXY_CA_DIR}"));
+        }
+
         Self {
             image_ref,
             network_mode: "host",
@@ -462,12 +472,22 @@ fn build_project_config(state: &State) -> Result<Option<ProjectProxyConfig>> {
     let mut services_map: IndexMap<String, Vec<PortMapping>> = IndexMap::new();
     for (name, svc) in &opts.services {
         for port in &svc.ports {
+            if port.tls && port.host == port.container {
+                eyre::bail!(
+                    "service {name:?}: tls port mapping {}:{} has host == container; \
+                     TLS termination requires a distinct host port (e.g. host: 443, container: {})",
+                    port.host,
+                    port.container,
+                    port.container,
+                );
+            }
             services_map
                 .entry(name.clone())
                 .or_default()
                 .push(PortMapping {
                     host: port.host,
                     container: port.container,
+                    tls: port.tls,
                 });
         }
     }
@@ -485,6 +505,7 @@ fn build_project_config(state: &State) -> Result<Option<ProjectProxyConfig>> {
             entry.push(PortMapping {
                 host: fp.port,
                 container: fp.port,
+                tls: false,
             });
         }
     }

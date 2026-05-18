@@ -22,7 +22,7 @@ mod volumes;
 #[cfg(feature = "docker-tests")]
 pub mod test_support;
 
-pub use archive::build_single_file_tar;
+pub use archive::{build_archive, build_single_file_tar};
 pub use client::Docker;
 pub use container::{
     ContainerConfig, ContainerDetails, ContainerState, ContainerStatus, ContainerSummary,

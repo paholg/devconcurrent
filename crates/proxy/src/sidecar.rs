@@ -1,58 +1,104 @@
-//! Lifecycle of the per-service socat sidecar.
+//! Lifecycle of the per-service sidecar.
 //!
 //! One sidecar per `(workspace, service)` that has port remappings, joined to
-//! that service's container network namespace. The sidecar binds each
-//! configured `host` port inside that netns and forwards locally to
-//! `127.0.0.1:<container>` — which inside the service's netns is the service
-//! itself.
+//! that service's container network namespace. The sidecar runs our own
+//! `devconcurrent-proxy` image with the `sidecar` subcommand; it reads its
+//! plan from `/etc/sidecar/plan.json` (written here via the docker archive
+//! upload API) and binds each `host` port in the target's netns, forwarding
+//! to `127.0.0.1:<container>`. TLS-marked ports get a leaf cert minted from
+//! the proxy's CA and uploaded alongside the plan.
 //!
 //! Clients reach the service by connecting to that container's IP at
 //! `<host>` — on Linux directly via the docker bridge, on macOS via a tunnel
 //! such as docker-mac-net-connect.
 
-use docker::Docker;
+use docker::{Docker, build_archive};
 use eyre::{Result, WrapErr};
 use shared::{
-    PROJECT_LABEL, PROXY_SIDECAR_LABEL, PROXY_TARGET_LABEL, ServiceConfig, WORKSPACE_LABEL,
+    PROJECT_LABEL, PROXY_SIDECAR_LABEL, PROXY_TARGET_LABEL, SIDECAR_CERT_FILE, SIDECAR_KEY_FILE,
+    SIDECAR_PLAN_DIR, SIDECAR_PLAN_FILE, ServiceConfig, SidecarPlan, WORKSPACE_LABEL,
 };
 
-pub const SOCAT_IMAGE: &str = "docker.io/alpine/socat:latest";
+use crate::certs::CaHolder;
+
+/// Image used for sidecars. Same image as the proxy itself; the binary
+/// switches modes based on argv.
+fn sidecar_image() -> String {
+    format!(
+        "ghcr.io/paholg/devconcurrent-proxy:{}",
+        env!("CARGO_PKG_VERSION")
+    )
+}
 
 /// Create the sidecar joined to `target_cid`'s netns and start it. Returns
 /// the sidecar's container ID, or `None` if `svc` has no port mappings.
+///
+/// `hostname` is the rendered template result, used only as the SAN of any
+/// minted TLS leaf cert.
 pub async fn create_sidecar(
     docker: &Docker,
+    ca: Option<&CaHolder>,
     project: &str,
     workspace: &str,
     svc: &ServiceConfig,
+    hostname: &str,
     target_cid: &str,
 ) -> Result<Option<String>> {
-    if svc.ports.is_empty() {
+    // A plain port where host == container is a no-op: DNS already resolves
+    // the hostname to the container's IP, and the app binds the port itself.
+    // Binding it again in the sidecar would just race the app for `0.0.0.0:port`.
+    let ports: Vec<_> = svc
+        .ports
+        .iter()
+        .copied()
+        .filter(|p| p.tls || p.host != p.container)
+        .collect();
+    if ports.is_empty() {
         return Ok(None);
     }
 
+    let image = sidecar_image();
     docker
-        .ensure_image(SOCAT_IMAGE)
+        .ensure_image(&image)
         .await
-        .wrap_err("ensure socat image")?;
+        .wrap_err("ensure sidecar image")?;
 
-    let cmds: Vec<String> = svc
-        .ports
-        .iter()
-        .map(|p| {
-            format!(
-                "socat TCP-LISTEN:{host},fork,reuseaddr TCP:127.0.0.1:{container}",
-                host = p.host,
-                container = p.container,
-            )
-        })
-        .collect();
-    let shell_cmd = join_background(&cmds);
     let name = sanitize_container_name(&format!(
         "devconcurrent-proxy-sidecar-{project}-{workspace}-{}",
         svc.name
     ));
     let network_mode = format!("container:{target_cid}");
+
+    // Build the plan JSON and (optionally) mint a cert.
+    let plan = SidecarPlan {
+        hostname: hostname.to_string(),
+        ports,
+    };
+    let plan_json = serde_json::to_vec_pretty(&plan).wrap_err("serialize sidecar plan")?;
+
+    let tls_pair: Option<(Vec<u8>, Vec<u8>)> = if plan.ports.iter().any(|p| p.tls) {
+        match ca {
+            Some(ca) => match ca.mint(hostname) {
+                Ok((cert_pem, key_pem)) => Some((cert_pem.into_bytes(), key_pem.into_bytes())),
+                Err(e) => {
+                    tracing::warn!(
+                        hostname,
+                        "mint cert failed; TLS ports will be disabled: {e:?}"
+                    );
+                    None
+                }
+            },
+            None => {
+                tracing::warn!(
+                    hostname,
+                    "TLS ports declared but proxy has no CA; TLS ports will be disabled"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     // If a stale sidecar exists from a previous run, force-remove it first.
     match docker.remove_container(&name).force(true).call().await {
@@ -64,10 +110,9 @@ pub async fn create_sidecar(
 
     let id = docker
         .create_container(&name)
-        .image(SOCAT_IMAGE)
+        .image(&image)
         .network_mode(&network_mode)
-        .entrypoint(vec!["sh".to_string()])
-        .cmd(vec!["-c".to_string(), shell_cmd])
+        .cmd(vec!["sidecar".to_string()])
         .with_label(PROXY_SIDECAR_LABEL, "true")
         .with_label(PROXY_TARGET_LABEL, target_cid)
         .with_label(PROJECT_LABEL, project)
@@ -75,6 +120,19 @@ pub async fn create_sidecar(
         .call()
         .await
         .wrap_err("create sidecar container")?;
+
+    // Upload plan (and TLS cert+key, if any) into /etc/sidecar/ before start.
+    let mut files: Vec<(&str, &[u8])> = vec![(SIDECAR_PLAN_FILE, plan_json.as_slice())];
+    if let Some((cert, key)) = &tls_pair {
+        files.push((SIDECAR_CERT_FILE, cert.as_slice()));
+        files.push((SIDECAR_KEY_FILE, key.as_slice()));
+    }
+    let tar = build_archive(&files);
+    docker
+        .upload_archive(&id, SIDECAR_PLAN_DIR, tar)
+        .await
+        .wrap_err("upload sidecar plan")?;
+
     docker
         .start_container(&id)
         .await
@@ -119,18 +177,6 @@ pub async fn sweep_orphans(docker: &Docker) -> Result<()> {
         }
     }
     Ok(())
-}
-
-fn join_background(cmds: &[String]) -> String {
-    // `set -e` + a trap kills the whole sidecar if any single socat dies, so
-    // failures aren't silently masked. The sidecar then restarts via its
-    // docker lifecycle (or the proxy re-creates it on the next start event).
-    let mut parts = vec!["set -e".to_string(), "trap 'kill 0' CHLD".to_string()];
-    for c in cmds {
-        parts.push(format!("{c} &"));
-    }
-    parts.push("wait".to_string());
-    parts.join("; ")
 }
 
 fn sanitize_container_name(s: &str) -> String {
