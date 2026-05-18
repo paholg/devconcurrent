@@ -61,7 +61,7 @@ async fn get_ports(state: State) -> eyre::Result<String> {
     let ports = ports?;
 
     if !ports.is_empty() && !healthy? {
-        fwd::remove_sidecars(&state).await?;
+        fwd::remove_sidecars(&state, &devcontainer.docker.client).await?;
         Ok(String::new())
     } else {
         Ok(ports.into_iter().join(","))

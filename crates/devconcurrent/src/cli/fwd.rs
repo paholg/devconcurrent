@@ -35,7 +35,7 @@ impl Fwd {
     pub(crate) async fn run(self, state: State) -> eyre::Result<()> {
         let devcontainer = state.try_devcontainer()?;
         match self.command {
-            Some(FwdCommands::Stop) => remove_sidecars(&state).await,
+            Some(FwdCommands::Stop) => remove_sidecars(&state, &devcontainer.docker.client).await,
             None => {
                 let workspace = state.resolve_workspace(self.workspace).await?;
                 forward(devcontainer, &workspace).await
@@ -48,7 +48,7 @@ pub(crate) async fn forward(
     devcontainer: &DevcontainerState,
     workspace: &Workspace<'_>,
 ) -> eyre::Result<()> {
-    remove_sidecars(workspace.state).await?;
+    remove_sidecars(workspace.state, &devcontainer.docker.client).await?;
 
     let ws = workspace.devcontainer(devcontainer).await?;
     let cid = ws.service_container_id()?;
@@ -242,29 +242,34 @@ async fn ensure_image() -> eyre::Result<()> {
     Ok(())
 }
 
-pub(crate) async fn remove_sidecars(state: &State) -> eyre::Result<()> {
-    let project = &state.project_name;
-    let filter = format!("label={}=true", FORWARD_LABEL);
-    let filter2 = format!("label={}={}", PROJECT_LABEL, project);
+pub(crate) async fn remove_sidecars(state: &State, client: &docker::Docker) -> eyre::Result<()> {
+    let project = state.project_name.as_str();
 
-    let out = Command::new("docker")
-        .args(["ps", "-a", "-q", "--filter", &filter, "--filter", &filter2])
-        .output()
+    let sidecars = client
+        .list_containers()
+        .all(true)
+        .with_label(FORWARD_LABEL, "true")
+        .with_label(PROJECT_LABEL, project)
+        .call()
         .await?;
-
-    let stdout = String::from_utf8(out.stdout)?;
-    let ids: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
-
-    if !ids.is_empty() {
-        let mut args = vec!["rm", "-f"];
-        args.extend(ids);
-        let _ = docker(&args).await;
+    for c in sidecars {
+        match client.remove_container(&c.id).force(true).call().await {
+            Ok(()) | Err(docker::Error::NotFound) => {}
+            Err(e) => tracing::warn!(container = %c.id, "failed to remove sidecar: {e}"),
+        }
     }
 
-    // Clean up forwarding volumes
+    let label_fwd = format!("label={FORWARD_LABEL}=true");
+    let label_project = format!("label={PROJECT_LABEL}={project}");
     let out = Command::new("docker")
         .args([
-            "volume", "ls", "-q", "--filter", &filter, "--filter", &filter2,
+            "volume",
+            "ls",
+            "-q",
+            "--filter",
+            &label_fwd,
+            "--filter",
+            &label_project,
         ])
         .output()
         .await?;

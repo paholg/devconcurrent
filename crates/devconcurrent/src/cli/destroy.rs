@@ -95,7 +95,12 @@ impl Runnable for Cleanup<'_> {
                 .await
             {
                 for c in summaries {
-                    let _ = client.remove_container(&c.id).force(true).call().await;
+                    match client.remove_container(&c.id).force(true).call().await {
+                        Ok(()) | Err(docker::Error::NotFound) => {}
+                        Err(e) => {
+                            tracing::warn!(container = %c.id, "failed to remove sidecar: {e}")
+                        }
+                    }
                 }
             }
         }
