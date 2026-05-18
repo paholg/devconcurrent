@@ -4,19 +4,17 @@
 
 #![cfg(feature = "docker-tests")]
 
-mod helpers;
-
 use docker::{ContainerStatus, Docker};
 
-use helpers::{TEST_LABEL, TestContainer};
+use docker::test_support::{TEST_LABEL, TestContainer};
 
 const IMAGE: &str = "alpine:3.20";
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn lists_only_running_by_default() {
-    let container = TestContainer::start(IMAGE, &["sleep", "60"]);
-    let (key, value) = TEST_LABEL.split_once('=').expect("TEST_LABEL is key=value");
     let client = Docker::connect().await.expect("connect");
+    let container = TestContainer::start(&client, IMAGE, &["sleep", "60"]).await;
+    let (key, value) = TEST_LABEL.split_once('=').expect("TEST_LABEL is key=value");
 
     let summaries = client
         .list_containers()
@@ -40,10 +38,10 @@ async fn lists_only_running_by_default() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn filter_label_narrows_results() {
-    let _container = TestContainer::start(IMAGE, &["sleep", "60"]);
     let client = Docker::connect().await.expect("connect");
+    let _container = TestContainer::start(&client, IMAGE, &["sleep", "60"]).await;
 
     let summaries = client
         .list_containers()
@@ -59,14 +57,14 @@ async fn filter_label_narrows_results() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn all_includes_stopped() {
-    let container = TestContainer::start(IMAGE, &["true"]);
+    let client = Docker::connect().await.expect("connect");
+    let container = TestContainer::start(&client, IMAGE, &["true"]).await;
 
     // Wait briefly for the container to exit on its own.
     for _ in 0..20 {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        let client = Docker::connect().await.expect("connect");
         let details = client
             .inspect_container(container.id())
             .await
@@ -76,7 +74,6 @@ async fn all_includes_stopped() {
         }
     }
 
-    let client = Docker::connect().await.expect("connect");
     let (key, value) = TEST_LABEL.split_once('=').expect("TEST_LABEL is key=value");
     let summaries = client
         .list_containers()

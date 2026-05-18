@@ -4,18 +4,16 @@
 
 #![cfg(feature = "docker-tests")]
 
-mod helpers;
-
 use docker::{Docker, Error};
 
-use helpers::TestContainer;
+use docker::test_support::TestContainer;
 
 const IMAGE: &str = "alpine:3.20";
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn remove_force_kills_a_running_container() {
-    let container = TestContainer::start(IMAGE, &["sleep", "60"]);
     let client = Docker::connect().await.expect("connect");
+    let container = TestContainer::start(&client, IMAGE, &["sleep", "60"]).await;
 
     client
         .remove_container(container.id())
@@ -35,7 +33,7 @@ async fn remove_force_kills_a_running_container() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn remove_missing_container_returns_not_found() {
     let client = Docker::connect().await.expect("connect");
     let err = client

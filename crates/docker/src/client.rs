@@ -21,6 +21,7 @@ const HOST: &str = "docker";
 /// On `connect`, this discovers the daemon socket, queries `/version`, and
 /// negotiates an API version. The negotiated version is cached on the client
 /// and used as the URL prefix for all subsequent requests.
+#[derive(Clone)]
 pub struct Docker {
     socket: PathBuf,
     api_version: ApiVersion,

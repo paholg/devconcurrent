@@ -4,54 +4,27 @@
 
 #![cfg(feature = "docker-tests")]
 
-mod helpers;
-
-use std::process::Command;
-
 use docker::{Docker, Error};
-use rand::RngExt;
-use rand::distr::Alphanumeric;
 
-use helpers::TEST_LABEL;
+use docker::test_support::{TEST_LABEL, VolumeCleanup, unique_name};
 
-struct TestVolume {
-    name: String,
-}
-
-impl TestVolume {
-    fn new() -> Self {
-        let suffix: String = rand::rng()
-            .sample_iter(Alphanumeric)
-            .take(24)
-            .map(char::from)
-            .collect();
-        Self {
-            name: format!("devconcurrent-docker-crate-test-vol-{suffix}"),
-        }
-    }
-}
-
-impl Drop for TestVolume {
-    fn drop(&mut self) {
-        let _ = Command::new("docker")
-            .args(["volume", "rm", "-f", &self.name])
-            .output();
-    }
-}
-
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn create_then_list_then_remove() {
-    let v = TestVolume::new();
-    let (key, value) = TEST_LABEL.split_once('=').expect("TEST_LABEL is key=value");
     let client = Docker::connect().await.expect("connect");
+    let name = unique_name();
+    let _cleanup = VolumeCleanup {
+        client: client.clone(),
+        name: name.clone(),
+    };
+    let (key, value) = TEST_LABEL.split_once('=').expect("TEST_LABEL is key=value");
 
     let created = client
-        .create_volume(&v.name)
+        .create_volume(&name)
         .with_label(key, value)
         .call()
         .await
         .expect("create");
-    assert_eq!(created.name, v.name);
+    assert_eq!(created.name, name);
     assert_eq!(created.labels.get(key).map(String::as_str), Some(value));
 
     let listed = client
@@ -61,14 +34,14 @@ async fn create_then_list_then_remove() {
         .await
         .expect("list");
     assert!(
-        listed.iter().any(|x| x.name == v.name),
+        listed.iter().any(|x| x.name == name),
         "created volume should be in the labelled list"
     );
 
-    client.remove_volume(&v.name).call().await.expect("remove");
+    client.remove_volume(&name).call().await.expect("remove");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn remove_missing_volume_returns_not_found() {
     let client = Docker::connect().await.expect("connect");
     let err = client

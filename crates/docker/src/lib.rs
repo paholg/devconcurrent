@@ -17,6 +17,9 @@ mod stats;
 mod types;
 mod volumes;
 
+#[cfg(feature = "docker-tests")]
+pub mod test_support;
+
 pub use client::Docker;
 pub use container::{
     ContainerConfig, ContainerDetails, ContainerState, ContainerStatus, ContainerSummary,

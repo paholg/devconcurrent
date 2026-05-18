@@ -4,13 +4,11 @@
 
 #![cfg(feature = "docker-tests")]
 
-mod helpers;
-
 use std::net::{IpAddr, Ipv4Addr};
 
 use docker::{ContainerStatus, Docker};
 
-use helpers::{ContainerCleanup, TEST_LABEL, unique_name};
+use docker::test_support::{ContainerCleanup, TEST_LABEL, VolumeCleanup, unique_name};
 
 const ALPINE: &str = "docker.io/library/alpine:3.20";
 
@@ -18,13 +16,16 @@ async fn pull_alpine(client: &Docker) {
     client.ensure_image(ALPINE).await.expect("ensure_image");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn create_then_start_runs_the_container() {
     let client = Docker::connect().await.expect("connect");
     pull_alpine(&client).await;
 
     let name = unique_name();
-    let _cleanup = ContainerCleanup { name: name.clone() };
+    let _cleanup = ContainerCleanup {
+        client: client.clone(),
+        name: name.clone(),
+    };
     let (test_key, test_value) = TEST_LABEL.split_once('=').expect("TEST_LABEL is key=value");
 
     let id = client
@@ -56,13 +57,16 @@ async fn create_then_start_runs_the_container() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn create_with_port_binding_publishes_on_host() {
     let client = Docker::connect().await.expect("connect");
     pull_alpine(&client).await;
 
     let name = unique_name();
-    let _cleanup = ContainerCleanup { name: name.clone() };
+    let _cleanup = ContainerCleanup {
+        client: client.clone(),
+        name: name.clone(),
+    };
     let (test_key, test_value) = TEST_LABEL.split_once('=').expect("TEST_LABEL is key=value");
 
     let id = client
@@ -99,7 +103,7 @@ async fn create_with_port_binding_publishes_on_host() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn create_with_bind_mounts_the_volume() {
     let client = Docker::connect().await.expect("connect");
     pull_alpine(&client).await;
@@ -110,22 +114,16 @@ async fn create_with_bind_mounts_the_volume() {
         .call()
         .await
         .expect("create_volume");
-    struct VolumeCleanup {
-        name: String,
-    }
-    impl Drop for VolumeCleanup {
-        fn drop(&mut self) {
-            let _ = std::process::Command::new("docker")
-                .args(["volume", "rm", "-f", &self.name])
-                .output();
-        }
-    }
     let _vol_cleanup = VolumeCleanup {
+        client: client.clone(),
         name: vol.name.clone(),
     };
 
     let name = unique_name();
-    let _cleanup = ContainerCleanup { name: name.clone() };
+    let _cleanup = ContainerCleanup {
+        client: client.clone(),
+        name: name.clone(),
+    };
     let (test_key, test_value) = TEST_LABEL.split_once('=').expect("TEST_LABEL is key=value");
 
     let id = client

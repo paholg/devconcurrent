@@ -5,25 +5,22 @@
 //! workspace-level `cargo nextest run --features docker/docker-tests`).
 //! These talk to a real docker (or podman-with-docker-compat) daemon.
 //!
-//! Each test uses [`helpers::TestContainer`], an RAII guard that removes its
-//! container on Drop (including during panic). CI also sweeps all containers
-//! labelled `devconcurrent-docker-crate-test=true` before/after each run as
-//! a backstop.
+//! Each test uses [`docker::test_support::TestContainer`], an RAII guard
+//! that removes its container on Drop (including during panic). CI also
+//! sweeps all containers labelled `devconcurrent-docker-crate-test=true`
+//! before/after each run as a backstop.
 
 #![cfg(feature = "docker-tests")]
 
-mod helpers;
-
+use docker::test_support::{TEST_LABEL, TestContainer};
 use docker::{ContainerStatus, Docker, Error};
-
-use helpers::{TEST_LABEL, TestContainer};
 
 const IMAGE: &str = "alpine:3.20";
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn inspect_returns_running_container_details() {
-    let container = TestContainer::start(IMAGE, &["sleep", "60"]);
     let client = Docker::connect().await.expect("connect");
+    let container = TestContainer::start(&client, IMAGE, &["sleep", "60"]).await;
 
     let details = client.inspect_container(container.id()).await.unwrap();
 
@@ -37,7 +34,7 @@ async fn inspect_returns_running_container_details() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn inspect_returns_not_found_for_missing_container() {
     let client = Docker::connect().await.expect("connect");
 
@@ -52,10 +49,10 @@ async fn inspect_returns_not_found_for_missing_container() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn inspect_surfaces_container_labels() {
-    let container = TestContainer::start(IMAGE, &["sleep", "60"]);
     let client = Docker::connect().await.expect("connect");
+    let container = TestContainer::start(&client, IMAGE, &["sleep", "60"]).await;
 
     let details = client
         .inspect_container(container.id())

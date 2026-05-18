@@ -4,13 +4,11 @@
 
 #![cfg(feature = "docker-tests")]
 
-mod helpers;
-
 use docker::{Docker, Error};
 
 const IMAGE: &str = "alpine:3.20";
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn inspect_returns_not_found_for_unknown_image() {
     let client = Docker::connect().await.expect("connect");
     let err = client
@@ -23,7 +21,7 @@ async fn inspect_returns_not_found_for_unknown_image() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn pull_then_inspect_succeeds() {
     let client = Docker::connect().await.expect("connect");
     client.pull_image(IMAGE).await.expect("pull");
@@ -35,7 +33,7 @@ async fn pull_then_inspect_succeeds() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn pull_unknown_image_returns_error() {
     let client = Docker::connect().await.expect("connect");
     let err = client

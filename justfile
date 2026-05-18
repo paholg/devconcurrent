@@ -5,7 +5,8 @@ run *args:
 
 test *args:
     cargo nextest run --all-features --no-fail-fast {{args}}
-
+    docker ps -aq --filter "label=devconcurrent-docker-crate-test=true" | xargs -r docker rm -f
+    
 up:
     nix flake update
     cargo upgrade -i

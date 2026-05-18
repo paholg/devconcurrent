@@ -4,18 +4,16 @@
 
 #![cfg(feature = "docker-tests")]
 
-mod helpers;
-
 use docker::Docker;
 
-use helpers::TestContainer;
+use docker::test_support::TestContainer;
 
 const IMAGE: &str = "alpine:3.20";
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn stats_returns_memory_usage_for_running_container() {
-    let container = TestContainer::start(IMAGE, &["sleep", "60"]);
     let client = Docker::connect().await.expect("connect");
+    let container = TestContainer::start(&client, IMAGE, &["sleep", "60"]).await;
 
     let stats = client.stats(container.id()).await.expect("stats");
 

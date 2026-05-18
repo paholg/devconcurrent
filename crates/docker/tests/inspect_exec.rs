@@ -4,28 +4,27 @@
 
 #![cfg(feature = "docker-tests")]
 
-mod helpers;
-
 use std::process::Command;
 
 use docker::{Docker, Error};
 
-use helpers::TestContainer;
+use docker::test_support::TestContainer;
 
 const IMAGE: &str = "alpine:3.20";
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn inspect_exec_returns_running_for_live_exec() {
-    let container = TestContainer::start(IMAGE, &["sleep", "60"]);
+    let client = Docker::connect().await.expect("connect");
+    let container = TestContainer::start(&client, IMAGE, &["sleep", "60"]).await;
 
     // Start a background exec so the container has an ExecID to inspect.
+    // The docker crate doesn't expose exec create/start yet, so shell out.
     let status = Command::new("docker")
         .args(["exec", "-d", container.id(), "sleep", "30"])
         .status()
         .expect("docker exec");
     assert!(status.success());
 
-    let client = Docker::connect().await.expect("connect");
     let details = client
         .inspect_container(container.id())
         .await
@@ -42,7 +41,7 @@ async fn inspect_exec_returns_running_for_live_exec() {
     assert!(exec.exit_code.is_none(), "no exit code while still running");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn inspect_exec_returns_not_found_for_missing() {
     let client = Docker::connect().await.expect("connect");
     let err = client
