@@ -6,23 +6,27 @@
 //! The plan + optional cert/key are written into `/etc/sidecar/` by the
 //! proxy before the container starts. We read them once on boot and spawn
 //! one tokio task per listener.
+//!
+//! Plain TCP ports use a raw byte-splice forwarder. TLS ports run a hyper
+//! HTTP/1.1 server on the decrypted stream and route into `axum-reverse-proxy`
+//! for the upstream side. A small tower layer adds the `X-Forwarded-Proto`
+//! and `X-Forwarded-Host` headers Rails needs to reconstruct `https://…`
+//! URLs. `X-Forwarded-For` is deliberately not added — the apparent client
+//! inside the netns is the docker bridge gateway, and forwarding that to
+//! the app would defeat dev tools (web-console, ActionCable origin checks,
+//! etc.) that gate on "is this localhost". The app sees the socket peer,
+//! which is 127.0.0.1 from rpxy connecting over loopback.
 
-use std::convert::Infallible;
-use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use bytes::Bytes;
+use axum::Router;
+use axum_reverse_proxy::ReverseProxy;
 use eyre::{Context, Result};
-use http_body_util::{BodyExt, Empty, combinators::BoxBody};
-use hyper::body::Incoming;
-use hyper::header::{HOST, HeaderName, HeaderValue};
-use hyper::http::uri::PathAndQuery;
-use hyper::service::service_fn;
-use hyper::{Request, Response, StatusCode, Uri};
-use hyper_util::client::legacy::Client;
-use hyper_util::client::legacy::connect::HttpConnector;
-use hyper_util::rt::{TokioExecutor, TokioIo};
+use http::HeaderName;
+use http::header::HOST;
+use hyper_util::rt::TokioIo;
+use hyper_util::service::TowerToHyperService;
 use rustls::ServerConfig;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
 use shared::{
@@ -31,6 +35,7 @@ use shared::{
 use tokio::io::{AsyncWriteExt, copy_bidirectional};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::TlsAcceptor;
+use tower_http::set_header::SetRequestHeaderLayer;
 use tracing::info;
 
 /// Entry point for sidecar mode.
@@ -141,20 +146,13 @@ async fn serve_plain(host: u16, container: u16) -> Result<()> {
     }
 }
 
-/// Boxed body type used for both proxied responses (`Incoming`) and locally-
-/// generated error responses (`Empty<Bytes>`); the box hides which one we're
-/// returning from hyper's serve_connection.
-type ProxyBody = BoxBody<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>;
-
 async fn serve_tls(host: u16, container: u16, acceptor: TlsAcceptor) -> Result<()> {
     let listener = TcpListener::bind(("0.0.0.0", host))
         .await
         .wrap_err_with(|| format!("bind 0.0.0.0:{host}"))?;
     info!(host, container, "tls listener ready");
 
-    let client: Client<HttpConnector, Incoming> =
-        Client::builder(TokioExecutor::new()).build_http();
-    let upstream = Arc::new(format!("127.0.0.1:{container}"));
+    let app = build_router(container);
 
     loop {
         let (raw, peer) = match listener.accept().await {
@@ -165,8 +163,7 @@ async fn serve_tls(host: u16, container: u16, acceptor: TlsAcceptor) -> Result<(
             }
         };
         let acceptor = acceptor.clone();
-        let client = client.clone();
-        let upstream = upstream.clone();
+        let app = app.clone();
         tokio::spawn(async move {
             let stream = match acceptor.accept(raw).await {
                 Ok(s) => s,
@@ -175,13 +172,10 @@ async fn serve_tls(host: u16, container: u16, acceptor: TlsAcceptor) -> Result<(
                     return;
                 }
             };
-            let service = service_fn(move |req| {
-                let client = client.clone();
-                let upstream = upstream.clone();
-                async move { forward_https(req, client, upstream, peer.ip()).await }
-            });
+            let svc = TowerToHyperService::new(app);
             if let Err(e) = hyper::server::conn::http1::Builder::new()
-                .serve_connection(TokioIo::new(stream), service)
+                .serve_connection(TokioIo::new(stream), svc)
+                .with_upgrades()
                 .await
             {
                 tracing::debug!(host, peer = %peer, "http1 conn: {e}");
@@ -190,75 +184,27 @@ async fn serve_tls(host: u16, container: u16, acceptor: TlsAcceptor) -> Result<(
     }
 }
 
-/// Forward one decrypted request to `127.0.0.1:<container>`, annotating with
-/// X-Forwarded-Proto/Host/For so the app can reconstruct the user-facing URL
-/// as `https://…`. Hop-by-hop headers are stripped per RFC 7230 §6.1.
-async fn forward_https(
-    mut req: Request<Incoming>,
-    client: Client<HttpConnector, Incoming>,
-    upstream: Arc<String>,
-    peer_ip: IpAddr,
-) -> std::result::Result<Response<ProxyBody>, Infallible> {
-    let path_and_query = req
-        .uri()
-        .path_and_query()
-        .cloned()
-        .unwrap_or_else(|| PathAndQuery::from_static("/"));
-    let new_uri: Uri = match format!("http://{upstream}{}", path_and_query.as_str()).parse() {
-        Ok(u) => u,
-        Err(e) => {
-            tracing::warn!("bad upstream uri: {e}");
-            return Ok(error_response(StatusCode::BAD_GATEWAY));
-        }
-    };
-    *req.uri_mut() = new_uri;
-
-    let forwarded_host = req.headers().get(HOST).cloned();
-    strip_hop_by_hop(req.headers_mut());
-
-    let xfp = HeaderName::from_static("x-forwarded-proto");
-    let xfh = HeaderName::from_static("x-forwarded-host");
-    let xff = HeaderName::from_static("x-forwarded-for");
-    req.headers_mut().insert(xfp, HeaderValue::from_static("https"));
-    if let Some(h) = forwarded_host {
-        req.headers_mut().insert(xfh, h);
-    }
-    if let Ok(val) = HeaderValue::from_str(&peer_ip.to_string()) {
-        req.headers_mut().append(xff, val);
-    }
-
-    match client.request(req).await {
-        Ok(resp) => Ok(resp.map(|b| {
-            BoxBody::new(b.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>))
-        })),
-        Err(e) => {
-            tracing::debug!(upstream = %upstream, "forward: {e}");
-            Ok(error_response(StatusCode::BAD_GATEWAY))
-        }
-    }
-}
-
-fn error_response(status: StatusCode) -> Response<ProxyBody> {
-    let body = Empty::<Bytes>::new()
-        .map_err(|never| match never {})
-        .boxed();
-    Response::builder()
-        .status(status)
-        .body(body)
-        .expect("static response is valid")
-}
-
-fn strip_hop_by_hop(headers: &mut hyper::HeaderMap) {
-    for name in [
-        "connection",
-        "keep-alive",
-        "proxy-authenticate",
-        "proxy-authorization",
-        "te",
-        "trailers",
-        "transfer-encoding",
-        "upgrade",
-    ] {
-        headers.remove(name);
-    }
+/// Build the reverse-proxy router. Layers added:
+/// - `X-Forwarded-Proto: https` — always.
+/// - `X-Forwarded-Host: <inbound Host>` — preserves the user-facing hostname
+///   so the app can reconstruct correct absolute URLs and redirects.
+///
+/// `X-Forwarded-For` is intentionally **not** set: the apparent client
+/// inside the netns is the docker bridge gateway, which is misleading; with
+/// the header absent, the app falls back to the socket peer (127.0.0.1
+/// from our loopback upstream connect), making the request look like it
+/// originated on the same machine.
+fn build_router(container: u16) -> Router {
+    let upstream = format!("http://127.0.0.1:{container}");
+    let proxy = ReverseProxy::new("/", &upstream);
+    let router: Router = proxy.into();
+    router
+        .layer(SetRequestHeaderLayer::overriding(
+            HeaderName::from_static("x-forwarded-proto"),
+            http::HeaderValue::from_static("https"),
+        ))
+        .layer(SetRequestHeaderLayer::overriding(
+            HeaderName::from_static("x-forwarded-host"),
+            |req: &http::Request<_>| req.headers().get(HOST).cloned(),
+        ))
 }
