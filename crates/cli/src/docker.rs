@@ -1,6 +1,10 @@
 use std::collections::HashMap;
 
 use derive_more::{Add, Sum};
+use docker::{
+    COMPOSE_PROJECT_LABEL, COMPOSE_SERVICE_LABEL, FORWARD_LABEL, FORWARD_TARGET_LABEL,
+    LOCAL_FOLDER_LABEL, PROJECT_LABEL, WORKSPACE_LABEL,
+};
 use eyre::WrapErr;
 use futures::future::try_join_all;
 
@@ -8,17 +12,6 @@ use crate::workspace::Workspace;
 
 pub(crate) mod compose;
 pub(crate) mod probe;
-
-pub(crate) const LOCAL_FOLDER_LABEL: &str = "devcontainer.local_folder";
-
-pub(crate) const COMPOSE_PROJECT_LABEL: &str = "com.docker.compose.project";
-pub(crate) const COMPOSE_SERVICE_LABEL: &str = "com.docker.compose.service";
-
-pub(crate) const MANAGED_LABEL: &str = "dev.devconcurrent.managed";
-pub(crate) const PROJECT_LABEL: &str = "dev.devconcurrent.project";
-pub(crate) const WORKSPACE_LABEL: &str = "dev.devconcurrent.workspace";
-pub(crate) const FORWARD_LABEL: &str = "dev.devconcurrent.fwd";
-pub(crate) const FORWARD_TARGET_LABEL: &str = "dev.devconcurrent.fwd.target";
 
 #[derive(Debug)]
 pub(crate) struct ContainerInfo {

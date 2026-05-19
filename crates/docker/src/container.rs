@@ -5,6 +5,7 @@ use bon::bon;
 use indexmap::IndexMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::MANAGED_LABEL;
 use crate::client::Docker;
 use crate::error::Result;
 use crate::filter::{Filter, FilterSliceExt};
@@ -286,8 +287,7 @@ fn as_display_string<T: std::fmt::Display, S: Serializer>(
 #[serde(rename_all = "PascalCase")]
 struct CreateRequest<'a> {
     image: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    labels: Option<&'a IndexMap<String, String>>,
+    labels: &'a IndexMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     entrypoint: Option<&'a [String]>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -328,7 +328,7 @@ impl Docker {
     pub async fn create_container(
         &self,
         #[builder(start_fn)] name: &str,
-        #[builder(field)] labels: IndexMap<String, String>,
+        #[builder(field)] mut labels: IndexMap<String, String>,
         #[builder(field)] binds: Vec<String>,
         #[builder(field)] env: Vec<String>,
         #[builder(field)] port_bindings: IndexMap<String, Vec<PortBindingEntry>>,
@@ -340,9 +340,11 @@ impl Docker {
         let mut url = self.url("containers/create");
         url.query_pairs_mut().append_pair("name", name);
 
+        labels.insert(MANAGED_LABEL.to_string(), "true".to_string());
+
         let body = CreateRequest {
             image,
-            labels: (!labels.is_empty()).then_some(&labels),
+            labels: &labels,
             entrypoint: (!entrypoint.is_empty()).then_some(&entrypoint),
             cmd: (!cmd.is_empty()).then_some(&cmd),
             env: (!env.is_empty()).then_some(&env),

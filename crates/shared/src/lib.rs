@@ -14,24 +14,6 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 
-// Container labels.
-pub const PROJECT_LABEL: &str = "dev.devconcurrent.project";
-pub const WORKSPACE_LABEL: &str = "dev.devconcurrent.workspace";
-pub const MANAGED_LABEL: &str = "dev.devconcurrent.managed";
-/// On the proxy container only.
-pub const PROXY_LABEL: &str = "dev.devconcurrent.proxy";
-/// On sidecars only.
-pub const PROXY_SIDECAR_LABEL: &str = "dev.devconcurrent.proxy.sidecar";
-/// On both the proxy container and every sidecar — the "everything the
-/// proxy owns" umbrella. Lets `dc proxy up` / `dc proxy down` do one
-/// `list_containers` to find the whole group.
-pub const PROXY_GROUP_LABEL: &str = "dev.devconcurrent.proxy.group";
-/// Present on sidecars only. Value is the container id of the service the
-/// sidecar is net-joined to.
-pub const PROXY_TARGET_LABEL: &str = "dev.devconcurrent.proxy.target";
-pub const COMPOSE_PROJECT_LABEL: &str = "com.docker.compose.project";
-pub const COMPOSE_SERVICE_LABEL: &str = "com.docker.compose.service";
-
 // Resource names.
 pub const PROXY_CONTAINER_NAME: &str = "devconcurrent-proxy";
 pub const PROXY_CONFIG_VOLUME: &str = "devconcurrent-proxy-config";

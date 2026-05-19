@@ -62,7 +62,7 @@ The proxy mounts the CAROOT read-only, mints per-service leaf certs in memory, a
 
 ### Required: label your primary service in `docker-compose.yml`
 
-The proxy identifies a compose project as belonging to a devconcurrent project via the `dev.devconcurrent.project` label on the project's primary service. `dc up` adds this label automatically via a compose override — but **VSCode opens devcontainers directly through compose without going through `dc up`**, so it doesn't get the override.
+The proxy identifies a compose project as belonging to a devconcurrent project via the `com.paholg.devconcurrent.project` label on the project's primary service. `dc up` adds this label automatically via a compose override — but **VSCode opens devcontainers directly through compose without going through `dc up`**, so it doesn't get the override.
 
 Add the label explicitly in your project's `docker-compose.yml` so VSCode-launched workspaces are also adopted:
 
@@ -70,7 +70,7 @@ Add the label explicitly in your project's `docker-compose.yml` so VSCode-launch
 services:
   app:
     labels:
-      - "dev.devconcurrent.project=<project-name>"
+      - "com.paholg.devconcurrent.project=<project-name>"
 ```
 
 `<project-name>` must match the key in your `~/.config/devconcurrent/config.toml` `[projects.…]`.

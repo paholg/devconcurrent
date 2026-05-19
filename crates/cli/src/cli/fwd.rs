@@ -2,6 +2,7 @@ use std::net::{IpAddr, Ipv4Addr};
 
 use clap::{Args, Subcommand};
 use clap_complete::ArgValueCompleter;
+use docker::{FORWARD_LABEL, FORWARD_TARGET_LABEL, PROJECT_LABEL};
 use eyre::eyre;
 
 use color_eyre::owo_colors::OwoColorize;
@@ -10,7 +11,6 @@ use crate::cli::State;
 use crate::complete::complete_workspace;
 use crate::config::Config;
 use crate::devcontainer::forward_port::ForwardPort;
-use crate::docker::{FORWARD_LABEL, FORWARD_TARGET_LABEL, PROJECT_LABEL};
 use crate::state::DevcontainerState;
 use crate::workspace::Workspace;
 

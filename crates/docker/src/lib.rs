@@ -37,3 +37,28 @@ pub use socket::discover_socket;
 pub use stats::{ContainerStats, MemoryStats};
 pub use types::ApiVersion;
 pub use volumes::Volume;
+
+pub const LOCAL_FOLDER_LABEL: &str = "devcontainer.local_folder";
+
+pub const COMPOSE_PROJECT_LABEL: &str = "com.docker.compose.project";
+pub const COMPOSE_SERVICE_LABEL: &str = "com.docker.compose.service";
+
+// All containers started by devconcurrent should have this label.
+pub const MANAGED_LABEL: &str = "com.paholg.devconcurrent.managed";
+
+// Project labels.
+pub const PROJECT_LABEL: &str = "com.paholg.devconcurrent.project";
+pub const WORKSPACE_LABEL: &str = "com.paholg.devconcurrent.workspace";
+
+// Forward sidecar labels.
+pub const FORWARD_LABEL: &str = "com.paholg.devconcurrent.fwd";
+pub const FORWARD_TARGET_LABEL: &str = "com.paholg.devconcurrent.fwd.target";
+
+// Proxy labels
+/// Label for all proxy containers (primary + sidecars).
+pub const PROXY_GROUP_LABEL: &str = "com.paholg.devconcurrent.proxy.group";
+pub const PROXY_LABEL: &str = "com.paholg.devconcurrent.proxy";
+pub const PROXY_SIDECAR_LABEL: &str = "com.paholg.devconcurrent.proxy.sidecar";
+/// Present on sidecars only. Value is the container id of the service the
+/// sidecar is net-joined to.
+pub const PROXY_TARGET_LABEL: &str = "com.paholg.devconcurrent.proxy.target";

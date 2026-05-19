@@ -12,12 +12,14 @@
 //! `<host>` — on Linux directly via the docker bridge, on macOS via a tunnel
 //! such as docker-mac-net-connect.
 
-use docker::{Docker, build_archive};
+use docker::{
+    Docker, PROJECT_LABEL, PROXY_GROUP_LABEL, PROXY_SIDECAR_LABEL, PROXY_TARGET_LABEL,
+    WORKSPACE_LABEL, build_archive,
+};
 use eyre::{Result, WrapErr};
 use shared::{
-    PROJECT_LABEL, PROXY_GROUP_LABEL, PROXY_SIDECAR_LABEL, PROXY_TARGET_LABEL, ProxyService,
-    SIDECAR_CERT_FILE, SIDECAR_KEY_FILE, SIDECAR_PLAN_DIR, SIDECAR_PLAN_FILE, SidecarPlan,
-    WORKSPACE_LABEL,
+    ProxyService, SIDECAR_CERT_FILE, SIDECAR_KEY_FILE, SIDECAR_PLAN_DIR, SIDECAR_PLAN_FILE,
+    SidecarPlan,
 };
 
 use crate::certs::CaHolder;

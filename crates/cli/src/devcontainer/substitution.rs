@@ -321,7 +321,8 @@ fn coalesce_literals(segments: Vec<Segment>) -> Vec<Segment> {
 
 #[cfg(test)]
 mod tests {
-    use crate::docker::LOCAL_FOLDER_LABEL;
+
+    use docker::LOCAL_FOLDER_LABEL;
 
     use super::*;
 

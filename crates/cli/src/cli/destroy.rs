@@ -2,6 +2,7 @@ use std::borrow::Cow;
 
 use clap::Args;
 use clap_complete::ArgValueCompleter;
+use docker::{PROJECT_LABEL, WORKSPACE_LABEL};
 use eyre::eyre;
 
 use crate::ansi::{RED, RESET, YELLOW};
@@ -9,7 +10,6 @@ use crate::cli::{State, confirm, safety_check};
 use crate::complete::complete_workspace;
 use crate::config::Config;
 use crate::docker::compose::{compose_cmd, remove_override_file};
-use crate::docker::{PROJECT_LABEL, WORKSPACE_LABEL};
 use crate::run::{self, Runnable, Runner, run_command};
 use crate::state::DevcontainerState;
 use crate::workspace::Workspace;

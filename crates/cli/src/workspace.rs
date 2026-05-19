@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
-use docker::ContainerStatus;
+use docker::{ContainerStatus, FORWARD_LABEL, PROJECT_LABEL, WORKSPACE_LABEL};
 use eyre::eyre;
 use futures::future::try_join_all;
 
-use crate::docker::{ContainerInfo, FORWARD_LABEL, PROJECT_LABEL, Stats, WORKSPACE_LABEL};
+use crate::docker::{ContainerInfo, Stats};
 use crate::state::{DevcontainerState, State};
 use crate::worktree;
 

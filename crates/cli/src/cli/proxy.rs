@@ -4,11 +4,11 @@ use std::time::Duration;
 
 use clap::{Args, Subcommand};
 use color_eyre::owo_colors::OwoColorize;
-use docker::Docker;
+use docker::{Docker, PROXY_GROUP_LABEL, PROXY_LABEL};
 use eyre::{Result, WrapErr};
 use shared::{
-    ENV_CA_DIR, ENV_DNS_PORT, MANAGED_LABEL, PROXY_CA_DIR, PROXY_CONFIG_DIR, PROXY_CONFIG_FILE,
-    PROXY_CONFIG_VOLUME, PROXY_CONTAINER_NAME, PROXY_GROUP_LABEL, PROXY_LABEL, ProxyOptions,
+    ENV_CA_DIR, ENV_DNS_PORT, PROXY_CA_DIR, PROXY_CONFIG_DIR, PROXY_CONFIG_FILE,
+    PROXY_CONFIG_VOLUME, PROXY_CONTAINER_NAME, ProxyOptions,
 };
 
 use crate::config::{Config, Project};
@@ -182,7 +182,6 @@ async fn create_proxy_stopped(config: &Config, docker: &Docker) -> Result<String
         .create_container(PROXY_CONTAINER_NAME)
         .image(&PROXY_IMAGE)
         .network_mode("host")
-        .with_label(MANAGED_LABEL, "true")
         .with_label(PROXY_LABEL, "true")
         .with_label(PROXY_GROUP_LABEL, "true")
         .with_bind(PROXY_CONFIG_VOLUME, PROXY_CONFIG_DIR)

@@ -1,12 +1,8 @@
-//! Docker events listener: watches compose service containers and drives
-//! per-service sidecar lifecycle.
+//! Manage proxy sidecars based on compose container events.
 //!
-//! Discovery is anchored to compose projects, not to our own container labels.
-//! A compose project is "ours" if it contains at least one container labeled
-//! `dev.devconcurrent.project=<name>` (the user puts this on their primary
-//! service in compose). Every container in such a project whose
-//! `com.docker.compose.service` matches an entry in the corresponding
-//! `ProjectProxyConfig.services` gets adopted.
+//! Treats a container as part of a project iff one of the compose containers has
+//! the label `com.paholg.devconcurrent.project=PROJECT_NAME`. If that container
+//! matches one of the projects services, then a sidecar is launched for it.
 //!
 //! Every start/die event triggers a full sync of the affected compose
 //! project. This handles arbitrary startup orders (siblings before the
@@ -15,14 +11,14 @@
 use std::collections::HashSet;
 use std::net::IpAddr;
 
-use docker::{Docker, EventActor};
+use docker::{
+    COMPOSE_PROJECT_LABEL, COMPOSE_SERVICE_LABEL, Docker, EventActor, PROJECT_LABEL, PROXY_LABEL,
+    WORKSPACE_LABEL,
+};
 use eyre::Result;
 use futures_util::StreamExt;
 use indexmap::IndexMap;
-use shared::{
-    COMPOSE_PROJECT_LABEL, COMPOSE_SERVICE_LABEL, PROJECT_LABEL, PROXY_LABEL, ProxyOptions,
-    ProxyService, WORKSPACE_LABEL,
-};
+use shared::{ProxyOptions, ProxyService};
 
 use crate::certs::CaHolder;
 use crate::registry::{Registry, RunningService};

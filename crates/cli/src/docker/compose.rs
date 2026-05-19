@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
+use docker::{LOCAL_FOLDER_LABEL, MANAGED_LABEL, PROJECT_LABEL, WORKSPACE_LABEL};
 use eyre::{Context, eyre};
 use serde_json::json;
 
 use crate::devcontainer::substitution;
-use crate::docker::{LOCAL_FOLDER_LABEL, MANAGED_LABEL, PROJECT_LABEL, WORKSPACE_LABEL};
 use crate::{state::DevcontainerState, workspace::Workspace};
 
 fn override_path(workspace: &Workspace) -> PathBuf {
