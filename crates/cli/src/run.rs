@@ -107,7 +107,7 @@ pub(crate) async fn run_command(mut cmd: tokio::process::Command) -> eyre::Resul
     let mut stdout_lines = tokio::io::BufReader::new(child.stdout.take().unwrap()).lines();
     let mut stderr_lines = tokio::io::BufReader::new(child.stderr.take().unwrap()).lines();
 
-    let (status, _, _) = tokio::join!(
+    let (status, (), ()) = tokio::join!(
         child.wait(),
         async {
             while let Ok(Some(line)) = stdout_lines.next_line().await {

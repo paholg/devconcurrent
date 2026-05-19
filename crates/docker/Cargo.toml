@@ -32,3 +32,6 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 # the nix flake check sandbox). Off by default; enabled in CI and locally
 # when you want the live coverage.
 docker-tests = ["dep:rand"]
+
+[lints]
+workspace = true

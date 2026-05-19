@@ -59,11 +59,13 @@ impl Docker {
     }
 
     /// The socket this client is connected to.
+    #[must_use]
     pub fn socket(&self) -> &Path {
         &self.socket
     }
 
     /// The API version negotiated with the daemon.
+    #[must_use]
     pub fn api_version(&self) -> ApiVersion {
         self.api_version
     }

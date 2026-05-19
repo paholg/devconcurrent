@@ -1,9 +1,9 @@
 //! Parser for the `${...}` variable syntax used in devcontainer.json.
 //!
-//! Spec: https://github.com/devcontainers/spec/blob/main/docs/specs/devcontainerjson-reference.md#variables-in-devcontainerjson
+//! Spec: <https://github.com/devcontainers/spec/blob/main/docs/specs/devcontainerjson-reference.md#variables-in-devcontainerjson>
 //!
 //! Behaviors mirrored from the reference implementation
-//! (https://github.com/devcontainers/cli/blob/main/src/spec-common/variableSubstitution.ts):
+//! (<https://github.com/devcontainers/cli/blob/main/src/spec-common/variableSubstitution.ts)>:
 //!
 //! - Single pass, non-recursive: a resolved value is not re-parsed.
 //! - Unknown variable names pass through as literal text.
@@ -253,11 +253,11 @@ fn resolve_name(name: &str, args: &[&str]) -> Option<Variable> {
     match name {
         "localEnv" if !args.is_empty() => Some(Variable::LocalEnv {
             name: args[0].to_string(),
-            default: args.get(1).map(|s| s.to_string()),
+            default: args.get(1).map(std::string::ToString::to_string),
         }),
         "containerEnv" if !args.is_empty() => Some(Variable::ContainerEnv {
             name: args[0].to_string(),
-            default: args.get(1).map(|s| s.to_string()),
+            default: args.get(1).map(std::string::ToString::to_string),
         }),
         "localWorkspaceFolder" => Some(Variable::LocalWorkspaceFolder),
         "containerWorkspaceFolder" => Some(Variable::ContainerWorkspaceFolder),

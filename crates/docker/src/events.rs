@@ -48,6 +48,7 @@ impl Docker {
     ///
     /// Returns a `Stream` of [`EventMessage`] values. Filters narrow the stream
     /// before the daemon sends bytes.
+    #[must_use]
     pub fn events(&self) -> EventsBuilder<'_> {
         EventsBuilder {
             docker: self,
@@ -56,7 +57,8 @@ impl Docker {
     }
 }
 
-impl<'a> EventsBuilder<'a> {
+impl EventsBuilder<'_> {
+    #[must_use]
     pub fn with_label(mut self, key: impl AsRef<str>, value: impl AsRef<str>) -> Self {
         self.filters.entry("label").or_default().push(format!(
             "{}={}",
@@ -66,18 +68,21 @@ impl<'a> EventsBuilder<'a> {
         self
     }
 
+    #[must_use]
     pub fn with_label_key(mut self, key: impl Into<String>) -> Self {
         self.filters.entry("label").or_default().push(key.into());
         self
     }
 
     /// Filter on the actor object type (`container`, `image`, `volume`, ...).
+    #[must_use]
     pub fn with_type(mut self, kind: impl Into<String>) -> Self {
         self.filters.entry("type").or_default().push(kind.into());
         self
     }
 
     /// Filter on the event action (`start`, `die`, ...).
+    #[must_use]
     pub fn with_event(mut self, action: impl Into<String>) -> Self {
         self.filters.entry("event").or_default().push(action.into());
         self

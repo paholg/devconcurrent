@@ -25,8 +25,7 @@ pub fn render_hostname(
     let template_src = opts
         .domain_name
         .as_ref()
-        .map(|t| t.source())
-        .unwrap_or(DEFAULT_DOMAIN_TEMPLATE);
+        .map_or(DEFAULT_DOMAIN_TEMPLATE, shared::Template::source);
     let mut hbs = Handlebars::new();
     hbs.set_strict_mode(false);
     let ctx = TemplateContext {

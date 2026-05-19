@@ -81,8 +81,8 @@ pub async fn create_sidecar(
     let plan_json = serde_json::to_vec_pretty(&plan).wrap_err("serialize sidecar plan")?;
 
     let tls_pair: Option<(Vec<u8>, Vec<u8>)> = if plan.ports.iter().any(|p| p.tls) {
-        match ca {
-            Some(ca) => match ca.mint(hostname) {
+        if let Some(ca) = ca {
+            match ca.mint(hostname) {
                 Ok((cert_pem, key_pem)) => Some((cert_pem.into_bytes(), key_pem.into_bytes())),
                 Err(e) => {
                     tracing::warn!(
@@ -91,14 +91,13 @@ pub async fn create_sidecar(
                     );
                     None
                 }
-            },
-            None => {
-                tracing::warn!(
-                    hostname,
-                    "TLS ports declared but proxy has no CA; TLS ports will be disabled"
-                );
-                None
             }
+        } else {
+            tracing::warn!(
+                hostname,
+                "TLS ports declared but proxy has no CA; TLS ports will be disabled"
+            );
+            None
         }
     } else {
         None
@@ -165,13 +164,12 @@ pub async fn sweep_orphans(docker: &Docker) -> Result<()> {
         .await
         .wrap_err("list sidecars")?;
     for sc in sidecars {
-        let target_cid = match sc.labels.get(PROXY_TARGET_LABEL) {
-            Some(cid) => cid.clone(),
-            None => {
-                tracing::warn!(sidecar = %sc.id, "sidecar without target label; removing");
-                remove_sidecar(docker, &sc.id).await;
-                continue;
-            }
+        let target_cid = if let Some(cid) = sc.labels.get(PROXY_TARGET_LABEL) {
+            cid.clone()
+        } else {
+            tracing::warn!(sidecar = %sc.id, "sidecar without target label; removing");
+            remove_sidecar(docker, &sc.id).await;
+            continue;
         };
         let alive = match docker.inspect_container(&target_cid).await {
             Ok(d) => d.state.running,

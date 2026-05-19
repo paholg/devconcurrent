@@ -22,6 +22,7 @@ impl Docker {
 /// `filename` is stored as the entry name (no path components). `mtime` is set
 /// to 0; `mode` is `0o644`. The output is a complete archive including the two
 /// trailing zero blocks tar(1) expects as an end-of-archive marker.
+#[must_use]
 pub fn build_single_file_tar(filename: &str, content: &[u8]) -> Vec<u8> {
     build_archive(&[(filename, content)])
 }
@@ -29,6 +30,7 @@ pub fn build_single_file_tar(filename: &str, content: &[u8]) -> Vec<u8> {
 /// Build a tar archive containing every `(filename, content)` entry, in order.
 /// Each entry is a regular 0o644 file. Output includes the two trailing zero
 /// blocks tar(1) expects.
+#[must_use]
 pub fn build_archive(files: &[(&str, &[u8])]) -> Vec<u8> {
     let body_size: usize = files.iter().map(|(_, c)| 512 + round_up_512(c.len())).sum();
     let mut out = Vec::with_capacity(body_size + 1024);

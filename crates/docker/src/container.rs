@@ -92,6 +92,7 @@ pub struct ContainerConfig {
 impl ContainerConfig {
     /// Parse [`Self::env`] entries (`"KEY=VALUE"`) into a map. Entries missing
     /// `=` are skipped.
+    #[must_use]
     pub fn parsed_env(&self) -> IndexMap<String, String> {
         self.env
             .iter()

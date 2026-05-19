@@ -17,6 +17,7 @@ pub struct ApiVersion {
 }
 
 impl ApiVersion {
+    #[must_use]
     pub const fn new(major: u8, minor: u8) -> Self {
         Self { major, minor }
     }

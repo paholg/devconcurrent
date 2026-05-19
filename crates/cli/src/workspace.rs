@@ -91,7 +91,7 @@ pub(crate) struct WorkspaceDevcontainer<'a> {
     containers: Vec<ContainerInfo>,
 }
 
-impl<'a> WorkspaceDevcontainer<'a> {
+impl WorkspaceDevcontainer<'_> {
     /// Highest "liveness" state across the workspace's containers, or `None`
     /// if there are no containers at all.
     pub(crate) fn status(&self) -> Option<ContainerStatus> {
@@ -132,7 +132,7 @@ impl<'a> WorkspaceDevcontainer<'a> {
             .flat_map(|c| &c.host_ports)
             .copied()
             .collect();
-        ports.sort();
+        ports.sort_unstable();
         ports.dedup();
         ports
     }

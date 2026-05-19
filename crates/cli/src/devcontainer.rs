@@ -136,7 +136,7 @@ impl DevcontainerConfig {
     /// does not use devcontainers.
     ///
     /// From the devcontainer reference:
-    /// https://containers.dev/implementors/spec/#devcontainerjson
+    /// <https://containers.dev/implementors/spec/#devcontainerjson>
     ///
     /// Products using it should expect to find a devcontainer.json file in one or more of the
     /// following locations (in order of precedence):

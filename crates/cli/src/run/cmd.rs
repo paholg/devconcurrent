@@ -19,7 +19,7 @@ impl Cmd {
     pub(crate) fn as_args(&self) -> Vec<&str> {
         match self {
             Cmd::Shell(prog) => vec!["/bin/sh", "-c", prog],
-            Cmd::Args(args) => args.iter().map(|s| s.as_str()).collect(),
+            Cmd::Args(args) => args.iter().map(std::string::String::as_str).collect(),
         }
     }
 

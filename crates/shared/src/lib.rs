@@ -133,10 +133,12 @@ pub struct Template {
 }
 
 impl Template {
+    #[must_use]
     pub fn source(&self) -> &str {
         &self.source
     }
 
+    #[must_use]
     pub fn compiled(&self) -> &handlebars::Template {
         &self.compiled
     }

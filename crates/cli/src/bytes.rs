@@ -40,10 +40,8 @@ pub(crate) fn format_bytes(bytes: u64) -> String {
     let value = bytes / unit.value;
     let n_decimals = if value < 10.0 {
         2
-    } else if value < 100.0 {
-        1
     } else {
-        0
+        usize::from(value < 100.0)
     };
     let decimal_point = if n_decimals == 0 { "." } else { "" };
 

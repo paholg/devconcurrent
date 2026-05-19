@@ -10,8 +10,15 @@ tempfile = "3"
 tokio = "1"
 tracing = "0.1"
 
-[workspace.lints.rust]
-warnings = "deny"
+[workspace.lints.clippy]
+# cast_precision_loss = "allow"
+# format_push_string = "allow"
+# restriction = { level = "warn", priority = -1 }
+# missing_errors_doc = "allow"
+# missing_panics_doc = "allow"
+# pedantic = { level = "warn", priority = -1 }
+# similar_names = "allow"
+# too_many_lines = "allow"
 
 # The profile that 'dist' will build with
 [profile.dist]

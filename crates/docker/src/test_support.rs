@@ -47,6 +47,7 @@ impl TestContainer {
         }
     }
 
+    #[must_use]
     pub fn id(&self) -> &str {
         &self.name
     }
@@ -58,6 +59,7 @@ impl Drop for TestContainer {
     }
 }
 
+#[must_use]
 pub fn unique_name() -> String {
     let suffix = Alphanumeric.sample_string(&mut rand::rng(), 24);
     format!("devconcurrent-docker-crate-test-{suffix}")

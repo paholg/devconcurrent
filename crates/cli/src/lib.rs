@@ -67,7 +67,7 @@ pub async fn cli_main() -> eyre::Result<()> {
 
 fn register_shell_function(shell_str: &str) -> eyre::Result<()> {
     let shell = shell_str.parse::<Shell>().map_err(|e| eyre!("{e}"))?;
-    let function = shell_function(&shell)?;
+    let function = shell_function(shell)?;
     println!("{function}");
 
     let shells = Shells::builtins();
@@ -81,7 +81,7 @@ fn register_shell_function(shell_str: &str) -> eyre::Result<()> {
     Ok(())
 }
 
-fn shell_function(shell: &Shell) -> eyre::Result<String> {
+fn shell_function(shell: Shell) -> eyre::Result<String> {
     let bin_os = std::env::args_os()
         .next()
         .unwrap_or_else(|| "devconcurrent".into());
@@ -92,6 +92,7 @@ fn shell_function(shell: &Shell) -> eyre::Result<String> {
 }
 
 /// Produce the JSON schema for [`config::Config`].
+#[must_use]
 pub fn schema() -> schemars::Schema {
     schemars::schema_for!(config::Config)
 }

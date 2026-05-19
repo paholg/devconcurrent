@@ -157,11 +157,7 @@ impl Config {
             .projects
             .iter()
             .find(|(_, p)| {
-                p.path == canonical_root
-                    || p.path
-                        .canonicalize()
-                        .map(|p| p == canonical_root)
-                        .unwrap_or(false)
+                p.path == canonical_root || p.path.canonicalize().is_ok_and(|p| p == canonical_root)
             })
             .map(|(name, _)| name.clone());
 

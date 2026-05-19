@@ -104,11 +104,11 @@ fn compose_prior_args() -> eyre::Result<Vec<String>> {
 
 /// Return a shell wrapper function for `dc`.
 ///
-/// The wrapper exposes FD 3 to the binary (advertised via SHELL_FD); any
+/// The wrapper exposes FD 3 to the binary (advertised via `SHELL_FD`); any
 /// shell command the binary writes there is `eval`ed in the calling shell.
 /// This lets subcommands like `go` cause a `cd` to take effect, without the
 /// wrapper needing to know which subcommands do what.
-pub(crate) fn shell_function(shell: &Shell, binary: &str) -> eyre::Result<String> {
+pub(crate) fn shell_function(shell: Shell, binary: &str) -> eyre::Result<String> {
     let quoted = shlex::try_quote(binary)?;
     let function = match shell {
         Shell::Bash | Shell::Zsh => format!(

@@ -30,3 +30,6 @@ tokio-rustls = "0.26.4"
 tower-http = { version = "0.6.11", features = ["set-header"] }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[lints]
+workspace = true

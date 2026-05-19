@@ -75,7 +75,7 @@ impl<'a> State<'a> {
     ///
     /// * Read from devconcurrent config file for the project
     /// * Read from customizations.devconcurrent in devcontainer.json
-    /// * Defaults to /tmp/devconcurrent/<PROJECT_NAME>/
+    /// * Defaults to /tmp/devconcurrent/<`PROJECT_NAME`>/
     pub(crate) fn project_working_dir(&self) -> PathBuf {
         let dir = self
             .project

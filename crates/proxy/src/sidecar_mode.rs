@@ -13,7 +13,7 @@
 //! and `X-Forwarded-Host` headers Rails needs to reconstruct `https://…`
 //! URLs. `X-Forwarded-For` is deliberately not added — the apparent client
 //! inside the netns is the docker bridge gateway, and forwarding that to
-//! the app would defeat dev tools (web-console, ActionCable origin checks,
+//! the app would defeat dev tools (web-console, `ActionCable` origin checks,
 //! etc.) that gate on "is this localhost". The app sees the socket peer,
 //! which is 127.0.0.1 from rpxy connecting over loopback.
 
@@ -91,7 +91,7 @@ fn load_tls(dir: &Path, hostname: &str) -> Option<TlsAcceptor> {
         return None;
     }
     let certs: Vec<CertificateDer<'static>> = match CertificateDer::pem_file_iter(&cert_path)
-        .and_then(|it| it.collect::<Result<_, _>>())
+        .and_then(std::iter::Iterator::collect::<Result<_, _>>)
     {
         Ok(c) => c,
         Err(e) => {

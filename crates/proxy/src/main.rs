@@ -43,8 +43,8 @@ async fn main() -> Result<()> {
         dns_port, "devconcurrent-proxy starting"
     );
 
-    let ca = match std::env::var(ENV_CA_DIR) {
-        Ok(dir) => match CaHolder::load(Path::new(&dir)) {
+    let ca = if let Ok(dir) = std::env::var(ENV_CA_DIR) {
+        match CaHolder::load(Path::new(&dir)) {
             Ok(ca) => {
                 info!(dir, "loaded mkcert CA");
                 Some(ca)
@@ -53,11 +53,10 @@ async fn main() -> Result<()> {
                 tracing::warn!(dir, "failed to load CA: {e:?}; TLS ports disabled");
                 None
             }
-        },
-        Err(_) => {
-            info!("no {ENV_CA_DIR}; TLS ports disabled");
-            None
         }
+    } else {
+        info!("no {ENV_CA_DIR}; TLS ports disabled");
+        None
     };
 
     let docker = Docker::connect()

@@ -41,10 +41,10 @@ fn format_age(created: Option<i64>) -> String {
     let secs = secs as u64;
     match secs {
         s if s < 60 => format!("{s}s"),
-        s if s < 3600 => format!("{}m", s / 60),
-        s if s < 86400 => format!("{}h", s / 3600),
-        s if s < 604800 => format!("{}d", s / 86400),
-        s if s < 2_592_000 => format!("{}w", s / 604800),
+        s if s < 3_600 => format!("{}m", s / 60),
+        s if s < 86_400 => format!("{}h", s / 3_600),
+        s if s < 604_800 => format!("{}d", s / 86_400),
+        s if s < 2_592_000 => format!("{}w", s / 604_800),
         s => format!("{}y", s / 31_536_000),
     }
 }

@@ -60,7 +60,7 @@ async fn build_devcontainer_row(
     let (git_status, stats, execs) = tokio::try_join!(git_future, wsdc.stats(), wsdc.execs())?;
 
     let mut fwd_ports = fwd_ports_map.get(&ws.name).cloned().unwrap_or_default();
-    fwd_ports.sort();
+    fwd_ports.sort_unstable();
     fwd_ports.dedup();
 
     Ok(WorkspaceListRow {

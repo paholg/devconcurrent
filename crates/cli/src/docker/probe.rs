@@ -152,7 +152,7 @@ async fn capture_shell_env(
          or slow operations",
         PROBE_WARN_AFTER,
     );
-    let remaining = PROBE_TIMEOUT_AFTER - PROBE_WARN_AFTER;
+    let remaining = PROBE_TIMEOUT_AFTER.checked_sub(PROBE_WARN_AFTER).unwrap();
     match tokio::time::timeout(remaining, probe).await {
         Ok(result) => parse_marked_env(&result?, &mark),
         Err(_) => Err(eyre!(

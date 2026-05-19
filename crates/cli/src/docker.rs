@@ -159,7 +159,7 @@ impl DockerClient {
         Ok(ports)
     }
 
-    /// Return (compose_service, ip_address) for every compose container in this workspace's
+    /// Return (`compose_service`, `ip_address`) for every compose container in this workspace's
     /// project. Containers without a service label or without an IP are omitted.
     pub(crate) async fn workspace_compose_ips(
         &self,
