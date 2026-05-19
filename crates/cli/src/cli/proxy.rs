@@ -491,24 +491,6 @@ fn build_project_config(state: &State) -> Result<Option<ProjectProxyConfig>> {
                 });
         }
     }
-    // `forwardPorts` declares dev-server-on-localhost ports: the app inside
-    // the container binds 127.0.0.1:<port> only, so the sidecar can bind
-    // 0.0.0.0:<port> in the same netns without colliding and forward to
-    // 127.0.0.1:<port>. host == container.
-    for fp in &dc.config.forward_ports {
-        let svc_name = fp
-            .service
-            .clone()
-            .unwrap_or_else(|| dc.config.service.clone());
-        let entry = services_map.entry(svc_name).or_default();
-        if !entry.iter().any(|p| p.host == fp.port) {
-            entry.push(PortMapping {
-                host: fp.port,
-                container: fp.port,
-                tls: false,
-            });
-        }
-    }
 
     let services: Vec<ServiceConfig> = services_map
         .into_iter()
