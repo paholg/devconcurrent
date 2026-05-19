@@ -202,8 +202,12 @@ async fn adopt(
 
     let sidecar_id = if let Some(svc) = port_config.filter(|s| !s.ports.is_empty()) {
         let root = workspace == project;
-        let hostname = crate::routing::render_hostname(opts, project, workspace, service, root)
-            .unwrap_or_else(|| format!("{service}.{project}.test"));
+        let hostname = opts
+            .render_hostname(project, workspace, service, root)
+            .unwrap_or_else(|| {
+                tracing::warn!(project, "failed to render domain template");
+                format!("{service}.{project}.test")
+            });
         match sidecar::create_sidecar(
             docker, ca, project, workspace, service, svc, &hostname, target_cid,
         )

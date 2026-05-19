@@ -87,8 +87,7 @@ fn rebuild_names(inner: &mut RegistryInner) {
             continue;
         };
         let root = svc.workspace == svc.project;
-        let Some(hostname) =
-            crate::routing::render_hostname(opts, &svc.project, &svc.workspace, &svc.service, root)
+        let Some(hostname) = opts.render_hostname(&svc.project, &svc.workspace, &svc.service, root)
         else {
             continue;
         };

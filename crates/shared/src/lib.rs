@@ -65,6 +65,41 @@ pub struct ProxyOptions {
     pub services: IndexMap<String, ProxyService>,
 }
 
+impl ProxyOptions {
+    /// Render the hostname for one `(project, workspace, service)` tuple using
+    /// this project's `domainName` template (falling back to the default when
+    /// unset). Returns `None` if the template fails to render.
+    #[must_use]
+    pub fn render_hostname(
+        &self,
+        project: &str,
+        workspace: &str,
+        service: &str,
+        root: bool,
+    ) -> Option<String> {
+        #[derive(serde::Serialize)]
+        struct Ctx<'a> {
+            root: bool,
+            project: &'a str,
+            workspace: &'a str,
+            service: &'a str,
+        }
+        let source = self
+            .domain_name
+            .as_ref()
+            .map_or(DEFAULT_DOMAIN_TEMPLATE, Template::source);
+        let mut hbs = handlebars::Handlebars::new();
+        hbs.set_strict_mode(false);
+        let ctx = Ctx {
+            root,
+            project,
+            workspace,
+            service,
+        };
+        hbs.render_template(source, &ctx).ok()
+    }
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug, Default, JsonSchema)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ProxyService {

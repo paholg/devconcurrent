@@ -10,7 +10,6 @@ mod certs;
 mod dns;
 mod events;
 mod registry;
-mod routing;
 mod sidecar;
 mod sidecar_mode;
 

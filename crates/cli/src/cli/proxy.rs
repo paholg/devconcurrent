@@ -166,8 +166,8 @@ async fn proxy_status() -> Result<()> {
         return Ok(());
     }
 
-    // project -> workspace -> sorted sidecar rows
-    let mut grouped: BTreeMap<String, BTreeMap<String, Vec<SidecarRow>>> = BTreeMap::new();
+    // project -> workspace -> sorted service rows
+    let mut grouped: BTreeMap<String, BTreeMap<String, Vec<ServiceRow>>> = BTreeMap::new();
     for sc in sidecars {
         let project = sc.labels.get(PROJECT_LABEL).cloned().unwrap_or_default();
         let workspace = sc.labels.get(WORKSPACE_LABEL).cloned().unwrap_or_default();
@@ -176,18 +176,19 @@ async fn proxy_status() -> Result<()> {
             .get(PROXY_SERVICE_LABEL)
             .cloned()
             .unwrap_or_default();
-        let svc_cfg = proxy_options
-            .get(&project)
-            .and_then(|o| o.services.get(&service))
-            .cloned();
+        let opts = proxy_options.get(&project);
+        let svc_cfg = opts.and_then(|o| o.services.get(&service)).cloned();
+        let domain = opts
+            .and_then(|o| o.render_hostname(&project, &workspace, &service, workspace == project));
         grouped
             .entry(project)
             .or_default()
             .entry(workspace)
             .or_default()
-            .push(SidecarRow {
+            .push(ServiceRow {
                 service,
-                status: sc.state,
+                domain,
+                proxy: sc.state,
                 container_id: sc.id,
                 ports: svc_cfg,
             });
@@ -201,37 +202,53 @@ async fn proxy_status() -> Result<()> {
     for (project, workspaces) in &grouped {
         println!();
         println!("project: {}", project.bold());
-        println!("{}", sidecar_table(workspaces));
+        println!("{}", service_table(workspaces));
     }
     Ok(())
 }
 
-struct SidecarRow {
+struct ServiceRow {
     service: String,
-    status: ContainerStatus,
+    domain: Option<String>,
+    proxy: ContainerStatus,
     container_id: String,
     ports: Option<ProxyService>,
 }
 
-fn sidecar_table(workspaces: &BTreeMap<String, Vec<SidecarRow>>) -> Table {
+fn service_table(workspaces: &BTreeMap<String, Vec<ServiceRow>>) -> Table {
     let mut table = Table::new();
     table
         .load_preset(presets::UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic)
-        .set_header(["WORKSPACE", "SERVICE", "STATUS", "CONTAINER", "PORTS"]);
+        .set_header([
+            "WORKSPACE",
+            "SERVICE",
+            "DOMAIN",
+            "STATUS",
+            "CONTAINER",
+            "PORTS",
+        ]);
     for (workspace, rows) in workspaces {
         for (i, row) in rows.iter().enumerate() {
             let workspace_cell = if i == 0 { workspace.as_str() } else { "" };
             table.add_row([
                 Cell::new(workspace_cell),
                 Cell::new(&row.service),
-                status_cell(row.status),
+                domain_cell(row.domain.as_deref()),
+                status_cell(row.proxy),
                 Cell::new(short_id(&row.container_id)),
                 ports_cell(row.ports.as_ref()),
             ]);
         }
     }
     table
+}
+
+fn domain_cell(domain: Option<&str>) -> Cell {
+    match domain {
+        Some(d) if !d.is_empty() => Cell::new(d),
+        _ => Cell::new("-").fg(Color::DarkGrey),
+    }
 }
 
 fn short_id(id: &str) -> String {
