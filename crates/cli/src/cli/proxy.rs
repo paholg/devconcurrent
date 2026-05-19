@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use clap::{Args, Subcommand};
 use color_eyre::owo_colors::OwoColorize;
-use comfy_table::{ContentArrangement, Table, presets};
+use comfy_table::{Cell, Color, ContentArrangement, Table, presets};
 use docker::{
     ContainerStatus, Docker, PROJECT_LABEL, PROXY_GROUP_LABEL, PROXY_LABEL, PROXY_SERVICE_LABEL,
     PROXY_SIDECAR_LABEL, WORKSPACE_LABEL,
@@ -188,6 +188,7 @@ async fn proxy_status() -> Result<()> {
             .push(SidecarRow {
                 service,
                 status: sc.state,
+                container_id: sc.id,
                 ports: svc_cfg,
             });
     }
@@ -208,6 +209,7 @@ async fn proxy_status() -> Result<()> {
 struct SidecarRow {
     service: String,
     status: ContainerStatus,
+    container_id: String,
     ports: Option<ProxyService>,
 }
 
@@ -216,14 +218,15 @@ fn sidecar_table(workspaces: &BTreeMap<String, Vec<SidecarRow>>) -> Table {
     table
         .load_preset(presets::UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic)
-        .set_header(["WORKSPACE", "SERVICE", "STATUS", "PORTS"]);
+        .set_header(["WORKSPACE", "SERVICE", "STATUS", "CONTAINER", "PORTS"]);
     for (workspace, rows) in workspaces {
         for (i, row) in rows.iter().enumerate() {
             let workspace_cell = if i == 0 { workspace.as_str() } else { "" };
             table.add_row([
-                workspace_cell.to_string(),
-                row.service.clone(),
+                Cell::new(workspace_cell),
+                Cell::new(&row.service),
                 status_cell(row.status),
+                Cell::new(short_id(&row.container_id)),
                 ports_cell(row.ports.as_ref()),
             ]);
         }
@@ -231,29 +234,33 @@ fn sidecar_table(workspaces: &BTreeMap<String, Vec<SidecarRow>>) -> Table {
     table
 }
 
-fn status_cell(status: ContainerStatus) -> String {
+fn short_id(id: &str) -> String {
+    id.chars().take(12).collect()
+}
+
+fn status_cell(status: ContainerStatus) -> Cell {
+    let cell = Cell::new(status);
     match status {
-        ContainerStatus::Running => status.green().to_string(),
-        ContainerStatus::Exited | ContainerStatus::Dead => status.red().to_string(),
-        _ => status.yellow().to_string(),
+        ContainerStatus::Running => cell.fg(Color::Green),
+        ContainerStatus::Exited | ContainerStatus::Dead => cell.fg(Color::Red),
+        _ => cell.fg(Color::Yellow),
     }
 }
 
-fn ports_cell(svc: Option<&ProxyService>) -> String {
+fn ports_cell(svc: Option<&ProxyService>) -> Cell {
     let Some(svc) = svc else {
-        return "-".dimmed().to_string();
+        return Cell::new("-").fg(Color::DarkGrey);
     };
     if svc.ports.is_empty() {
-        return "-".dimmed().to_string();
+        return Cell::new("-").fg(Color::DarkGrey);
     }
-    svc.ports
+    let text = svc
+        .ports
         .iter()
-        .map(|p| {
-            let tls = if p.tls { " (tls)" } else { "" };
-            format!("{}->{}{tls}", p.host, p.container)
-        })
+        .map(|p| p.host.to_string())
         .collect::<Vec<_>>()
-        .join(", ")
+        .join(", ");
+    Cell::new(text)
 }
 
 async fn wait_for_running(docker: &Docker, id: &str) -> Result<()> {
