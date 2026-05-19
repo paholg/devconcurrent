@@ -187,10 +187,29 @@ impl DevcontainerConfig {
             figment = figment.admerge(Serialized::defaults(overrides));
         }
 
-        figment
+        let config: Self = figment
             .extract()
-            .map(Some)
-            .wrap_err("failed to merge devcontainer config")
+            .wrap_err("failed to merge devcontainer config")?;
+        config.check_proxy_port_conflicts()?;
+        Ok(Some(config))
+    }
+
+    fn check_proxy_port_conflicts(&self) -> eyre::Result<()> {
+        use std::collections::HashMap;
+        use std::net::IpAddr;
+        for (svc_name, svc) in &self.customizations.devconcurrent.proxy.services {
+            let mut seen: HashMap<(IpAddr, u16), &shared::ProxyPort> = HashMap::new();
+            for p in &svc.ports {
+                if let Some(prev) = seen.insert((p.ip, p.host), p) {
+                    eyre::bail!(
+                        "service {svc_name:?}: conflicting proxy port entries on {}:{}: {prev:?} vs {p:?} (check for `proxy` defined in both devcontainer.json and the project's devcontainer override)",
+                        p.ip,
+                        p.host,
+                    );
+                }
+            }
+        }
+        Ok(())
     }
 }
 
