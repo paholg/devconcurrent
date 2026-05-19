@@ -7,6 +7,7 @@ use eyre::eyre;
 use crate::ansi::{RED, RESET, YELLOW};
 use crate::cli::{State, confirm, safety_check};
 use crate::complete::complete_workspace;
+use crate::config::Config;
 use crate::docker::compose::{compose_cmd, remove_override_file};
 use crate::docker::{PROJECT_LABEL, WORKSPACE_LABEL};
 use crate::run::{self, Runnable, Runner, run_command};
@@ -26,7 +27,9 @@ pub(crate) struct Destroy {
 }
 
 impl Destroy {
-    pub(crate) async fn run(self, state: State) -> eyre::Result<()> {
+    pub(crate) async fn run(self, project: Option<String>) -> eyre::Result<()> {
+        let config = Config::load()?;
+        let state = State::new(project, &config).await?;
         let workspace = state.resolve_workspace(self.workspace).await?;
         let devcontainer = state.try_devcontainer().ok();
         let workspace_dc = if let Some(dc) = devcontainer {

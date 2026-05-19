@@ -8,6 +8,7 @@ use color_eyre::owo_colors::OwoColorize;
 
 use crate::cli::State;
 use crate::complete::complete_workspace;
+use crate::config::Config;
 use crate::devcontainer::forward_port::ForwardPort;
 use crate::docker::{FORWARD_LABEL, FORWARD_TARGET_LABEL, PROJECT_LABEL};
 use crate::state::DevcontainerState;
@@ -33,7 +34,9 @@ enum FwdCommands {
 }
 
 impl Fwd {
-    pub(crate) async fn run(self, state: State) -> eyre::Result<()> {
+    pub(crate) async fn run(self, project: Option<String>) -> eyre::Result<()> {
+        let config = Config::load()?;
+        let state = State::new(project, &config).await?;
         let devcontainer = state.try_devcontainer()?;
         match self.command {
             Some(FwdCommands::Stop) => remove_sidecars(&state, &devcontainer.docker.client).await,
@@ -148,14 +151,13 @@ async fn create_inner_sidecar(
     let shell_cmd = join_background(&socat_cmds);
 
     let network_mode = format!("container:{cid}");
-    let bind = format!("{volume_name}:/socks");
     let mut create = client
         .create_container(&name)
         .image(SOCAT_IMAGE)
         .network_mode(&network_mode)
         .entrypoint(vec!["sh".to_string()])
         .cmd(vec!["-c".to_string(), shell_cmd])
-        .with_bind(bind)
+        .with_bind(volume_name, "/socks")
         .with_label(FORWARD_TARGET_LABEL, cid);
     for (key, value) in workspace.docker_fwd_labels() {
         create = create.with_label(key, value);
@@ -189,7 +191,6 @@ async fn create_outer_sidecar(
         .collect();
     let shell_cmd = join_background(&socat_cmds);
 
-    let bind = format!("{volume_name}:/socks");
     let loopback = IpAddr::V4(Ipv4Addr::LOCALHOST);
     let mut create = client
         .create_container(&name)
@@ -197,7 +198,7 @@ async fn create_outer_sidecar(
         .network_mode(network_name)
         .entrypoint(vec!["sh".to_string()])
         .cmd(vec!["-c".to_string(), shell_cmd])
-        .with_bind(bind)
+        .with_bind(volume_name, "/socks")
         .with_label(FORWARD_TARGET_LABEL, cid);
     for (key, value) in workspace.docker_fwd_labels() {
         create = create.with_label(key, value);
@@ -217,7 +218,10 @@ fn join_background(cmds: &[String]) -> String {
     parts.join(" ")
 }
 
-pub(crate) async fn remove_sidecars(state: &State, client: &docker::Docker) -> eyre::Result<()> {
+pub(crate) async fn remove_sidecars(
+    state: &State<'_>,
+    client: &docker::Docker,
+) -> eyre::Result<()> {
     let project = state.project_name.as_str();
 
     let sidecars = client

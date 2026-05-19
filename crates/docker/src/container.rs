@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::net::IpAddr;
 
 use bon::bon;
@@ -366,17 +367,18 @@ impl<S: docker_create_container_builder::State> DockerCreateContainerBuilder<'_,
         self
     }
 
-    /// Add a `src:dst` (or `src:dst:options`) bind mount, in the same format
-    /// `docker run --volume` accepts.
-    pub fn with_bind(mut self, spec: impl Into<String>) -> Self {
-        self.binds.push(spec.into());
+    pub fn with_bind(mut self, source: impl Display, dest: impl Display) -> Self {
+        self.binds.push(format!("{source}:{dest}"));
         self
     }
 
-    /// Add an environment variable in `KEY=VALUE` form.
-    pub fn with_env(mut self, key: impl AsRef<str>, value: impl AsRef<str>) -> Self {
-        self.env
-            .push(format!("{}={}", key.as_ref(), value.as_ref()));
+    pub fn with_ro_bind(mut self, source: impl Display, dest: impl Display) -> Self {
+        self.binds.push(format!("{source}:{dest}:ro"));
+        self
+    }
+
+    pub fn with_env(mut self, key: impl Display, value: impl Display) -> Self {
+        self.env.push(format!("{key}={value}"));
         self
     }
 

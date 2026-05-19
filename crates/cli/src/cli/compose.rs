@@ -5,6 +5,7 @@ use clap_complete::engine::ArgValueCompleter;
 
 use crate::cli::State;
 use crate::complete::{self, complete_workspace};
+use crate::config::Config;
 use crate::docker::compose::compose_cmd;
 
 /// Run `docker compose` against the given workspace
@@ -20,7 +21,9 @@ pub(crate) struct Compose {
 }
 
 impl Compose {
-    pub(crate) async fn run(self, state: State) -> eyre::Result<()> {
+    pub(crate) async fn run(self, project: Option<String>) -> eyre::Result<()> {
+        let config = Config::load()?;
+        let state = State::new(project, &config).await?;
         let devcontainer = state.try_devcontainer()?;
         let workspace = state.resolve_workspace(self.workspace).await?;
 

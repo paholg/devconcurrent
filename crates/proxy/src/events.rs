@@ -20,8 +20,8 @@ use eyre::Result;
 use futures_util::StreamExt;
 use indexmap::IndexMap;
 use shared::{
-    COMPOSE_PROJECT_LABEL, COMPOSE_SERVICE_LABEL, PROJECT_LABEL, PROXY_SIDECAR_LABEL,
-    ServiceConfig, WORKSPACE_LABEL,
+    COMPOSE_PROJECT_LABEL, COMPOSE_SERVICE_LABEL, PROJECT_LABEL, PROXY_LABEL, ServiceConfig,
+    WORKSPACE_LABEL,
 };
 
 use crate::certs::CaHolder;
@@ -70,7 +70,7 @@ async fn handle_event(
     ev: docker::EventMessage,
 ) {
     // Ignore events on our own sidecars.
-    if ev.actor.attributes.contains_key(PROXY_SIDECAR_LABEL) {
+    if ev.actor.attributes.contains_key(PROXY_LABEL) {
         return;
     }
     let Some(action) = ev.action.as_deref() else {
@@ -300,7 +300,7 @@ pub(crate) async fn bootstrap(
         .await?;
     let mut seen: HashSet<String> = HashSet::new();
     for c in primaries {
-        if c.labels.contains_key(PROXY_SIDECAR_LABEL) {
+        if c.labels.contains_key(PROXY_LABEL) {
             continue;
         }
         let Some(cp) = c.labels.get(COMPOSE_PROJECT_LABEL) else {

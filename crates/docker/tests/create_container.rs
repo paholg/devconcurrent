@@ -134,7 +134,7 @@ async fn create_with_bind_mounts_the_volume() {
             "-c".to_string(),
             "echo hi > /data/marker && sleep 30".to_string(),
         ])
-        .with_bind(format!("{}:/data", vol.name))
+        .with_bind(&vol.name, "/data")
         .with_label(test_key, test_value)
         .call()
         .await

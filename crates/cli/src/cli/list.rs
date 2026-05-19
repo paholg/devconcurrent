@@ -5,6 +5,7 @@ use futures::future::try_join_all;
 
 use crate::{
     cli::State,
+    config::Config,
     state::DevcontainerState,
     workspace::{
         Workspace,
@@ -18,7 +19,9 @@ use crate::{
 pub(crate) struct List;
 
 impl List {
-    pub(crate) async fn run(self, state: State) -> eyre::Result<()> {
+    pub(crate) async fn run(self, project: Option<String>) -> eyre::Result<()> {
+        let config = Config::load()?;
+        let state = State::new(project, &config).await?;
         let workspaces = Workspace::list(&state).await?;
         let rows = if let Some(dc) = state.devcontainer.as_ref() {
             let fwd_ports_map = dc.docker.forwarded_ports(&state.project_name).await?;

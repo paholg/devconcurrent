@@ -9,6 +9,7 @@ use crate::cli::exec::exec_interactive;
 use crate::cli::fwd::forward;
 use crate::cli::{State, go, proxy};
 use crate::complete::complete_workspace;
+use crate::config::Config;
 use crate::devcontainer::substitution;
 use crate::docker::compose::{compose_cmd, compose_ps_q};
 use crate::docker::probe;
@@ -41,7 +42,9 @@ pub(crate) struct Up {
 }
 
 impl Up {
-    pub(crate) async fn run(self, state: State) -> eyre::Result<()> {
+    pub(crate) async fn run(self, project: Option<String>) -> eyre::Result<()> {
+        let config = Config::load()?;
+        let state = State::new(project, &config).await?;
         let workspace = state.resolve_workspace(self.workspace).await?;
 
         // Set up span.
@@ -82,12 +85,11 @@ impl Up {
                 .await?;
         }
 
-        // If proxy is configured for this project, ensure it's running and the
-        // project's config is pushed BEFORE compose-up, so that the proxy
-        // already knows the project when it reacts to the container start
-        // event.
+        // If proxy is configured for this project, make sure the proxy
+        // container is running before compose-up so it can react to start
+        // events. Config pushes happen explicitly via `dc proxy up`.
         if devcontainer.proxy_enabled() {
-            proxy::ensure_up(&state).await?;
+            proxy::ensure_up().await?;
         }
 
         let mut compose_up_cmd = compose_cmd(devcontainer, &workspace)?;

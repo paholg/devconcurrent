@@ -97,18 +97,16 @@ pub(crate) fn confirm() -> eyre::Result<bool> {
 
 impl Cli {
     pub(crate) async fn run(self) -> eyre::Result<()> {
-        let state = State::new(self.project).await?;
-
         match self.command {
-            Commands::Up(up) => up.run(state).await,
-            Commands::Exec(exec) => exec.run(state).await,
-            Commands::Fwd(fwd) => fwd.run(state).await,
-            Commands::List(list) => list.run(state).await,
-            Commands::Compose(compose) => compose.run(state).await,
-            Commands::Show(show) => show.run(state).await,
-            Commands::Destroy(destroy) => destroy.run(state).await,
-            Commands::Go(go) => go.run(state).await,
-            Commands::Proxy(proxy) => proxy.run(state).await,
+            Commands::Up(up) => up.run(self.project).await,
+            Commands::Exec(exec) => exec.run(self.project).await,
+            Commands::Fwd(fwd) => fwd.run(self.project).await,
+            Commands::List(list) => list.run(self.project).await,
+            Commands::Compose(compose) => compose.run(self.project).await,
+            Commands::Show(show) => show.run(self.project).await,
+            Commands::Destroy(destroy) => destroy.run(self.project).await,
+            Commands::Go(go) => go.run(self.project).await,
+            Commands::Proxy(proxy) => proxy.run().await,
         }
     }
 }

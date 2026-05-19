@@ -119,15 +119,16 @@ impl Config {
     }
 
     pub(crate) fn project(
-        mut self,
+        &self,
         project_name: Option<String>,
-    ) -> eyre::Result<(ProjectName, Project)> {
+    ) -> eyre::Result<(ProjectName, &Project)> {
         if let Some(name) = project_name.or_else(|| std::env::var("DC_PROJECT").ok()) {
             let name = ProjectName::new(name).map_err(|e| eyre!("invalid project name: {e}"))?;
-            return self
+            let project = self
                 .projects
-                .swap_remove_entry(&name)
-                .ok_or_else(|| eyre!("no project configured with name: {name:?}"));
+                .get(&name)
+                .ok_or_else(|| eyre!("no project configured with name: {name:?}"))?;
+            return Ok((name, project));
         }
         let repo_root = std::env::current_dir()
             .ok()
@@ -135,16 +136,19 @@ impl Config {
         if let Some(root) = repo_root
             && let Some(name) = self.project_name_for_repo_root(&root)?
         {
-            return Ok(self
+            let project = self
                 .projects
-                .swap_remove_entry(&name)
-                .expect("we just found this project"));
+                .get(&name)
+                .expect("we just found this project");
+            return Ok((name, project));
         }
 
-        self.projects
-            .into_iter()
+        let (name, project) = self
+            .projects
+            .iter()
             .next()
-            .ok_or_else(|| eyre!("no projects configured"))
+            .ok_or_else(|| eyre!("no projects configured"))?;
+        Ok((name.clone(), project))
     }
 
     fn project_name_for_repo_root(&self, repo_root: &Path) -> eyre::Result<Option<ProjectName>> {

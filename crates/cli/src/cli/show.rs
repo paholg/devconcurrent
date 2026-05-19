@@ -1,7 +1,10 @@
 use clap::{Args, Subcommand};
 use itertools::Itertools;
 
-use crate::{cli::State, cli::fwd};
+use crate::{
+    cli::{State, fwd},
+    config::Config,
+};
 
 /// Show some value
 #[derive(Debug, Args)]
@@ -33,7 +36,9 @@ struct Ip {
 }
 
 impl Show {
-    pub(crate) async fn run(self, state: State) -> eyre::Result<()> {
+    pub(crate) async fn run(self, project: Option<String>) -> eyre::Result<()> {
+        let config = Config::load()?;
+        let state = State::new(project, &config).await?;
         match self.command {
             ShowCommands::Ports(ports) => ports.run(state).await,
             ShowCommands::Workspace(ws) => ws.run(state).await,
@@ -43,7 +48,7 @@ impl Show {
 }
 
 impl Ports {
-    async fn run(self, state: State) -> eyre::Result<()> {
+    async fn run(self, state: State<'_>) -> eyre::Result<()> {
         let ports = get_ports(state).await?;
 
         println!("{ports}");
@@ -51,7 +56,7 @@ impl Ports {
     }
 }
 
-async fn get_ports(state: State) -> eyre::Result<String> {
+async fn get_ports(state: State<'_>) -> eyre::Result<String> {
     let workspace = state.resolve_workspace(None).await?;
     let devcontainer = state.try_devcontainer()?;
     let (ports, healthy) = tokio::join!(
@@ -69,7 +74,7 @@ async fn get_ports(state: State) -> eyre::Result<String> {
 }
 
 impl ShowWorkspace {
-    async fn run(self, state: State) -> eyre::Result<()> {
+    async fn run(self, state: State<'_>) -> eyre::Result<()> {
         match state.resolve_workspace(None).await {
             Ok(workspace) => {
                 println!("{}", workspace.name);
@@ -81,7 +86,7 @@ impl ShowWorkspace {
 }
 
 impl Ip {
-    async fn run(self, state: State) -> eyre::Result<()> {
+    async fn run(self, state: State<'_>) -> eyre::Result<()> {
         let devcontainer = state.try_devcontainer()?;
         let workspace = state.resolve_workspace(None).await?;
         let ips = devcontainer

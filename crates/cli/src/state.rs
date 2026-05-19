@@ -1,26 +1,25 @@
-use std::{env, path::PathBuf};
+use std::{env, path::PathBuf, sync::Arc};
 
 use eyre::OptionExt;
 
 use crate::{
-    config::{Config, Project, ProjectName, ProxyGlobal},
+    config::{Config, Project, ProjectName},
     devcontainer::{DevcontainerConfig, dc_options::DcOptions},
     docker::DockerClient,
     workspace::Workspace,
     worktree,
 };
 
-pub(crate) struct State {
+pub(crate) struct State<'a> {
     pub(crate) project_name: ProjectName,
-    pub(crate) project: Project,
-    pub(crate) proxy: ProxyGlobal,
+    pub(crate) project: &'a Project,
     pub(crate) devcontainer: Option<DevcontainerState>,
 }
 
 pub(crate) struct DevcontainerState {
     pub(crate) path: Option<PathBuf>,
     pub(crate) config: DevcontainerConfig,
-    pub(crate) docker: DockerClient,
+    pub(crate) docker: Arc<DockerClient>,
 }
 
 impl DevcontainerState {
@@ -34,7 +33,7 @@ impl DevcontainerState {
         Ok(Some(Self {
             path,
             config,
-            docker,
+            docker: Arc::new(docker),
         }))
     }
 
@@ -47,18 +46,18 @@ impl DevcontainerState {
     }
 }
 
-impl State {
-    pub(crate) async fn new(specified_project: Option<String>) -> eyre::Result<Self> {
-        let config = Config::load()?;
-        let proxy = config.proxy.clone();
+impl<'a> State<'a> {
+    pub(crate) async fn new(
+        specified_project: Option<String>,
+        config: &'a Config,
+    ) -> eyre::Result<Self> {
         let (project_name, project) = config.project(specified_project)?;
 
-        let devcontainer = DevcontainerState::new(&project).await?;
+        let devcontainer = DevcontainerState::new(project).await?;
 
         Ok(Self {
             project_name,
             project,
-            proxy,
             devcontainer,
         })
     }

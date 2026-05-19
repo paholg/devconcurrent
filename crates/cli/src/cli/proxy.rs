@@ -1,27 +1,27 @@
-//! `dc proxy` subcommand: lifecycle of the global proxy container plus the
-//! per-project config files in its shared volume.
-
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use clap::{Args, Subcommand};
 use color_eyre::owo_colors::OwoColorize;
 use docker::Docker;
 use eyre::{Result, WrapErr};
-use handlebars::Handlebars;
 use indexmap::IndexMap;
-use serde::Serialize;
-use sha2::{Digest, Sha256};
 use shared::{
-    COMPOSE_SERVICE_LABEL, ENV_CA_DIR, ENV_DNS_PORT, MANAGED_LABEL, PROJECT_LABEL, PROXY_CA_DIR,
-    PROXY_CONFIG_DIR, PROXY_CONFIG_HASH_LABEL, PROXY_CONFIG_VOLUME, PROXY_CONTAINER_NAME,
-    PROXY_LABEL, PROXY_SIDECAR_LABEL, PortMapping, ProjectProxyConfig, ServiceConfig,
-    WORKSPACE_LABEL,
+    ENV_CA_DIR, ENV_DNS_PORT, MANAGED_LABEL, PROXY_CA_DIR, PROXY_CONFIG_DIR, PROXY_CONFIG_VOLUME,
+    PROXY_CONTAINER_NAME, PROXY_GROUP_LABEL, PROXY_LABEL, PortMapping, ProjectProxyConfig,
+    ServiceConfig,
 };
 
-use crate::state::State;
+use crate::config::{Config, Project, ProjectName};
+use crate::devcontainer::DevcontainerConfig;
 
-/// OCI image used by the proxy container. Tag is the CLI's own crate version.
-const PROXY_IMAGE: &str = "ghcr.io/paholg/devconcurrent-proxy";
+/// OCI image used by the proxy container.
+const PROXY_IMAGE_NAME: &str = "ghcr.io/paholg/devconcurrent-proxy";
+/// We keep the proxy and CLI versions in sync, so using the CLI version here is fine.
+const PROXY_IMAGE_TAG: &str = env!("CARGO_PKG_VERSION");
+
+static PROXY_IMAGE: LazyLock<String> =
+    LazyLock::new(|| format!("{PROXY_IMAGE_NAME}:{PROXY_IMAGE_TAG}"));
 
 #[derive(Debug, Args)]
 pub(crate) struct Proxy {
@@ -31,265 +31,92 @@ pub(crate) struct Proxy {
 
 #[derive(Debug, Subcommand)]
 enum ProxyCommands {
-    /// Start or restart the proxy at the CLI's version and push the current
-    /// project's config.
+    /// Start or restart the proxy
     Up,
-    /// Stop and remove the proxy container and all of its sidecars.
+    /// Stop and remove the proxy
     Down,
-    /// Show the proxy container's state.
+    /// View the current proxy status
     Status,
 }
 
 impl Proxy {
-    pub(crate) async fn run(self, state: State) -> Result<()> {
+    pub(crate) async fn run(self) -> Result<()> {
         match self.command {
-            ProxyCommands::Up => proxy_up(&state).await,
-            ProxyCommands::Down => down(&state).await,
-            ProxyCommands::Status => status(&state).await,
+            ProxyCommands::Up => proxy_up().await,
+            ProxyCommands::Down => proxy_down().await,
+            ProxyCommands::Status => proxy_status().await,
         }
     }
 }
 
-/// Inputs that define the proxy container's *runtime config*. Two containers
-/// with the same plan are interchangeable; differing in any field means the
-/// existing container is stale and must be recreated.
-#[derive(Debug)]
-struct ProxyContainerPlan {
-    image_ref: String,
-    network_mode: &'static str,
-    binds: Vec<String>,
-    env: Vec<String>,
-}
-
-impl ProxyContainerPlan {
-    fn build(state: &State, docker: &Docker) -> Self {
-        let image_ref = format!("{}:{}", PROXY_IMAGE, env!("CARGO_PKG_VERSION"));
-        let socket_path = docker.socket().display().to_string();
-        let mut binds = vec![
-            format!("{PROXY_CONFIG_VOLUME}:{PROXY_CONFIG_DIR}"),
-            format!("{socket_path}:/var/run/docker.sock"),
-        ];
-        let mut env = vec![format!("{ENV_DNS_PORT}={}", state.proxy.port)];
-
-        // CAROOT bind for TLS-enabled port mappings. Sidecars only enable TLS
-        // listeners if the proxy was able to load `rootCA*.pem` from this
-        // path; otherwise TLS ports come up disabled with a logged warning.
-        if let Some(ca_root) = &state.proxy.ca_root {
-            binds.push(format!("{}:{PROXY_CA_DIR}:ro", ca_root.display()));
-            env.push(format!("{ENV_CA_DIR}={PROXY_CA_DIR}"));
-        }
-
-        Self {
-            image_ref,
-            network_mode: "host",
-            binds,
-            env,
-        }
-    }
-
-    /// Stable hex sha256 over the plan's fields. Sorts list-typed fields so
-    /// order-of-insertion changes don't trigger spurious recreates.
-    fn hash(&self) -> String {
-        let mut h = Sha256::new();
-        h.update(self.image_ref.as_bytes());
-        h.update([0]);
-        h.update(self.network_mode.as_bytes());
-        h.update([0]);
-        let mut binds: Vec<&str> = self.binds.iter().map(String::as_str).collect();
-        binds.sort();
-        for b in binds {
-            h.update(b.as_bytes());
-            h.update([0]);
-        }
-        let mut env: Vec<&str> = self.env.iter().map(String::as_str).collect();
-        env.sort();
-        for e in env {
-            h.update(e.as_bytes());
-            h.update([0]);
-        }
-        hex_encode(&h.finalize())
-    }
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for &b in bytes {
-        out.push(HEX[(b >> 4) as usize] as char);
-        out.push(HEX[(b & 0xf) as usize] as char);
-    }
-    out
-}
-
-/// `dc proxy up` always recreates: the user's intent on invocation is "restart
-/// the proxy with current state", whether or not the existing one looks
-/// healthy.
-async fn proxy_up(state: &State) -> Result<()> {
+/// `dc proxy up`: force-remove the proxy and every sidecar, then create a
+/// fresh proxy and push every proxy-enabled project's config into its
+/// volume. The new proxy's bootstrap creates fresh sidecars for any running
+/// workspaces.
+async fn proxy_up() -> Result<()> {
+    let config = Config::load()?;
     let docker = Docker::connect().await.wrap_err("connect to docker")?;
-    let plan = ProxyContainerPlan::build(state, &docker);
     docker
-        .ensure_image(&plan.image_ref)
+        .ensure_image(&PROXY_IMAGE)
         .await
-        .wrap_err_with(|| format!("pull {}", plan.image_ref))?;
-    recreate_with_config(state, &docker, &plan).await?;
-    log_result(state);
-    Ok(())
-}
-
-/// `dc up` path: leave a healthy proxy alone, recreate only if missing,
-/// stopped, or whose stamped config-hash label doesn't match what we'd build now.
-pub(crate) async fn ensure_up(state: &State) -> Result<()> {
-    let docker = Docker::connect().await.wrap_err("connect to docker")?;
-    let plan = ProxyContainerPlan::build(state, &docker);
-    docker
-        .ensure_image(&plan.image_ref)
-        .await
-        .wrap_err_with(|| format!("pull {}", plan.image_ref))?;
-    if proxy_healthy(&docker, &plan).await? {
-        push_config_if_any(&docker, state).await?;
-    } else {
-        recreate_with_config(state, &docker, &plan).await?;
-    }
-    log_result(state);
-    Ok(())
-}
-
-fn log_result(state: &State) {
-    if let Ok(Some(cfg)) = build_project_config(state) {
-        eprintln!(
-            "{} proxy is up; pushed config for project {}",
-            "✓".green(),
-            cfg.project
-        );
-    } else {
-        eprintln!(
-            "{} proxy is up; project {} has no proxy config to push",
-            "✓".green(),
-            state.project_name
-        );
-    }
-}
-
-/// Force-remove any existing proxy container, create a fresh one (stopped),
-/// push the project's config into its volume, then start it. Doing the push
-/// before `start` means `bootstrap_running_workspaces` (which runs early on
-/// proxy startup) sees the config and can adopt any matching workspace
-/// containers that were already running.
-async fn recreate_with_config(
-    state: &State,
-    docker: &Docker,
-    plan: &ProxyContainerPlan,
-) -> Result<()> {
-    remove_existing_proxy(docker).await?;
-    let id = create_proxy_stopped(docker, plan).await?;
-    push_config_if_any(docker, state).await?;
+        .wrap_err_with(|| format!("pull {}", *PROXY_IMAGE))?;
+    remove_proxy_group(&docker).await?;
+    let id = create_proxy_stopped(&config, &docker).await?;
+    push_all_configs(&config, &docker).await?;
     docker
         .start_container(&id)
         .await
         .wrap_err("start proxy container")?;
-    wait_for_running(docker, &id).await
+    wait_for_running(&docker, &id).await?;
+    eprintln!("{} proxy is running", "✓".green());
+    Ok(())
 }
 
-async fn wait_for_running(docker: &Docker, id: &str) -> Result<()> {
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
-    loop {
-        match docker.inspect_container(id).await {
-            Ok(d) if d.state.running => return Ok(()),
-            Ok(_) => {}
-            Err(docker::Error::NotFound) => eyre::bail!("proxy container vanished after start"),
-            Err(e) => return Err(e).wrap_err("inspect proxy after start"),
-        }
-        if std::time::Instant::now() >= deadline {
-            eyre::bail!("proxy container did not reach running state within 5s");
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-}
-
-async fn proxy_healthy(docker: &Docker, plan: &ProxyContainerPlan) -> Result<bool> {
-    let want_hash = plan.hash();
-    match docker.inspect_container(PROXY_CONTAINER_NAME).await {
-        Ok(d) => Ok(d.state.running
-            && d.config.image == plan.image_ref
-            && d.config
-                .labels
-                .get(PROXY_CONFIG_HASH_LABEL)
-                .map(String::as_str)
-                == Some(want_hash.as_str())),
-        Err(docker::Error::NotFound) => Ok(false),
-        Err(e) => Err(e).wrap_err("inspect existing proxy container"),
-    }
-}
-
-async fn remove_existing_proxy(docker: &Docker) -> Result<()> {
-    match docker
-        .remove_container(PROXY_CONTAINER_NAME)
-        .force(true)
+/// Force-remove every container the proxy owns — the proxy itself plus its
+/// sidecars. They all carry `PROXY_GROUP_LABEL`, so one `list_containers`
+/// returns the whole set.
+async fn remove_proxy_group(docker: &Docker) -> Result<()> {
+    let members = docker
+        .list_containers()
+        .all(true)
+        .with_label(PROXY_GROUP_LABEL, "true")
         .call()
         .await
-    {
-        Ok(()) | Err(docker::Error::NotFound) => Ok(()),
-        Err(e) => Err(e).wrap_err("remove stale proxy container"),
-    }
-}
-
-async fn create_proxy_stopped(docker: &Docker, plan: &ProxyContainerPlan) -> Result<String> {
-    let mut builder = docker
-        .create_container(PROXY_CONTAINER_NAME)
-        .image(&plan.image_ref)
-        .network_mode(plan.network_mode)
-        .with_label(MANAGED_LABEL, "true")
-        .with_label(PROXY_LABEL, "true")
-        .with_label(PROXY_CONFIG_HASH_LABEL, plan.hash());
-    for bind in &plan.binds {
-        builder = builder.with_bind(bind);
-    }
-    for entry in &plan.env {
-        let (k, v) = entry.split_once('=').expect("plan env is KEY=VALUE");
-        builder = builder.with_env(k, v);
-    }
-    builder.call().await.wrap_err("create proxy container")
-}
-
-async fn push_config_if_any(docker: &Docker, state: &State) -> Result<()> {
-    if let Some(cfg) = build_project_config(state)? {
-        push_config(docker, &cfg).await?;
+        .wrap_err("list proxy group")?;
+    for c in members {
+        match docker.remove_container(&c.id).force(true).call().await {
+            Ok(()) | Err(docker::Error::NotFound) => {}
+            Err(e) => tracing::warn!(id = %c.id, "remove proxy-group container: {e}"),
+        }
     }
     Ok(())
 }
 
-async fn down(state: &State) -> Result<()> {
+/// `dc up` path: ensure the proxy is up. If the container is already running,
+/// leave it alone (we don't try to detect drift here — `dc proxy up` is the
+/// explicit refresh). Otherwise bring it up fresh.
+pub(crate) async fn ensure_up() -> Result<()> {
     let docker = Docker::connect().await.wrap_err("connect to docker")?;
-    // Remove the proxy container first; that's enough to halt new sidecar
-    // creates. Then sweep sidecars.
-    match docker
-        .remove_container(PROXY_CONTAINER_NAME)
-        .force(true)
-        .call()
-        .await
-    {
-        Ok(()) | Err(docker::Error::NotFound) => {}
-        Err(e) => return Err(e).wrap_err("remove proxy container"),
+    let running = match docker.inspect_container(PROXY_CONTAINER_NAME).await {
+        Ok(d) => d.state.running,
+        Err(docker::Error::NotFound) => false,
+        Err(e) => return Err(e).wrap_err("inspect proxy"),
+    };
+    if running {
+        return Ok(());
     }
-    let sidecars = docker
-        .list_containers()
-        .all(true)
-        .with_label(PROXY_SIDECAR_LABEL, "true")
-        .call()
-        .await
-        .wrap_err("list proxy sidecars")?;
-    for sc in sidecars {
-        match docker.remove_container(&sc.id).force(true).call().await {
-            Ok(()) | Err(docker::Error::NotFound) => {}
-            Err(e) => tracing::warn!(id = %sc.id, "remove sidecar: {e}"),
-        }
-    }
-    let _ = state; // currently unused
+    proxy_up().await
+}
+
+async fn proxy_down() -> Result<()> {
+    let docker = Docker::connect().await.wrap_err("connect to docker")?;
+    remove_proxy_group(&docker).await?;
     eprintln!("{} proxy stopped", "✓".green());
     Ok(())
 }
 
-async fn status(state: &State) -> Result<()> {
+async fn proxy_status() -> Result<()> {
+    let config = Config::load()?;
     let docker = Docker::connect().await.wrap_err("connect to docker")?;
     match docker.inspect_container(PROXY_CONTAINER_NAME).await {
         Ok(d) => {
@@ -310,198 +137,77 @@ async fn status(state: &State) -> Result<()> {
         }
         Err(e) => return Err(e).wrap_err("inspect proxy"),
     }
-    println!("proxy dns port: {}", state.proxy.port);
+    println!("proxy dns port: {}", config.proxy.port);
 
-    let Some(cfg) = build_project_config(state)? else {
+    for (name, project) in &config.projects {
+        let Some(cfg) = build_project_config(name, project)? else {
+            continue;
+        };
         println!();
-        println!("project: {}  (no proxy config)", state.project_name);
-        return Ok(());
-    };
-
-    println!();
-    println!("project: {}", cfg.project);
-    println!("  configured services:");
-    for svc in &cfg.services {
-        let ports = svc
-            .ports
-            .iter()
-            .map(|p| format!("{}->{}", p.host, p.container))
-            .collect::<Vec<_>>()
-            .join(", ");
-        println!("    - {}  ports: {}", svc.name, ports);
-    }
-
-    let running = list_running_services(&docker, &cfg).await?;
-    if running.is_empty() {
-        println!("  running workspaces: (none)");
-        return Ok(());
-    }
-    println!("  running workspaces:");
-    let mut by_ws: IndexMap<String, Vec<RunningServiceInfo>> = IndexMap::new();
-    for r in running {
-        by_ws.entry(r.workspace.clone()).or_default().push(r);
-    }
-    for (workspace, services) in by_ws {
-        println!("    {workspace}:");
-        for r in services {
-            let ip = r.ip.as_deref().unwrap_or("?");
-            let hostname = render_hostname(&cfg, &workspace, &r.service)
-                .unwrap_or_else(|| "<template error>".to_string());
-            println!(
-                "      {svc:<12} cid={cid}  ip={ip}  → {hostname}",
-                svc = r.service,
-                cid = short(&r.cid),
-            );
+        println!("project: {name}");
+        for svc in &cfg.services {
+            let ports = svc
+                .ports
+                .iter()
+                .map(|p| {
+                    let tls = if p.tls { " (tls)" } else { "" };
+                    format!("{}->{}{tls}", p.host, p.container)
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            println!("  - {}: {}", svc.name, ports);
         }
     }
     Ok(())
 }
 
-struct RunningServiceInfo {
-    workspace: String,
-    service: String,
-    cid: String,
-    ip: Option<String>,
+async fn wait_for_running(docker: &Docker, id: &str) -> Result<()> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        match docker.inspect_container(id).await {
+            Ok(d) if d.state.running => return Ok(()),
+            Ok(_) => {}
+            Err(docker::Error::NotFound) => eyre::bail!("proxy container vanished after start"),
+            Err(e) => return Err(e).wrap_err("inspect proxy after start"),
+        }
+        if std::time::Instant::now() >= deadline {
+            eyre::bail!("proxy container did not reach running state within 5s");
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 }
 
-async fn list_running_services(
-    docker: &Docker,
-    cfg: &ProjectProxyConfig,
-) -> Result<Vec<RunningServiceInfo>> {
-    // Find primaries (containers with the user-set project label).
-    let primaries = docker
-        .list_containers()
-        .with_label(PROJECT_LABEL, &cfg.project)
-        .call()
-        .await
-        .wrap_err("list primary containers")?;
-    let mut out = Vec::new();
-    let mut seen_compose: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for primary in &primaries {
-        let Some(compose_project) = primary.labels.get(shared::COMPOSE_PROJECT_LABEL).cloned()
-        else {
+async fn create_proxy_stopped(config: &Config, docker: &Docker) -> Result<String> {
+    let socket_path = docker.socket().display();
+    let mut builder = docker
+        .create_container(PROXY_CONTAINER_NAME)
+        .image(&PROXY_IMAGE)
+        .network_mode("host")
+        .with_label(MANAGED_LABEL, "true")
+        .with_label(PROXY_LABEL, "true")
+        .with_label(PROXY_GROUP_LABEL, "true")
+        .with_bind(PROXY_CONFIG_VOLUME, PROXY_CONFIG_DIR)
+        .with_bind(socket_path, "/var/run/docker.sock")
+        .with_env(ENV_DNS_PORT, config.proxy.port);
+
+    if let Some(ca_root) = &config.proxy.ca_root {
+        builder = builder
+            .with_ro_bind(ca_root.display(), PROXY_CA_DIR)
+            .with_env(ENV_CA_DIR, PROXY_CA_DIR);
+    }
+
+    builder.call().await.wrap_err("create proxy container")
+}
+
+async fn push_all_configs(config: &Config, docker: &Docker) -> Result<()> {
+    for (name, project) in &config.projects {
+        let Some(cfg) = build_project_config(name, project)? else {
             continue;
         };
-        if !seen_compose.insert(compose_project.clone()) {
-            continue;
-        }
-        let workspace = primary
-            .labels
-            .get(WORKSPACE_LABEL)
-            .filter(|s| !s.is_empty())
-            .cloned()
-            .unwrap_or_else(|| {
-                compose_project
-                    .strip_suffix("_devcontainer")
-                    .unwrap_or(&compose_project)
-                    .to_string()
-            });
-        let containers = docker
-            .list_containers()
-            .with_label(shared::COMPOSE_PROJECT_LABEL, &compose_project)
-            .call()
-            .await
-            .wrap_err_with(|| format!("list containers for {compose_project}"))?;
-        for c in containers {
-            if c.labels.contains_key(shared::PROXY_SIDECAR_LABEL) {
-                continue;
-            }
-            let Some(service) = c.labels.get(COMPOSE_SERVICE_LABEL).cloned() else {
-                continue;
-            };
-            let ip = c
-                .network_settings
-                .networks
-                .values()
-                .find_map(|n| n.ip_address.clone())
-                .filter(|s| !s.is_empty());
-            out.push(RunningServiceInfo {
-                workspace: workspace.clone(),
-                service,
-                cid: c.id,
-                ip,
-            });
-        }
+        push_config(docker, &cfg).await?;
+        eprintln!("{} pushed config for {name}", "✓".green());
     }
-    out.sort_by(|a, b| {
-        (a.workspace.as_str(), a.service.as_str()).cmp(&(b.workspace.as_str(), b.service.as_str()))
-    });
-    Ok(out)
-}
-
-#[derive(Serialize)]
-struct TemplateContext<'a> {
-    root: bool,
-    project: &'a str,
-    workspace: &'a str,
-    service: &'a str,
-}
-
-fn render_hostname(cfg: &ProjectProxyConfig, workspace: &str, service: &str) -> Option<String> {
-    let mut hbs = Handlebars::new();
-    hbs.set_strict_mode(false);
-    let ctx = TemplateContext {
-        root: workspace == cfg.project,
-        project: &cfg.project,
-        workspace,
-        service,
-    };
-    hbs.render_template(&cfg.domain_template, &ctx).ok()
-}
-
-fn short(cid: &str) -> &str {
-    let end = cid.len().min(12);
-    &cid[..end]
-}
-
-fn build_project_config(state: &State) -> Result<Option<ProjectProxyConfig>> {
-    let Some(dc) = state.devcontainer.as_ref() else {
-        return Ok(None);
-    };
-    if !dc.proxy_enabled() {
-        return Ok(None);
-    }
-    let opts = &dc.config.customizations.devconcurrent.proxy;
-
-    let domain_template = opts
-        .domain_name
-        .as_ref()
-        .map(|t| t.source().to_string())
-        .unwrap_or_else(|| crate::devcontainer::proxy_options::DEFAULT_TEMPLATE.to_string());
-
-    let mut services_map: IndexMap<String, Vec<PortMapping>> = IndexMap::new();
-    for (name, svc) in &opts.services {
-        for port in &svc.ports {
-            if port.tls && port.host == port.container {
-                eyre::bail!(
-                    "service {name:?}: tls port mapping {}:{} has host == container; \
-                     TLS termination requires a distinct host port (e.g. host: 443, container: {})",
-                    port.host,
-                    port.container,
-                    port.container,
-                );
-            }
-            services_map
-                .entry(name.clone())
-                .or_default()
-                .push(PortMapping {
-                    host: port.host,
-                    container: port.container,
-                    tls: port.tls,
-                });
-        }
-    }
-
-    let services: Vec<ServiceConfig> = services_map
-        .into_iter()
-        .map(|(name, ports)| ServiceConfig { name, ports })
-        .collect();
-
-    Ok(Some(ProjectProxyConfig {
-        project: state.project_name.to_string(),
-        domain_template,
-        services,
-    }))
+    Ok(())
 }
 
 async fn push_config(docker: &Docker, cfg: &ProjectProxyConfig) -> Result<()> {
@@ -513,4 +219,56 @@ async fn push_config(docker: &Docker, cfg: &ProjectProxyConfig) -> Result<()> {
         .await
         .wrap_err("upload project config to proxy")?;
     Ok(())
+}
+
+fn build_project_config(
+    name: &ProjectName,
+    project: &Project,
+) -> Result<Option<ProjectProxyConfig>> {
+    let dc_path = DevcontainerConfig::find_config(&project.path);
+    let Some(dc_config) = DevcontainerConfig::load(dc_path.as_deref(), project)? else {
+        return Ok(None);
+    };
+    let opts = &dc_config.customizations.devconcurrent.proxy;
+    if !opts.enable {
+        return Ok(None);
+    }
+
+    let domain_template = opts
+        .domain_name
+        .as_ref()
+        .map(|t| t.source().to_string())
+        .unwrap_or_else(|| crate::devcontainer::proxy_options::DEFAULT_TEMPLATE.to_string());
+
+    let mut services_map: IndexMap<String, Vec<PortMapping>> = IndexMap::new();
+    for (svc_name, svc) in &opts.services {
+        for port in &svc.ports {
+            if port.tls && port.host == port.container {
+                eyre::bail!(
+                    "project {name}: service {svc_name:?} tls port {}:{} has host == container; \
+                     TLS termination requires a distinct host port",
+                    port.host,
+                    port.container,
+                );
+            }
+            services_map
+                .entry(svc_name.clone())
+                .or_default()
+                .push(PortMapping {
+                    host: port.host,
+                    container: port.container,
+                    tls: port.tls,
+                });
+        }
+    }
+    let services: Vec<ServiceConfig> = services_map
+        .into_iter()
+        .map(|(name, ports)| ServiceConfig { name, ports })
+        .collect();
+
+    Ok(Some(ProjectProxyConfig {
+        project: name.to_string(),
+        domain_template,
+        services,
+    }))
 }

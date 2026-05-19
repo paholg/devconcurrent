@@ -5,6 +5,7 @@ use clap_complete::engine::ArgValueCompleter;
 
 use crate::cli::State;
 use crate::complete::complete_workspace;
+use crate::config::Config;
 use crate::helpers::forward_to_shell;
 
 /// Cd into the workspace directory (only if using via shell wrapper).
@@ -16,7 +17,9 @@ pub(crate) struct Go {
 }
 
 impl Go {
-    pub(crate) async fn run(self, state: State) -> eyre::Result<()> {
+    pub(crate) async fn run(self, project: Option<String>) -> eyre::Result<()> {
+        let config = Config::load()?;
+        let state = State::new(project, &config).await?;
         let ws = state.resolve_workspace(Some(self.workspace)).await?;
         go(&ws.path)
     }

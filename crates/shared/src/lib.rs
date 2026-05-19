@@ -10,15 +10,17 @@ use serde::{Deserialize, Serialize};
 pub const PROJECT_LABEL: &str = "dev.devconcurrent.project";
 pub const WORKSPACE_LABEL: &str = "dev.devconcurrent.workspace";
 pub const MANAGED_LABEL: &str = "dev.devconcurrent.managed";
-/// Marks the global proxy container.
+/// On the proxy container only.
 pub const PROXY_LABEL: &str = "dev.devconcurrent.proxy";
-/// Marks a per-workspace socat sidecar created by the proxy.
+/// On sidecars only.
 pub const PROXY_SIDECAR_LABEL: &str = "dev.devconcurrent.proxy.sidecar";
+/// On both the proxy container and every sidecar — the "everything the
+/// proxy owns" umbrella. Lets `dc proxy up` / `dc proxy down` do one
+/// `list_containers` to find the whole group.
+pub const PROXY_GROUP_LABEL: &str = "dev.devconcurrent.proxy.group";
+/// Present on sidecars only. Value is the container id of the service the
+/// sidecar is net-joined to.
 pub const PROXY_TARGET_LABEL: &str = "dev.devconcurrent.proxy.target";
-/// Hex sha256 of the proxy container's stable input config (image, binds, env,
-/// network_mode). Lets the CLI detect a stale container whose binds/env have
-/// drifted from what the current CLI would create and recreate it.
-pub const PROXY_CONFIG_HASH_LABEL: &str = "dev.devconcurrent.proxy.config-hash";
 pub const COMPOSE_PROJECT_LABEL: &str = "com.docker.compose.project";
 pub const COMPOSE_SERVICE_LABEL: &str = "com.docker.compose.service";
 

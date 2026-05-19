@@ -15,8 +15,9 @@
 use docker::{Docker, build_archive};
 use eyre::{Result, WrapErr};
 use shared::{
-    PROJECT_LABEL, PROXY_SIDECAR_LABEL, PROXY_TARGET_LABEL, SIDECAR_CERT_FILE, SIDECAR_KEY_FILE,
-    SIDECAR_PLAN_DIR, SIDECAR_PLAN_FILE, ServiceConfig, SidecarPlan, WORKSPACE_LABEL,
+    PROJECT_LABEL, PROXY_GROUP_LABEL, PROXY_SIDECAR_LABEL, PROXY_TARGET_LABEL, SIDECAR_CERT_FILE,
+    SIDECAR_KEY_FILE, SIDECAR_PLAN_DIR, SIDECAR_PLAN_FILE, ServiceConfig, SidecarPlan,
+    WORKSPACE_LABEL,
 };
 
 use crate::certs::CaHolder;
@@ -113,6 +114,7 @@ pub async fn create_sidecar(
         .image(&image)
         .network_mode(&network_mode)
         .cmd(vec!["sidecar".to_string()])
+        .with_label(PROXY_GROUP_LABEL, "true")
         .with_label(PROXY_SIDECAR_LABEL, "true")
         .with_label(PROXY_TARGET_LABEL, target_cid)
         .with_label(PROJECT_LABEL, project)
@@ -159,17 +161,21 @@ pub async fn sweep_orphans(docker: &Docker) -> Result<()> {
         .await
         .wrap_err("list sidecars")?;
     for sc in sidecars {
-        let target = sc.labels.get(PROXY_TARGET_LABEL).cloned();
-        let alive = match target {
-            Some(cid) => match docker.inspect_container(&cid).await {
-                Ok(d) => d.state.running,
-                Err(docker::Error::NotFound) => false,
-                Err(e) => {
-                    tracing::warn!(cid = %cid, "inspect target during sweep: {e}");
-                    true
-                }
-            },
-            None => false,
+        let target_cid = match sc.labels.get(PROXY_TARGET_LABEL) {
+            Some(cid) => cid.clone(),
+            None => {
+                tracing::warn!(sidecar = %sc.id, "sidecar without target label; removing");
+                remove_sidecar(docker, &sc.id).await;
+                continue;
+            }
+        };
+        let alive = match docker.inspect_container(&target_cid).await {
+            Ok(d) => d.state.running,
+            Err(docker::Error::NotFound) => false,
+            Err(e) => {
+                tracing::warn!(cid = %target_cid, "inspect target during sweep: {e}");
+                true
+            }
         };
         if !alive {
             tracing::info!(sidecar = %sc.id, "removing orphaned sidecar");

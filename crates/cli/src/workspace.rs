@@ -12,14 +12,14 @@ pub(crate) mod git_status;
 pub(crate) mod table;
 
 pub(crate) struct Workspace<'a> {
-    pub(crate) state: &'a State,
+    pub(crate) state: &'a State<'a>,
     pub(crate) name: String,
     pub(crate) path: PathBuf,
     pub(crate) is_root: bool,
 }
 
 impl<'a> Workspace<'a> {
-    pub(crate) async fn list(state: &'a State) -> eyre::Result<Vec<Workspace<'a>>> {
+    pub(crate) async fn list(state: &'a State<'a>) -> eyre::Result<Vec<Workspace<'a>>> {
         let paths = worktree::list(&state.project.path).await?;
         Ok(paths
             .into_iter()

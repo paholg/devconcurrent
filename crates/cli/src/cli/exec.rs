@@ -9,6 +9,7 @@ use indexmap::IndexMap;
 
 use crate::cli::State;
 use crate::complete::complete_workspace;
+use crate::config::Config;
 use crate::devcontainer::substitution;
 use crate::docker::probe;
 use crate::state::DevcontainerState;
@@ -26,7 +27,9 @@ pub(crate) struct Exec {
 }
 
 impl Exec {
-    pub(crate) async fn run(self, state: State) -> eyre::Result<()> {
+    pub(crate) async fn run(self, project: Option<String>) -> eyre::Result<()> {
+        let config = Config::load()?;
+        let state = State::new(project, &config).await?;
         let workspace = state.resolve_workspace(self.workspace).await?;
         let devcontainer = state.try_devcontainer()?;
         let workspace_full = workspace.devcontainer(devcontainer).await?;
