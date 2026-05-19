@@ -2,7 +2,7 @@
 
 use handlebars::Handlebars;
 use serde::Serialize;
-use shared::ProjectProxyConfig;
+use shared::{DEFAULT_DOMAIN_TEMPLATE, ProxyOptions};
 
 #[derive(Serialize)]
 struct TemplateContext<'a> {
@@ -13,27 +13,34 @@ struct TemplateContext<'a> {
 }
 
 /// Render the hostname for one (project, workspace, service) tuple using the
-/// project's domain template. Logs and returns `None` if the template fails.
+/// project's `domainName` template, falling back to the default when unset.
+/// Logs and returns `None` if the template fails.
 pub fn render_hostname(
-    cfg: &ProjectProxyConfig,
+    opts: &ProxyOptions,
+    project: &str,
     workspace: &str,
     service: &str,
     root: bool,
 ) -> Option<String> {
+    let template_src = opts
+        .domain_name
+        .as_ref()
+        .map(|t| t.source())
+        .unwrap_or(DEFAULT_DOMAIN_TEMPLATE);
     let mut hbs = Handlebars::new();
     hbs.set_strict_mode(false);
     let ctx = TemplateContext {
         root,
-        project: &cfg.project,
+        project,
         workspace,
         service,
     };
-    match hbs.render_template(&cfg.domain_template, &ctx) {
+    match hbs.render_template(template_src, &ctx) {
         Ok(s) => Some(s),
         Err(e) => {
             tracing::warn!(
-                project = %cfg.project,
-                template = %cfg.domain_template,
+                project,
+                template = %template_src,
                 "failed to render domain template: {e}"
             );
             None

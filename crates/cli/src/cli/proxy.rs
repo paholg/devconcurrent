@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::LazyLock;
 use std::time::Duration;
 
@@ -5,14 +6,12 @@ use clap::{Args, Subcommand};
 use color_eyre::owo_colors::OwoColorize;
 use docker::Docker;
 use eyre::{Result, WrapErr};
-use indexmap::IndexMap;
 use shared::{
-    ENV_CA_DIR, ENV_DNS_PORT, MANAGED_LABEL, PROXY_CA_DIR, PROXY_CONFIG_DIR, PROXY_CONFIG_VOLUME,
-    PROXY_CONTAINER_NAME, PROXY_GROUP_LABEL, PROXY_LABEL, PortMapping, ProjectProxyConfig,
-    ServiceConfig,
+    ENV_CA_DIR, ENV_DNS_PORT, MANAGED_LABEL, PROXY_CA_DIR, PROXY_CONFIG_DIR, PROXY_CONFIG_FILE,
+    PROXY_CONFIG_VOLUME, PROXY_CONTAINER_NAME, PROXY_GROUP_LABEL, PROXY_LABEL, ProxyOptions,
 };
 
-use crate::config::{Config, Project, ProjectName};
+use crate::config::{Config, Project};
 use crate::devcontainer::DevcontainerConfig;
 
 /// OCI image used by the proxy container.
@@ -140,12 +139,12 @@ async fn proxy_status() -> Result<()> {
     println!("proxy dns port: {}", config.proxy.port);
 
     for (name, project) in &config.projects {
-        let Some(cfg) = build_project_config(name, project)? else {
+        let Some(opts) = load_proxy_options(project)? else {
             continue;
         };
         println!();
         println!("project: {name}");
-        for svc in &cfg.services {
+        for (svc_name, svc) in &opts.services {
             let ports = svc
                 .ports
                 .iter()
@@ -155,7 +154,7 @@ async fn proxy_status() -> Result<()> {
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
-            println!("  - {}: {}", svc.name, ports);
+            println!("  - {svc_name}: {ports}");
         }
     }
     Ok(())
@@ -200,31 +199,32 @@ async fn create_proxy_stopped(config: &Config, docker: &Docker) -> Result<String
 }
 
 async fn push_all_configs(config: &Config, docker: &Docker) -> Result<()> {
+    let mut all: HashMap<String, ProxyOptions> = HashMap::new();
     for (name, project) in &config.projects {
-        let Some(cfg) = build_project_config(name, project)? else {
+        let Some(opts) = load_proxy_options(project)? else {
             continue;
         };
-        push_config(docker, &cfg).await?;
-        eprintln!("{} pushed config for {name}", "✓".green());
+        all.insert(name.to_string(), opts);
     }
-    Ok(())
-}
-
-async fn push_config(docker: &Docker, cfg: &ProjectProxyConfig) -> Result<()> {
-    let bytes = serde_json::to_vec_pretty(cfg).wrap_err("serialize project config")?;
-    let filename = format!("{}.json", cfg.project);
-    let tar = docker::build_single_file_tar(&filename, &bytes);
+    let bytes = serde_json::to_vec_pretty(&all).wrap_err("serialize proxy projects")?;
+    let tar = docker::build_single_file_tar(PROXY_CONFIG_FILE, &bytes);
     docker
         .upload_archive(PROXY_CONTAINER_NAME, PROXY_CONFIG_DIR, tar)
         .await
-        .wrap_err("upload project config to proxy")?;
+        .wrap_err("upload proxy projects")?;
+    eprintln!(
+        "{} pushed config for {} project(s): {}",
+        "✓".green(),
+        all.len(),
+        all.keys().cloned().collect::<Vec<_>>().join(", ")
+    );
     Ok(())
 }
 
-fn build_project_config(
-    name: &ProjectName,
-    project: &Project,
-) -> Result<Option<ProjectProxyConfig>> {
+/// Load and merge this project's devcontainer config and return its
+/// `ProxyOptions` if proxying is enabled. Returns `None` for projects with no
+/// devcontainer.json, or with `proxy.enable = false`.
+fn load_proxy_options(project: &Project) -> Result<Option<ProxyOptions>> {
     let dc_path = DevcontainerConfig::find_config(&project.path);
     let Some(dc_config) = DevcontainerConfig::load(dc_path.as_deref(), project)? else {
         return Ok(None);
@@ -233,42 +233,5 @@ fn build_project_config(
     if !opts.enable {
         return Ok(None);
     }
-
-    let domain_template = opts
-        .domain_name
-        .as_ref()
-        .map(|t| t.source().to_string())
-        .unwrap_or_else(|| crate::devcontainer::proxy_options::DEFAULT_TEMPLATE.to_string());
-
-    let mut services_map: IndexMap<String, Vec<PortMapping>> = IndexMap::new();
-    for (svc_name, svc) in &opts.services {
-        for port in &svc.ports {
-            if port.tls && port.host == port.container {
-                eyre::bail!(
-                    "project {name}: service {svc_name:?} tls port {}:{} has host == container; \
-                     TLS termination requires a distinct host port",
-                    port.host,
-                    port.container,
-                );
-            }
-            services_map
-                .entry(svc_name.clone())
-                .or_default()
-                .push(PortMapping {
-                    host: port.host,
-                    container: port.container,
-                    tls: port.tls,
-                });
-        }
-    }
-    let services: Vec<ServiceConfig> = services_map
-        .into_iter()
-        .map(|(name, ports)| ServiceConfig { name, ports })
-        .collect();
-
-    Ok(Some(ProjectProxyConfig {
-        project: name.to_string(),
-        domain_template,
-        services,
-    }))
+    Ok(Some(opts.clone()))
 }

@@ -14,7 +14,6 @@ use serde_with::{OneOrMany, serde_as};
 pub(crate) mod dc_options;
 pub(crate) mod forward_port;
 pub(crate) mod lifecycle_command;
-pub(crate) mod proxy_options;
 pub(crate) mod substitution;
 mod unsupported;
 

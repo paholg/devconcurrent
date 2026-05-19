@@ -15,8 +15,8 @@
 use docker::{Docker, build_archive};
 use eyre::{Result, WrapErr};
 use shared::{
-    PROJECT_LABEL, PROXY_GROUP_LABEL, PROXY_SIDECAR_LABEL, PROXY_TARGET_LABEL, SIDECAR_CERT_FILE,
-    SIDECAR_KEY_FILE, SIDECAR_PLAN_DIR, SIDECAR_PLAN_FILE, ServiceConfig, SidecarPlan,
+    PROJECT_LABEL, PROXY_GROUP_LABEL, PROXY_SIDECAR_LABEL, PROXY_TARGET_LABEL, ProxyService,
+    SIDECAR_CERT_FILE, SIDECAR_KEY_FILE, SIDECAR_PLAN_DIR, SIDECAR_PLAN_FILE, SidecarPlan,
     WORKSPACE_LABEL,
 };
 
@@ -36,12 +36,14 @@ fn sidecar_image() -> String {
 ///
 /// `hostname` is the rendered template result, used only as the SAN of any
 /// minted TLS leaf cert.
+#[allow(clippy::too_many_arguments)]
 pub async fn create_sidecar(
     docker: &Docker,
     ca: Option<&CaHolder>,
     project: &str,
     workspace: &str,
-    svc: &ServiceConfig,
+    service: &str,
+    svc: &ProxyService,
     hostname: &str,
     target_cid: &str,
 ) -> Result<Option<String>> {
@@ -65,8 +67,7 @@ pub async fn create_sidecar(
         .wrap_err("ensure sidecar image")?;
 
     let name = sanitize_container_name(&format!(
-        "devconcurrent-proxy-sidecar-{project}-{workspace}-{}",
-        svc.name
+        "devconcurrent-proxy-sidecar-{project}-{workspace}-{service}"
     ));
     let network_mode = format!("container:{target_cid}");
 

@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
 
-use shared::ProjectProxyConfig;
+use shared::ProxyOptions;
 use tokio::sync::RwLock;
 
 /// One running compose service container tracked from docker start events.
@@ -26,7 +26,7 @@ pub struct RunningService {
 
 #[derive(Debug, Default)]
 pub struct RegistryInner {
-    pub configs: HashMap<String, ProjectProxyConfig>,
+    pub configs: HashMap<String, ProxyOptions>,
     pub services: HashMap<String, RunningService>,
     pub names: HashMap<String, IpAddr>,
 }
@@ -41,16 +41,16 @@ impl Registry {
         Self::default()
     }
 
-    pub async fn load_configs(&self, configs: Vec<ProjectProxyConfig>) {
+    pub async fn load_configs(&self, configs: Vec<(String, ProxyOptions)>) {
         let mut inner = self.inner.write().await;
         inner.configs.clear();
-        for cfg in configs {
-            inner.configs.insert(cfg.project.clone(), cfg);
+        for (name, opts) in configs {
+            inner.configs.insert(name, opts);
         }
         rebuild_names(&mut inner);
     }
 
-    pub async fn config_for(&self, project: &str) -> Option<ProjectProxyConfig> {
+    pub async fn config_for(&self, project: &str) -> Option<ProxyOptions> {
         self.inner.read().await.configs.get(project).cloned()
     }
 
@@ -83,12 +83,12 @@ impl Registry {
 fn rebuild_names(inner: &mut RegistryInner) {
     let mut names: HashMap<String, IpAddr> = HashMap::new();
     for svc in inner.services.values() {
-        let Some(cfg) = inner.configs.get(&svc.project) else {
+        let Some(opts) = inner.configs.get(&svc.project) else {
             continue;
         };
-        let root = svc.workspace == cfg.project;
+        let root = svc.workspace == svc.project;
         let Some(hostname) =
-            crate::routing::render_hostname(cfg, &svc.workspace, &svc.service, root)
+            crate::routing::render_hostname(opts, &svc.project, &svc.workspace, &svc.service, root)
         else {
             continue;
         };

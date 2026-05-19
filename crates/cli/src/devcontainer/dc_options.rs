@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::devcontainer::proxy_options::ProxyOptions;
+use shared::ProxyOptions;
+
 use crate::helpers::deserialize_shell_path_opt;
 use crate::run::cmd::Cmd;
 

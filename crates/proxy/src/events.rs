@@ -20,8 +20,8 @@ use eyre::Result;
 use futures_util::StreamExt;
 use indexmap::IndexMap;
 use shared::{
-    COMPOSE_PROJECT_LABEL, COMPOSE_SERVICE_LABEL, PROJECT_LABEL, PROXY_LABEL, ServiceConfig,
-    WORKSPACE_LABEL,
+    COMPOSE_PROJECT_LABEL, COMPOSE_SERVICE_LABEL, PROJECT_LABEL, PROXY_LABEL, ProxyOptions,
+    ProxyService, WORKSPACE_LABEL,
 };
 
 use crate::certs::CaHolder;
@@ -132,7 +132,7 @@ pub(crate) async fn sync_compose_project(
     let Some(project) = primary.labels.get(PROJECT_LABEL).cloned() else {
         return;
     };
-    let Some(cfg) = registry.config_for(&project).await else {
+    let Some(opts) = registry.config_for(&project).await else {
         tracing::debug!(
             project,
             "compose project references unknown devconcurrent project"
@@ -148,16 +148,13 @@ pub(crate) async fn sync_compose_project(
         let Some(compose_service) = c.labels.get(COMPOSE_SERVICE_LABEL).cloned() else {
             continue;
         };
-        let port_config = cfg
-            .services
-            .iter()
-            .find(|s| s.name == compose_service)
-            .cloned();
+        let port_config = opts.services.get(&compose_service).cloned();
         adopt(
             docker,
             registry,
             ca,
-            &cfg,
+            &project,
+            &opts,
             &workspace,
             &compose_service,
             port_config.as_ref(),
@@ -176,10 +173,11 @@ async fn adopt(
     docker: &Docker,
     registry: &Registry,
     ca: Option<&CaHolder>,
-    cfg: &shared::ProjectProxyConfig,
+    project: &str,
+    opts: &ProxyOptions,
     workspace: &str,
     service: &str,
-    port_config: Option<&ServiceConfig>,
+    port_config: Option<&ProxyService>,
     target_cid: &str,
 ) {
     let container_ip = match inspect_container_ip(docker, target_cid).await {
@@ -187,7 +185,7 @@ async fn adopt(
         Err(e) => {
             tracing::error!(
                 container = %target_cid,
-                project = %cfg.project,
+                project,
                 workspace,
                 service,
                 "couldn't read container IP, skipping: {e:?}"
@@ -198,7 +196,7 @@ async fn adopt(
 
     tracing::info!(
         container = %target_cid,
-        project = %cfg.project,
+        project,
         workspace,
         service,
         %container_ip,
@@ -207,24 +205,18 @@ async fn adopt(
     );
 
     let sidecar_id = if let Some(svc) = port_config.filter(|s| !s.ports.is_empty()) {
-        let root = workspace == cfg.project;
-        let hostname = crate::routing::render_hostname(cfg, workspace, &svc.name, root)
-            .unwrap_or_else(|| format!("{svc_name}.{}.test", cfg.project, svc_name = svc.name));
+        let root = workspace == project;
+        let hostname = crate::routing::render_hostname(opts, project, workspace, service, root)
+            .unwrap_or_else(|| format!("{service}.{project}.test"));
         match sidecar::create_sidecar(
-            docker,
-            ca,
-            &cfg.project,
-            workspace,
-            svc,
-            &hostname,
-            target_cid,
+            docker, ca, project, workspace, service, svc, &hostname, target_cid,
         )
         .await
         {
             Ok(id) => id,
             Err(e) => {
                 tracing::error!(
-                    project = %cfg.project,
+                    project,
                     workspace,
                     service,
                     target_cid,
@@ -239,7 +231,7 @@ async fn adopt(
 
     registry
         .track_service(RunningService {
-            project: cfg.project.clone(),
+            project: project.to_string(),
             workspace: workspace.to_string(),
             service: service.to_string(),
             target_cid: target_cid.to_string(),

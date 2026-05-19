@@ -3,7 +3,7 @@ use std::path::Path;
 
 use docker::Docker;
 use eyre::{Result, WrapErr};
-use shared::{ENV_CA_DIR, ENV_DNS_PORT, PROXY_CONFIG_DIR, ProjectProxyConfig};
+use shared::{ENV_CA_DIR, ENV_DNS_PORT, PROXY_CONFIG_DIR, PROXY_CONFIG_FILE, ProxyOptions};
 use tracing::info;
 
 mod certs;
@@ -100,24 +100,17 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn read_project_configs(dir: &Path) -> Result<Vec<ProjectProxyConfig>> {
-    let mut out = Vec::new();
-    let read_dir = match std::fs::read_dir(dir) {
-        Ok(rd) => rd,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(out),
-        Err(e) => return Err(e).wrap_err_with(|| format!("read {}", dir.display())),
+/// Read `<dir>/projects.json` as the merged `HashMap<project_name, ProxyOptions>`
+/// pushed by the CLI. Missing file → empty map (proxy comes up with nothing
+/// configured, which is fine).
+fn read_project_configs(dir: &Path) -> Result<Vec<(String, ProxyOptions)>> {
+    let path = dir.join(PROXY_CONFIG_FILE);
+    let bytes = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e).wrap_err_with(|| format!("read {}", path.display())),
     };
-    for entry in read_dir {
-        let entry = entry.wrap_err("read dir entry")?;
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("json") {
-            continue;
-        }
-        let bytes = std::fs::read(&path).wrap_err_with(|| format!("read {}", path.display()))?;
-        match serde_json::from_slice::<ProjectProxyConfig>(&bytes) {
-            Ok(cfg) => out.push(cfg),
-            Err(e) => tracing::warn!(path = %path.display(), "invalid project config: {e}"),
-        }
-    }
-    Ok(out)
+    let map: std::collections::HashMap<String, ProxyOptions> =
+        serde_json::from_slice(&bytes).wrap_err_with(|| format!("parse {}", path.display()))?;
+    Ok(map.into_iter().collect())
 }

@@ -640,15 +640,16 @@
       }
     },
     "ProxyOptions": {
-      "description": "Per-project proxy configuration.\n\nPorts from `forwardPorts` are picked up automatically",
+      "description": "Per-project proxy configuration. Lives under\n`customizations.devconcurrent.proxy` in `devcontainer.json`. The CLI\nmerges devcontainer.json + project-level overrides and serializes the\nresult; the proxy reads the same struct back.\n\nAny ports specified in `forwardPorts` are picked up automatically.",
       "type": "object",
       "properties": {
         "enable": {
+          "description": "Opt in to proxy routing for this project.",
           "type": "boolean",
           "default": false
         },
         "domainName": {
-          "description": "Handlebars template for the proxied domain name.\n\nThe default TLD (.test) is one guaranteed to never be registered on the\ninternet, but whatever you use, you will need a DNS entry to point to\nthe devconcurrent proxy.\n\nAvailable variables:\n- `root` (bool) — whether this is the root workspace\n- `project` — project name\n- `workspace` — workspace name\n- `service` — name of the service from compose\n\nDefault:\n```\n{{workspace}}.{{service}}.test\n```",
+          "description": "Handlebars template for the proxied domain name.\n\nAvailable variables:\n- `root` (bool) — whether this is the root workspace\n- `project` — project name\n- `workspace` — workspace name\n- `service` — name of the service from compose",
           "anyOf": [
             {
               "$ref": "#/$defs/ProxyHostnameTemplate"
@@ -660,7 +661,7 @@
           "default": null
         },
         "services": {
-          "description": "Per-compose service configuration.\n\nIn addition, any ports specified in `forwardPorts` will be proxied.",
+          "description": "Per-compose-service configuration.",
           "type": "object",
           "additionalProperties": {
             "$ref": "#/$defs/ProxyService"
@@ -677,7 +678,6 @@
       "type": "object",
       "properties": {
         "ports": {
-          "description": "Port mappings.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/ProxyPort"
@@ -687,7 +687,7 @@
       }
     },
     "ProxyPort": {
-      "description": "Port mapping.",
+      "description": "Port mapping for a single (host, container) pair on a service.\n\nValidation happens at deserialization: TLS termination requires the\n`host` port to differ from `container`, since the sidecar needs to bind\n`host` for incoming connections while the app binds `container`. A\nconfig-time error is far easier to track down than a runtime sidecar\nfailure.",
       "type": "object",
       "properties": {
         "ip": {

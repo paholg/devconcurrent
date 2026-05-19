@@ -40,7 +40,7 @@ release version:
     git push --tags
 
 # Build the proxy image, tag it, then run it.
-run-proxy:
+proxy-up:
     nix run .#docker-service-image.copyToDockerDaemon
     v=$(cargo pkgid -p devconcurrent-proxy | sed 's/.*[@#]//'); \
     docker tag "devconcurrent-proxy:$v" "ghcr.io/paholg/devconcurrent-proxy:$v" && \

@@ -2,8 +2,16 @@
 //! devconcurrent-proxy service.
 //!
 //! The CLI writes one `<project>.json` file per project into the
-//! `devconcurrent-proxy-config` volume; the proxy reads them at startup.
+//! `devconcurrent-proxy-config` volume; the proxy reads them at startup. The
+//! file is the merged [`ProxyOptions`] for that project — the same struct
+//! the CLI builds from `customizations.devconcurrent.proxy` in
+//! `devcontainer.json`. No transformation, no separate wire struct.
 
+use std::net::{IpAddr, Ipv4Addr};
+
+use indexmap::IndexMap;
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
+use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 
 // Container labels.
@@ -29,7 +37,10 @@ pub const PROXY_CONTAINER_NAME: &str = "devconcurrent-proxy";
 pub const PROXY_CONFIG_VOLUME: &str = "devconcurrent-proxy-config";
 
 // In-container paths.
-pub const PROXY_CONFIG_DIR: &str = "/etc/projects";
+pub const PROXY_CONFIG_DIR: &str = "/etc/proxy";
+/// Single file inside [`PROXY_CONFIG_DIR`] containing the merged
+/// `HashMap<project_name, ProxyOptions>` for all proxy-enabled projects.
+pub const PROXY_CONFIG_FILE: &str = "projects.json";
 /// Directory inside the proxy container where the mkcert CAROOT is
 /// bind-mounted read-only when TLS is enabled.
 pub const PROXY_CA_DIR: &str = "/etc/proxy-ca";
@@ -46,36 +57,155 @@ pub const ENV_DNS_PORT: &str = "DC_PROXY_DNS_PORT";
 /// `rootCA.pem` + `rootCA-key.pem` from this directory.
 pub const ENV_CA_DIR: &str = "DC_PROXY_CA_DIR";
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectProxyConfig {
-    pub project: String,
-    /// Handlebars source. Variables: `root` (bool), `project`, `workspace`, `service`.
-    pub domain_template: String,
-    pub services: Vec<ServiceConfig>,
+/// Default Handlebars template for proxied hostnames.
+pub const DEFAULT_DOMAIN_TEMPLATE: &str = "{{workspace}}.{{service}}.test";
+
+/// Per-project proxy configuration. Lives under
+/// `customizations.devconcurrent.proxy` in `devcontainer.json`. The CLI
+/// merges devcontainer.json + project-level overrides and serializes the
+/// result; the proxy reads the same struct back.
+///
+/// Any ports specified in `forwardPorts` are picked up automatically.
+#[derive(Deserialize, Serialize, Clone, Debug, Default, JsonSchema)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ProxyOptions {
+    /// Opt in to proxy routing for this project.
+    pub enable: bool,
+    /// Handlebars template for the proxied domain name.
+    ///
+    /// Available variables:
+    /// - `root` (bool) — whether this is the root workspace
+    /// - `project` — project name
+    /// - `workspace` — workspace name
+    /// - `service` — name of the service from compose
+    pub domain_name: Option<Template>,
+    /// Per-compose-service configuration.
+    pub services: IndexMap<String, ProxyService>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ServiceConfig {
-    /// Compose service name. The sidecar runs in this service's container
-    /// netns and forwards `host` → `127.0.0.1:container` locally.
-    pub name: String,
-    pub ports: Vec<PortMapping>,
+#[derive(Deserialize, Serialize, Clone, Debug, Default, JsonSchema)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ProxyService {
+    pub ports: Vec<ProxyPort>,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PortMapping {
-    /// Port the sidecar listens on, in the devcontainer service's netns.
+/// Port mapping for a single (host, container) pair on a service.
+///
+/// Validation happens at deserialization: TLS termination requires the
+/// `host` port to differ from `container`, since the sidecar needs to bind
+/// `host` for incoming connections while the app binds `container`. A
+/// config-time error is far easier to track down than a runtime sidecar
+/// failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+pub struct ProxyPort {
+    /// The IP address to listen on. Defaults to 0.0.0.0, allowing traffic in
+    /// from any source.
+    #[serde(default = "default_ip")]
+    pub ip: IpAddr,
     pub host: u16,
-    /// Destination port inside the target service container.
     pub container: u16,
     /// Terminate TLS on `host` and forward plaintext to `container`. Requires
-    /// the proxy to have a CAROOT mounted; otherwise the sidecar logs a
-    /// warning and leaves this port unbound.
+    /// `proxy.caRoot` to be configured globally. Default: false.
     #[serde(default)]
     pub tls: bool,
+}
+
+fn default_ip() -> IpAddr {
+    IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+}
+
+impl<'de> Deserialize<'de> for ProxyPort {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Raw {
+            #[serde(default = "default_ip")]
+            ip: IpAddr,
+            host: u16,
+            container: u16,
+            #[serde(default)]
+            tls: bool,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        if raw.tls && raw.host == raw.container {
+            return Err(de::Error::custom(format!(
+                "tls port mapping {}:{} has host == container; TLS termination requires a distinct host port (e.g. host: 443, container: {})",
+                raw.host, raw.container, raw.container,
+            )));
+        }
+        Ok(Self {
+            ip: raw.ip,
+            host: raw.host,
+            container: raw.container,
+            tls: raw.tls,
+        })
+    }
+}
+
+/// A Handlebars hostname template, compiled at deserialization time so
+/// syntax errors surface as config-load errors rather than at first use.
+#[derive(Clone, Debug)]
+pub struct Template {
+    source: String,
+    compiled: handlebars::Template,
+}
+
+impl Template {
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+
+    pub fn compiled(&self) -> &handlebars::Template {
+        &self.compiled
+    }
+
+    fn compile(source: String) -> Result<Self, handlebars::TemplateError> {
+        let compiled = handlebars::Template::compile(&source)?;
+        Ok(Self { source, compiled })
+    }
+}
+
+impl Default for Template {
+    fn default() -> Self {
+        Self::compile(DEFAULT_DOMAIN_TEMPLATE.to_string())
+            .expect("default template is a valid Handlebars template")
+    }
+}
+
+impl PartialEq for Template {
+    fn eq(&self, other: &Self) -> bool {
+        self.source == other.source
+    }
+}
+
+impl Eq for Template {}
+
+impl<'de> Deserialize<'de> for Template {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        Self::compile(s).map_err(de::Error::custom)
+    }
+}
+
+impl Serialize for Template {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.source)
+    }
+}
+
+impl JsonSchema for Template {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "ProxyHostnameTemplate".into()
+    }
+
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "type": "string",
+            "description":
+                "Handlebars template for the proxied hostname. \
+                Variables: `root` (bool), `project`, `workspace`, `service`.",
+        })
+    }
 }
 
 /// Sidecar plan, written by the proxy into the sidecar container's
@@ -85,7 +215,7 @@ pub struct PortMapping {
 pub struct SidecarPlan {
     /// Rendered hostname for this service; used as the TLS cert's SAN.
     pub hostname: String,
-    pub ports: Vec<PortMapping>,
+    pub ports: Vec<ProxyPort>,
 }
 
 #[cfg(test)]
@@ -93,22 +223,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn roundtrip() {
-        let cfg = ProjectProxyConfig {
-            project: "p".into(),
-            domain_template: "{{service}}.{{project}}.test".into(),
-            services: vec![ServiceConfig {
-                name: "app".into(),
-                ports: vec![PortMapping {
-                    host: 80,
-                    container: 3000,
-                    tls: false,
-                }],
-            }],
-        };
-        let json = serde_json::to_string(&cfg).unwrap();
-        let back: ProjectProxyConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.project, "p");
-        assert_eq!(back.services[0].ports[0].host, 80);
+    fn rejects_tls_with_same_port() {
+        let err =
+            serde_json::from_str::<ProxyPort>(r#"{"host": 443, "container": 443, "tls": true}"#)
+                .unwrap_err()
+                .to_string();
+        assert!(err.contains("tls port"), "got: {err}");
+    }
+
+    #[test]
+    fn accepts_tls_with_different_ports() {
+        let p: ProxyPort =
+            serde_json::from_str(r#"{"host": 443, "container": 3000, "tls": true}"#).unwrap();
+        assert_eq!(p.host, 443);
+        assert_eq!(p.container, 3000);
+        assert!(p.tls);
+    }
+
+    #[test]
+    fn allows_same_port_without_tls() {
+        let p: ProxyPort = serde_json::from_str(r#"{"host": 3000, "container": 3000}"#).unwrap();
+        assert_eq!(p.host, 3000);
+        assert!(!p.tls);
+    }
+
+    #[test]
+    fn deserializes_valid_template() {
+        let t: Template = serde_json::from_str("\"{{project}}.test\"").unwrap();
+        assert_eq!(t.source(), "{{project}}.test");
+    }
+
+    #[test]
+    fn rejects_invalid_template() {
+        assert!(serde_json::from_str::<Template>("\"{{#unclosed\"").is_err());
     }
 }
