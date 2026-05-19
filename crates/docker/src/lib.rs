@@ -62,3 +62,5 @@ pub const PROXY_SIDECAR_LABEL: &str = "com.paholg.devconcurrent.proxy.sidecar";
 /// Present on sidecars only. Value is the container id of the service the
 /// sidecar is net-joined to.
 pub const PROXY_TARGET_LABEL: &str = "com.paholg.devconcurrent.proxy.target";
+/// Present on sidecars only. Value is the compose service name.
+pub const PROXY_SERVICE_LABEL: &str = "com.paholg.devconcurrent.proxy.service";

@@ -11,6 +11,7 @@ cached = { version = "0.59.0", features = ["async"] }
 clap = { version = "4.6.1", features = ["derive"] }
 clap_complete = { version = "4.6.5", features = ["unstable-dynamic"] }
 color-eyre = "0.6.5"
+comfy-table = "7.2.2"
 crossterm = "0.29"
 derive_more = { version = "2.1.1", features = ["add", "add_assign", "sum"] }
 directories = "6.0.0"

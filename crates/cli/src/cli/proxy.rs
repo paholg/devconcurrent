@@ -1,14 +1,18 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::LazyLock;
 use std::time::Duration;
 
 use clap::{Args, Subcommand};
 use color_eyre::owo_colors::OwoColorize;
-use docker::{Docker, PROXY_GROUP_LABEL, PROXY_LABEL};
+use comfy_table::{ContentArrangement, Table, presets};
+use docker::{
+    ContainerStatus, Docker, PROJECT_LABEL, PROXY_GROUP_LABEL, PROXY_LABEL, PROXY_SERVICE_LABEL,
+    PROXY_SIDECAR_LABEL, WORKSPACE_LABEL,
+};
 use eyre::{Result, WrapErr};
 use shared::{
     ENV_CA_DIR, ENV_DNS_PORT, PROXY_CA_DIR, PROXY_CONFIG_DIR, PROXY_CONFIG_FILE,
-    PROXY_CONFIG_VOLUME, PROXY_CONTAINER_NAME, ProxyOptions,
+    PROXY_CONFIG_VOLUME, PROXY_CONTAINER_NAME, ProxyOptions, ProxyService,
 };
 
 use crate::config::{Config, Project};
@@ -118,46 +122,138 @@ async fn proxy_status() -> Result<()> {
     let config = Config::load()?;
     let docker = Docker::connect().await.wrap_err("connect to docker")?;
     match docker.inspect_container(PROXY_CONTAINER_NAME).await {
+        Ok(d) if d.state.running => {
+            println!(
+                "proxy: {} (image={}, dns port={})",
+                "running".green(),
+                d.config.image,
+                config.proxy.port,
+            );
+        }
         Ok(d) => {
             println!(
-                "proxy container: {} ({}) image={}",
+                "proxy: {} ({}, image={})",
+                "not running".red(),
                 d.state.status,
-                if d.state.running {
-                    "running"
-                } else {
-                    "stopped"
-                },
-                d.config.image
+                d.config.image,
             );
         }
         Err(docker::Error::NotFound) => {
-            println!("proxy container: not present");
+            println!("proxy: {}", "not present".red());
             return Ok(());
         }
         Err(e) => return Err(e).wrap_err("inspect proxy"),
     }
-    println!("proxy dns port: {}", config.proxy.port);
 
+    let mut proxy_options: HashMap<String, ProxyOptions> = HashMap::new();
     for (name, project) in &config.projects {
-        let Some(opts) = load_proxy_options(project)? else {
-            continue;
-        };
-        println!();
-        println!("project: {name}");
-        for (svc_name, svc) in &opts.services {
-            let ports = svc
-                .ports
-                .iter()
-                .map(|p| {
-                    let tls = if p.tls { " (tls)" } else { "" };
-                    format!("{}->{}{tls}", p.host, p.container)
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-            println!("  - {svc_name}: {ports}");
+        if let Some(opts) = load_proxy_options(project)? {
+            proxy_options.insert(name.to_string(), opts);
         }
     }
+
+    let sidecars = docker
+        .list_containers()
+        .all(true)
+        .with_label(PROXY_SIDECAR_LABEL, "true")
+        .call()
+        .await
+        .wrap_err("list sidecars")?;
+
+    if sidecars.is_empty() {
+        println!();
+        println!("no sidecars running");
+        return Ok(());
+    }
+
+    // project -> workspace -> sorted sidecar rows
+    let mut grouped: BTreeMap<String, BTreeMap<String, Vec<SidecarRow>>> = BTreeMap::new();
+    for sc in sidecars {
+        let project = sc.labels.get(PROJECT_LABEL).cloned().unwrap_or_default();
+        let workspace = sc.labels.get(WORKSPACE_LABEL).cloned().unwrap_or_default();
+        let service = sc
+            .labels
+            .get(PROXY_SERVICE_LABEL)
+            .cloned()
+            .unwrap_or_default();
+        let svc_cfg = proxy_options
+            .get(&project)
+            .and_then(|o| o.services.get(&service))
+            .cloned();
+        grouped
+            .entry(project)
+            .or_default()
+            .entry(workspace)
+            .or_default()
+            .push(SidecarRow {
+                service,
+                status: sc.state,
+                ports: svc_cfg,
+            });
+    }
+    for workspaces in grouped.values_mut() {
+        for rows in workspaces.values_mut() {
+            rows.sort_by(|a, b| a.service.cmp(&b.service));
+        }
+    }
+
+    for (project, workspaces) in &grouped {
+        println!();
+        println!("project: {}", project.bold());
+        println!("{}", sidecar_table(workspaces));
+    }
     Ok(())
+}
+
+struct SidecarRow {
+    service: String,
+    status: ContainerStatus,
+    ports: Option<ProxyService>,
+}
+
+fn sidecar_table(workspaces: &BTreeMap<String, Vec<SidecarRow>>) -> Table {
+    let mut table = Table::new();
+    table
+        .load_preset(presets::UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_header(["WORKSPACE", "SERVICE", "STATUS", "PORTS"]);
+    for (workspace, rows) in workspaces {
+        for (i, row) in rows.iter().enumerate() {
+            let workspace_cell = if i == 0 { workspace.as_str() } else { "" };
+            table.add_row([
+                workspace_cell.to_string(),
+                row.service.clone(),
+                status_cell(row.status),
+                ports_cell(row.ports.as_ref()),
+            ]);
+        }
+    }
+    table
+}
+
+fn status_cell(status: ContainerStatus) -> String {
+    match status {
+        ContainerStatus::Running => status.green().to_string(),
+        ContainerStatus::Exited | ContainerStatus::Dead => status.red().to_string(),
+        _ => status.yellow().to_string(),
+    }
+}
+
+fn ports_cell(svc: Option<&ProxyService>) -> String {
+    let Some(svc) = svc else {
+        return "-".dimmed().to_string();
+    };
+    if svc.ports.is_empty() {
+        return "-".dimmed().to_string();
+    }
+    svc.ports
+        .iter()
+        .map(|p| {
+            let tls = if p.tls { " (tls)" } else { "" };
+            format!("{}->{}{tls}", p.host, p.container)
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 async fn wait_for_running(docker: &Docker, id: &str) -> Result<()> {
