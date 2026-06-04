@@ -14,7 +14,7 @@ use crate::run::{self, Runnable, Runner, run_command};
 use crate::state::DevcontainerState;
 use crate::workspace::Workspace;
 
-/// Fully destroy the workspace; equivalent to `docker compose down -v --remove-orphans && git worktree remove`
+/// Fully destroy the workspace; equivalent to `docker compose down -v --rmi local --remove-orphans && git worktree remove`
 #[derive(Debug, Args)]
 pub(crate) struct Destroy {
     /// Workspace name
@@ -77,7 +77,7 @@ impl Runnable for Cleanup<'_> {
     async fn run(self, _: run::Token) -> eyre::Result<()> {
         if let Some(devcontainer) = self.devcontainer {
             let mut down_cmd = compose_cmd(devcontainer, self.workspace)?;
-            down_cmd.args(["down", "-v", "--remove-orphans"]);
+            down_cmd.args(["down", "-v", "--rmi", "local", "--remove-orphans"]);
 
             run_command(down_cmd).await?;
             remove_override_file(self.workspace);
