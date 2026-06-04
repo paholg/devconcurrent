@@ -3,11 +3,7 @@ use std::io::{BufRead, Write};
 use clap::{Parser, Subcommand};
 use clap_complete::engine::ArgValueCompleter;
 
-use crate::{
-    complete,
-    state::State,
-    workspace::{Workspace, WorkspaceDevcontainer},
-};
+use crate::{complete, state::State, workspace::Workspace};
 
 mod compose;
 mod destroy;
@@ -57,12 +53,8 @@ pub(crate) enum Commands {
     Proxy(proxy::Proxy),
 }
 
-/// Check that the workspace is safe to tear down (clean git, no active execs).
-pub(crate) async fn safety_check(
-    workspace: &Workspace<'_>,
-    workspace_dc: Option<&WorkspaceDevcontainer<'_>>,
-    force: bool,
-) -> eyre::Result<()> {
+/// Check that the workspace is safe to tear down (clean git).
+pub(crate) async fn safety_check(workspace: &Workspace<'_>, force: bool) -> eyre::Result<()> {
     if force {
         return Ok(());
     }
@@ -74,16 +66,6 @@ pub(crate) async fn safety_check(
         );
     }
 
-    if let Some(workspace_dc) = workspace_dc {
-        let execs = workspace_dc.execs().await?;
-        if execs > 0 {
-            eyre::bail!(
-                "workspace '{}' has {} active exec session(s) (use --force to override)",
-                workspace.name,
-                execs
-            );
-        }
-    }
     Ok(())
 }
 

@@ -32,17 +32,12 @@ impl Destroy {
         let state = State::new(project, &config).await?;
         let workspace = state.resolve_workspace(self.workspace).await?;
         let devcontainer = state.try_devcontainer().ok();
-        let workspace_dc = if let Some(dc) = devcontainer {
-            Some(workspace.devcontainer(dc).await?)
-        } else {
-            None
-        };
 
         if !workspace.path.exists() {
             return Err(eyre!("workspace '{}' not found", workspace.name));
         }
 
-        safety_check(&workspace, workspace_dc.as_ref(), self.force).await?;
+        safety_check(&workspace, self.force).await?;
 
         if workspace.is_root {
             eprintln!(
