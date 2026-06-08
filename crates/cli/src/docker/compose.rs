@@ -127,7 +127,13 @@ fn write_compose_override(
         // Git worktrees store a tiny `.git` file pointing to the real `.git` dir at the project
         // root; mount the real dir at its original path so `git` works inside the container.
         let git_dir = workspace.state.project.path.join(".git");
-        volumes.push(format!("{}:{}", git_dir.display(), git_dir.display()));
+        let git_dir = git_dir.display();
+        volumes.push(format!("{git_dir}:{git_dir}"));
+
+        // We also need to mount the workspace at the git-aware path so that certain git commands
+        // can find it (such as `git --git-dir=...`).
+        let ws_dir = workspace.path.display();
+        volumes.push(format!("{ws_dir}:{ws_dir}"));
     }
     if !volumes.is_empty() {
         service_obj["volumes"] = json!(volumes);
