@@ -64,3 +64,7 @@ pub const PROXY_SIDECAR_LABEL: &str = "com.paholg.devconcurrent.proxy.sidecar";
 pub const PROXY_TARGET_LABEL: &str = "com.paholg.devconcurrent.proxy.target";
 /// Present on sidecars only. Value is the compose service name.
 pub const PROXY_SERVICE_LABEL: &str = "com.paholg.devconcurrent.proxy.service";
+/// Present on the primary proxy only. Value is a hash of everything the proxy
+/// was created from; a mismatch means the proxy is stale and should be
+/// recreated.
+pub const PROXY_CONFIG_HASH_LABEL: &str = "com.paholg.devconcurrent.proxy.config-hash";

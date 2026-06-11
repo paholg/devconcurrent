@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
+use std::path::Path;
 use std::sync::LazyLock;
 use std::time::Duration;
 
@@ -6,10 +7,11 @@ use clap::{Args, Subcommand};
 use color_eyre::owo_colors::OwoColorize;
 use comfy_table::{Cell, Color, ContentArrangement, Table, presets};
 use docker::{
-    ContainerStatus, Docker, PROJECT_LABEL, PROXY_GROUP_LABEL, PROXY_LABEL, PROXY_SERVICE_LABEL,
-    PROXY_SIDECAR_LABEL, WORKSPACE_LABEL,
+    ContainerStatus, Docker, PROJECT_LABEL, PROXY_CONFIG_HASH_LABEL, PROXY_GROUP_LABEL,
+    PROXY_LABEL, PROXY_SERVICE_LABEL, PROXY_SIDECAR_LABEL, WORKSPACE_LABEL,
 };
 use eyre::{Result, WrapErr};
+use sha2::{Digest, Sha256};
 use shared::{
     ENV_CA_DIR, ENV_DNS_PORT, PROXY_CA_DIR, PROXY_CONFIG_DIR, PROXY_CONFIG_FILE,
     PROXY_CONFIG_VOLUME, PROXY_CONTAINER_NAME, ProxyOptions, ProxyService,
@@ -59,13 +61,15 @@ impl Proxy {
 async fn proxy_up() -> Result<()> {
     let config = Config::load()?;
     let docker = Docker::connect().await.wrap_err("connect to docker")?;
+    let proxy_options = collect_proxy_options(&config)?;
+    let hash = proxy_config_hash(&config, docker.socket(), &proxy_options);
     docker
         .ensure_image(&PROXY_IMAGE)
         .await
         .wrap_err_with(|| format!("pull {}", *PROXY_IMAGE))?;
     remove_proxy_group(&docker).await?;
-    let id = create_proxy_stopped(&config, &docker).await?;
-    push_all_configs(&config, &docker).await?;
+    let id = create_proxy_stopped(&config, &docker, &hash).await?;
+    push_all_configs(&proxy_options, &docker).await?;
     docker
         .start_container(&id)
         .await
@@ -95,20 +99,47 @@ async fn remove_proxy_group(docker: &Docker) -> Result<()> {
     Ok(())
 }
 
-/// `dc up` path: ensure the proxy is up. If the container is already running,
-/// leave it alone (we don't try to detect drift here — `dc proxy up` is the
-/// explicit refresh). Otherwise bring it up fresh.
+/// `dc up` path: ensure the proxy is up. If the container is already running
+/// and its config-hash label matches what we'd create it with today, leave it
+/// alone. Otherwise (not running, or stale version/config) bring it up fresh.
 pub(crate) async fn ensure_up() -> Result<()> {
+    enum State {
+        Down,
+        Up,
+        Old,
+    }
+
+    let config = Config::load()?;
     let docker = Docker::connect().await.wrap_err("connect to docker")?;
-    let running = match docker.inspect_container(PROXY_CONTAINER_NAME).await {
-        Ok(d) => d.state.running,
-        Err(docker::Error::NotFound) => false,
+    let proxy_options = collect_proxy_options(&config)?;
+    let hash = proxy_config_hash(&config, docker.socket(), &proxy_options);
+    let state = match docker.inspect_container(PROXY_CONTAINER_NAME).await {
+        Ok(d) => {
+            if d.state.running {
+                if d.config.labels.get(PROXY_CONFIG_HASH_LABEL) == Some(&hash) {
+                    State::Up
+                } else {
+                    State::Old
+                }
+            } else {
+                State::Down
+            }
+        }
+        Err(docker::Error::NotFound) => State::Down,
         Err(e) => return Err(e).wrap_err("inspect proxy"),
     };
-    if running {
-        return Ok(());
+
+    match state {
+        State::Up => Ok(()),
+        State::Down => {
+            eprintln!("Starting proxy...");
+            proxy_up().await
+        }
+        State::Old => {
+            eprintln!("Proxy out of date; restarting proxy...");
+            proxy_up().await
+        }
     }
-    proxy_up().await
 }
 
 async fn proxy_down() -> Result<()> {
@@ -296,7 +327,7 @@ async fn wait_for_running(docker: &Docker, id: &str) -> Result<()> {
     }
 }
 
-async fn create_proxy_stopped(config: &Config, docker: &Docker) -> Result<String> {
+async fn create_proxy_stopped(config: &Config, docker: &Docker, hash: &str) -> Result<String> {
     let socket_path = docker.socket().display();
     let mut builder = docker
         .create_container(PROXY_CONTAINER_NAME)
@@ -304,6 +335,7 @@ async fn create_proxy_stopped(config: &Config, docker: &Docker) -> Result<String
         .network_mode("host")
         .with_label(PROXY_LABEL, "true")
         .with_label(PROXY_GROUP_LABEL, "true")
+        .with_label(PROXY_CONFIG_HASH_LABEL, hash)
         .with_bind(PROXY_CONFIG_VOLUME, PROXY_CONFIG_DIR)
         .with_bind(socket_path, "/var/run/docker.sock")
         .with_env(ENV_DNS_PORT, config.proxy.port);
@@ -317,15 +349,40 @@ async fn create_proxy_stopped(config: &Config, docker: &Docker) -> Result<String
     builder.call().await.wrap_err("create proxy container")
 }
 
-async fn push_all_configs(config: &Config, docker: &Docker) -> Result<()> {
-    let mut all: HashMap<String, ProxyOptions> = HashMap::new();
+/// Gather `ProxyOptions` for every proxy-enabled project. A `BTreeMap` so
+/// downstream serialization (and thus [`proxy_config_hash`]) is deterministic.
+fn collect_proxy_options(config: &Config) -> Result<BTreeMap<String, ProxyOptions>> {
+    let mut all = BTreeMap::new();
     for (name, project) in &config.projects {
         let Some(opts) = load_proxy_options(project)? else {
             continue;
         };
         all.insert(name.to_string(), opts);
     }
-    let bytes = serde_json::to_vec_pretty(&all).wrap_err("serialize proxy projects")?;
+    Ok(all)
+}
+
+/// Hash of every input the proxy container is created from. Stored as a label
+/// on the container so `ensure_up` can detect when a running proxy is stale.
+fn proxy_config_hash(
+    config: &Config,
+    socket: &Path,
+    projects: &BTreeMap<String, ProxyOptions>,
+) -> String {
+    let input = serde_json::json!({
+        "image": *PROXY_IMAGE,
+        "dns_port": config.proxy.port,
+        "ca_root": config.proxy.ca_root,
+        "socket": socket,
+        "projects": projects,
+    });
+    let json = serde_json::to_string(&input).expect("json value always serializes");
+    let digest = Sha256::digest(json.as_bytes());
+    digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+async fn push_all_configs(all: &BTreeMap<String, ProxyOptions>, docker: &Docker) -> Result<()> {
+    let bytes = serde_json::to_vec_pretty(all).wrap_err("serialize proxy projects")?;
     let tar = docker::build_single_file_tar(PROXY_CONFIG_FILE, &bytes);
     docker
         .upload_archive(PROXY_CONTAINER_NAME, PROXY_CONFIG_DIR, tar)
@@ -353,4 +410,114 @@ fn load_proxy_options(project: &Project) -> Result<Option<ProxyOptions>> {
         return Ok(None);
     }
     Ok(Some(opts.clone()))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use indexmap::IndexMap;
+    use serde_json::json;
+
+    use super::*;
+    use crate::config::ProxyGlobal;
+
+    fn config(port: u16, ca_root: Option<&str>) -> Config {
+        Config {
+            projects: IndexMap::new(),
+            proxy: ProxyGlobal {
+                port,
+                ca_root: ca_root.map(PathBuf::from),
+            },
+        }
+    }
+
+    fn opts(value: serde_json::Value) -> ProxyOptions {
+        serde_json::from_value(value).expect("valid proxy options")
+    }
+
+    fn projects(entries: &[(&str, &serde_json::Value)]) -> BTreeMap<String, ProxyOptions> {
+        entries
+            .iter()
+            .map(|(name, value)| (name.to_string(), opts((*value).clone())))
+            .collect()
+    }
+
+    const SOCKET: &str = "/var/run/docker.sock";
+
+    #[test]
+    fn hash_is_deterministic_and_a_valid_label_value() {
+        let cfg = config(43770, Some("/home/user/.local/share/mkcert"));
+        let projects = projects(&[(
+            "proj",
+            &json!({
+                "enable": true,
+                "services": {"web": {"ports": [{"host": 8080, "container": 80}]}},
+            }),
+        )]);
+        let a = proxy_config_hash(&cfg, Path::new(SOCKET), &projects);
+        let b = proxy_config_hash(&cfg, Path::new(SOCKET), &projects);
+        assert_eq!(a, b);
+        assert_eq!(a.len(), 64);
+        assert!(
+            a.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')),
+            "unexpected character in {a}",
+        );
+    }
+
+    #[test]
+    fn hash_changes_when_any_input_changes() {
+        let cfg = config(43770, Some("/ca"));
+        let enabled = json!({"enable": true});
+        let base_projects = projects(&[("proj", &enabled)]);
+        let base = proxy_config_hash(&cfg, Path::new(SOCKET), &base_projects);
+
+        let port_changed = proxy_config_hash(
+            &config(43771, Some("/ca")),
+            Path::new(SOCKET),
+            &base_projects,
+        );
+        assert_ne!(base, port_changed);
+
+        let ca_root_unset =
+            proxy_config_hash(&config(43770, None), Path::new(SOCKET), &base_projects);
+        assert_ne!(base, ca_root_unset);
+
+        let socket_changed = proxy_config_hash(&cfg, Path::new("/run/podman.sock"), &base_projects);
+        assert_ne!(base, socket_changed);
+
+        let options_changed = projects(&[(
+            "proj",
+            &json!({
+                "enable": true,
+                "services": {"web": {"ports": [{"host": 8080, "container": 80}]}},
+            }),
+        )]);
+        assert_ne!(
+            base,
+            proxy_config_hash(&cfg, Path::new(SOCKET), &options_changed)
+        );
+
+        let project_added = projects(&[("proj", &enabled), ("other", &enabled)]);
+        assert_ne!(
+            base,
+            proxy_config_hash(&cfg, Path::new(SOCKET), &project_added)
+        );
+    }
+
+    #[test]
+    fn hash_independent_of_project_insertion_order() {
+        let cfg = config(43770, None);
+        let a = json!({"enable": true});
+        let b = json!({
+            "enable": true,
+            "services": {"api": {"ports": [{"host": 3001, "container": 3000}]}},
+        });
+        let forward = projects(&[("a", &a), ("b", &b)]);
+        let reverse = projects(&[("b", &b), ("a", &a)]);
+        assert_eq!(
+            proxy_config_hash(&cfg, Path::new(SOCKET), &forward),
+            proxy_config_hash(&cfg, Path::new(SOCKET), &reverse),
+        );
+    }
 }
