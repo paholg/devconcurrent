@@ -19,6 +19,7 @@ use shared::{
 
 use crate::config::{Config, Project};
 use crate::devcontainer::DevcontainerConfig;
+use crate::run::{Runnable, Runner};
 
 /// OCI image used by the proxy container.
 const PROXY_IMAGE_NAME: &str = "ghcr.io/paholg/devconcurrent-proxy";
@@ -54,6 +55,28 @@ impl Proxy {
     }
 }
 
+struct ProxyRunner {
+    new: bool,
+}
+
+impl Runnable for ProxyRunner {
+    fn name(&self) -> std::borrow::Cow<'_, str> {
+        "proxy".into()
+    }
+
+    fn description(&self) -> std::borrow::Cow<'_, str> {
+        if self.new {
+            "starting".into()
+        } else {
+            "out-of-date; restarting".into()
+        }
+    }
+
+    async fn run(self, _: crate::run::Token) -> eyre::Result<()> {
+        proxy_up().await
+    }
+}
+
 /// `dc proxy up`: force-remove the proxy and every sidecar, then create a
 /// fresh proxy and push every proxy-enabled project's config into its
 /// volume. The new proxy's bootstrap creates fresh sidecars for any running
@@ -75,7 +98,7 @@ async fn proxy_up() -> Result<()> {
         .await
         .wrap_err("start proxy container")?;
     wait_for_running(&docker, &id).await?;
-    eprintln!("{} proxy is running", "✓".green());
+    tracing::info!("{} proxy is running", "✓".green());
     Ok(())
 }
 
@@ -131,21 +154,15 @@ pub(crate) async fn ensure_up() -> Result<()> {
 
     match state {
         State::Up => Ok(()),
-        State::Down => {
-            eprintln!("Starting proxy...");
-            proxy_up().await
-        }
-        State::Old => {
-            eprintln!("Proxy out of date; restarting proxy...");
-            proxy_up().await
-        }
+        State::Down => Runner::run(ProxyRunner { new: true }).await,
+        State::Old => Runner::run(ProxyRunner { new: false }).await,
     }
 }
 
 async fn proxy_down() -> Result<()> {
     let docker = Docker::connect().await.wrap_err("connect to docker")?;
     remove_proxy_group(&docker).await?;
-    eprintln!("{} proxy stopped", "✓".green());
+    tracing::info!("{} proxy stopped", "✓".green());
     Ok(())
 }
 
@@ -388,7 +405,7 @@ async fn push_all_configs(all: &BTreeMap<String, ProxyOptions>, docker: &Docker)
         .upload_archive(PROXY_CONTAINER_NAME, PROXY_CONFIG_DIR, tar)
         .await
         .wrap_err("upload proxy projects")?;
-    eprintln!(
+    tracing::info!(
         "{} pushed config for {} project(s): {}",
         "✓".green(),
         all.len(),

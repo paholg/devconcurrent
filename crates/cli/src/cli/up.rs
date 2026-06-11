@@ -87,7 +87,7 @@ impl Up {
 
         // If proxy is configured for this project, make sure the proxy
         // container is running before compose-up so it can react to start
-        // events. Config pushes happen explicitly via `dc proxy up`.
+        // events.
         if devcontainer.proxy_enabled() {
             proxy::ensure_up().await?;
         }
