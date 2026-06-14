@@ -31,7 +31,7 @@ impl Destroy {
         let config = Config::load()?;
         let state = State::new(project, &config).await?;
         let workspace = state.resolve_workspace(self.workspace).await?;
-        let devcontainer = state.try_devcontainer().ok();
+        let devcontainer = state.devcontainer_for(&workspace.path).ok();
 
         if !workspace.path.exists() {
             return Err(eyre!("workspace '{}' not found", workspace.name));
@@ -50,7 +50,7 @@ impl Destroy {
         }
 
         let cleanup = Cleanup {
-            devcontainer,
+            devcontainer: devcontainer.as_ref(),
             workspace: &workspace,
             force: self.force,
         };

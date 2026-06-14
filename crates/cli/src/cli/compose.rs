@@ -24,10 +24,10 @@ impl Compose {
     pub(crate) async fn run(self, project: Option<String>) -> eyre::Result<()> {
         let config = Config::load()?;
         let state = State::new(project, &config).await?;
-        let devcontainer = state.try_devcontainer()?;
         let workspace = state.resolve_workspace(self.workspace).await?;
+        let devcontainer = state.devcontainer_for(&workspace.path)?;
 
-        let mut cmd = compose_cmd(devcontainer, &workspace)?;
+        let mut cmd = compose_cmd(&devcontainer, &workspace)?;
         cmd.args(&self.args);
 
         Err(cmd.into_std().exec().into())

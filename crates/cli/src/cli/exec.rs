@@ -31,7 +31,8 @@ impl Exec {
         let config = Config::load()?;
         let state = State::new(project, &config).await?;
         let workspace = state.resolve_workspace(self.workspace).await?;
-        let devcontainer = state.try_devcontainer()?;
+        let devcontainer = state.devcontainer_for(&workspace.path)?;
+        let devcontainer = &devcontainer;
         let workspace_full = workspace.devcontainer(devcontainer).await?;
         if workspace_full.status() != Some(ContainerStatus::Running) {
             return Err(eyre!(

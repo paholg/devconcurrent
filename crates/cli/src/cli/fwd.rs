@@ -37,12 +37,15 @@ impl Fwd {
     pub(crate) async fn run(self, project: Option<String>) -> eyre::Result<()> {
         let config = Config::load()?;
         let state = State::new(project, &config).await?;
-        let devcontainer = state.try_devcontainer()?;
         match self.command {
-            Some(FwdCommands::Stop) => remove_sidecars(&state, &devcontainer.docker.client).await,
+            Some(FwdCommands::Stop) => {
+                let devcontainer = state.try_devcontainer()?;
+                remove_sidecars(&state, &devcontainer.docker.client).await
+            }
             None => {
                 let workspace = state.resolve_workspace(self.workspace).await?;
-                forward(devcontainer, &workspace).await
+                let devcontainer = state.devcontainer_for(&workspace.path)?;
+                forward(&devcontainer, &workspace).await
             }
         }
     }

@@ -74,10 +74,12 @@ impl Up {
             worktree::create(&workspace, self.detach).await?;
         }
 
-        let Ok(devcontainer) = state.try_devcontainer() else {
+        if !state.has_devcontainer() {
             // If there's no devcontainer, then the only thing to do is create the worktree.
             return Ok(());
-        };
+        }
+        let devcontainer = state.devcontainer_for(&workspace.path)?;
+        let devcontainer = &devcontainer;
 
         // initializeCommand runs on the host, from the worktree
         if let Some(ref cmd) = devcontainer.config.initialize_command {

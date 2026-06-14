@@ -1,4 +1,8 @@
-use std::{env, path::PathBuf, sync::Arc};
+use std::{
+    env,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use eyre::OptionExt;
 
@@ -164,5 +168,30 @@ impl<'a> State<'a> {
 
     pub(crate) fn try_devcontainer(&self) -> eyre::Result<&DevcontainerState> {
         self.devcontainer.as_ref().ok_or_else(|| eyre::eyre!("no devcontainer.json found for this project; devcontainer functionality is disabled"))
+    }
+
+    pub(crate) fn has_devcontainer(&self) -> bool {
+        self.devcontainer.is_some()
+    }
+
+    /// Load the devcontainer config for a specific workspace directory.
+    pub(crate) fn devcontainer_for(
+        &self,
+        workspace_path: &Path,
+    ) -> eyre::Result<DevcontainerState> {
+        let root = self.try_devcontainer()?;
+        let path = DevcontainerConfig::find_config(workspace_path);
+        let config = DevcontainerConfig::load(path.as_deref(), self.project)?.ok_or_else(|| {
+            eyre::eyre!(
+                "no devcontainer.json found in workspace {}",
+                workspace_path.display()
+            )
+        })?;
+
+        Ok(DevcontainerState {
+            path,
+            config,
+            docker: root.docker.clone(),
+        })
     }
 }
