@@ -3,6 +3,14 @@ check: lint test
 run *args: 
     cargo run --bin devconcurrent -- {{args}}
 
+# Build the proxy image, tag it, then run it.
+proxy-up:
+    nix run .#docker-service-image.copyToDockerDaemon
+    v=$(cargo pkgid -p devconcurrent-proxy | sed 's/.*[@#]//'); \
+    docker tag "devconcurrent-proxy:$v" "ghcr.io/paholg/devconcurrent-proxy:$v" && \
+    echo "Tagged ghcr.io/paholg/devconcurrent-proxy:$v"
+    just run proxy up
+
 test *args:
     cargo nextest run --all-features --no-fail-fast {{args}}
     docker ps -aq --filter "label=devconcurrent-docker-crate-test=true" | xargs -r docker rm -f
@@ -38,14 +46,6 @@ release version:
     git tag v{{version}}
     git push
     git push --tags
-
-# Build the proxy image, tag it, then run it.
-proxy-up:
-    nix run .#docker-service-image.copyToDockerDaemon
-    v=$(cargo pkgid -p devconcurrent-proxy | sed 's/.*[@#]//'); \
-    docker tag "devconcurrent-proxy:$v" "ghcr.io/paholg/devconcurrent-proxy:$v" && \
-    echo "Tagged ghcr.io/paholg/devconcurrent-proxy:$v"
-    just run proxy up
 
 schema: schema-gen schema-open
 

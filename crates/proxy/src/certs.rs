@@ -31,10 +31,15 @@ impl CaHolder {
         Ok(Self(Arc::new(issuer)))
     }
 
-    /// Mint a leaf cert with a single SAN equal to `hostname`, signed by the
-    /// loaded CA. Returns `(cert_pem, key_pem)`.
+    /// Mint a leaf cert signed by the loaded CA, with SANs for `hostname` and
+    /// the one-level wildcard `*.hostname` so direct subdomains resolve over
+    /// TLS too. Returns `(cert_pem, key_pem)`.
+    //
+    // If we ever need to support more levels than 1 subdomain, we'll have to mint certs on-demand,
+    // or provide a place to pre-configure them.
     pub fn mint(&self, hostname: &str) -> Result<(String, String)> {
-        let mut params = CertificateParams::new(vec![hostname.to_string()])
+        let wildcard = format!("*.{hostname}");
+        let mut params = CertificateParams::new(vec![hostname.to_string(), wildcard])
             .wrap_err("build leaf cert params")?;
         params.distinguished_name.push(
             rcgen::DnType::CommonName,

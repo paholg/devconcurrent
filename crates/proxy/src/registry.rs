@@ -10,6 +10,8 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
 
+use fqdn::FQDN;
+use fqdn_trie::FqdnTrieMap;
 use shared::ProxyOptions;
 use tokio::sync::RwLock;
 
@@ -24,11 +26,20 @@ pub struct RunningService {
     pub sidecar_id: Option<String>,
 }
 
-#[derive(Debug, Default)]
 pub struct RegistryInner {
     pub configs: HashMap<String, ProxyOptions>,
     pub services: HashMap<String, RunningService>,
-    pub names: HashMap<String, IpAddr>,
+    pub names: FqdnTrieMap<FQDN, Option<IpAddr>>,
+}
+
+impl Default for RegistryInner {
+    fn default() -> Self {
+        Self {
+            configs: HashMap::new(),
+            services: HashMap::new(),
+            names: FqdnTrieMap::new(None),
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -75,13 +86,18 @@ impl Registry {
 
     /// Lookup a hostname → IP for DNS. The caller is expected to have already
     /// lowercased the host and trimmed any trailing dot.
+    ///
+    /// Subdomains resolve to their parent: if `foo.test` is registered, then
+    /// `bar.foo.test` and `baz.bar.foo.test` resolve to the same IP. The most
+    /// specific (longest) registered suffix wins.
     pub async fn resolve(&self, host: &str) -> Option<IpAddr> {
-        self.inner.read().await.names.get(host).copied()
+        let fqdn: FQDN = host.parse().ok()?;
+        *self.inner.read().await.names.lookup(&fqdn)
     }
 }
 
 fn rebuild_names(inner: &mut RegistryInner) {
-    let mut names: HashMap<String, IpAddr> = HashMap::new();
+    let mut names = FqdnTrieMap::new(None);
     for svc in inner.services.values() {
         let Some(opts) = inner.configs.get(&svc.project) else {
             continue;
@@ -91,11 +107,19 @@ fn rebuild_names(inner: &mut RegistryInner) {
         else {
             continue;
         };
-        let key = hostname.to_lowercase();
-        if let Some(existing) = names.get(&key) {
-            if *existing != svc.container_ip {
+        let fqdn: FQDN = match hostname.parse() {
+            Ok(fqdn) => fqdn,
+            Err(e) => {
+                tracing::warn!(hostname = %hostname, "invalid hostname, skipping: {e}");
+                continue;
+            }
+        };
+        // Keep the first registration on collision (exact-match check, since
+        // the trie only materializes nodes for real entries).
+        if let Some(Some(existing)) = names.get(&fqdn).copied() {
+            if existing != svc.container_ip {
                 tracing::warn!(
-                    hostname = %key,
+                    hostname = %hostname,
                     existing = %existing,
                     new = %svc.container_ip,
                     "hostname collision; keeping existing"
@@ -103,7 +127,7 @@ fn rebuild_names(inner: &mut RegistryInner) {
             }
             continue;
         }
-        names.insert(key, svc.container_ip);
+        names.insert(fqdn, Some(svc.container_ip));
     }
     inner.names = names;
 }
