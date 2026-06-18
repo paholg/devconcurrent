@@ -13,7 +13,11 @@
       }
     },
     "proxy": {
-      "$ref": "#/$defs/ProxyGlobal"
+      "$ref": "#/$defs/ProxyGlobal",
+      "default": {
+        "port": 43770,
+        "caRoot": null
+      }
     }
   },
   "x-tombi-toml-version": "v1.1.0",

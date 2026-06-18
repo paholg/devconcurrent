@@ -91,7 +91,8 @@ impl Up {
         // container is running before compose-up so it can react to start
         // events.
         if devcontainer.proxy_enabled() {
-            proxy::ensure_up().await?;
+            let proxy = proxy::ProxyState::from_workspace(&config, Some(&workspace)).await?;
+            proxy::ensure_up(proxy).await?;
         }
 
         let mut compose_up_cmd = compose_cmd(devcontainer, &workspace)?;

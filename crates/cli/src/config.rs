@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use eyre::{WrapErr, eyre};
 use indexmap::IndexMap;
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::devcontainer::DevcontainerConfig;
 use crate::helpers::{deserialize_shell_path, deserialize_shell_path_opt, validate_name};
@@ -67,7 +67,7 @@ pub(crate) struct Config {
 }
 
 /// Global user proxy settings.
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct ProxyGlobal {
     /// The DNS port the proxy listens on.

@@ -11,6 +11,12 @@ proxy-up:
     echo "Tagged ghcr.io/paholg/devconcurrent-proxy:$v"
     just run proxy up
 
+# Clear proxy images
+proxy-clear:
+    docker images --format '{{{{.Repository}}:{{{{.Tag}}' \
+        | grep -E '(^|/)devconcurrent-proxy:' \
+        | xargs -r docker rmi -f
+
 test *args:
     cargo nextest run --all-features --no-fail-fast {{args}}
     docker ps -aq --filter "label=devconcurrent-docker-crate-test=true" | xargs -r docker rm -f

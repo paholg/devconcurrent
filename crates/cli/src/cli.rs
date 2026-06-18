@@ -88,7 +88,7 @@ impl Cli {
             Commands::Show(show) => show.run(self.project).await,
             Commands::Destroy(destroy) => destroy.run(self.project).await,
             Commands::Go(go) => go.run(self.project).await,
-            Commands::Proxy(proxy) => proxy.run().await,
+            Commands::Proxy(proxy) => proxy.run(self.project).await,
         }
     }
 }
