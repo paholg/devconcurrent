@@ -7,7 +7,7 @@ homepage = "https://github.com/paholg/devconcurrent"
 repository = "https://github.com/paholg/devconcurrent"
 
 [dependencies]
-cached = { version = "0.59.0", features = ["async"] }
+cached = { version = "2.0.2", features = ["async"] }
 clap = { version = "4.6.1", features = ["derive"] }
 clap_complete = { version = "4.6.5", features = ["unstable-dynamic"] }
 color-eyre = "0.6.5"
@@ -19,11 +19,11 @@ docker = { path = "../docker" }
 eyre = "0.6.12"
 figment = { version = "0.10.19", features = ["json", "toml"] }
 futures = "0.3.32"
-gix = "0.83.0"
+gix = "0.84.0"
 handlebars = "6.4.1"
 indexmap = { workspace = true }
 indicatif = "0.18"
-itertools = "0.14.0"
+itertools = "0.15.0"
 jiff = "0.2"
 num-bigint = "0.4.6"
 owo-colors = "4.3.0"
@@ -33,11 +33,12 @@ serde = { workspace = true }
 serde-inline-default = "1.0.1"
 serde_json = { workspace = true, features = ["preserve_order"] }
 serde_path_to_error = "0.1.20"
-serde_with = { version = "3.20", features = ["schemars_1"] }
+serde_with = { version = "3.21", features = ["schemars_1"] }
 sha2 = "0.11.0"
 shared = { path = "../shared" }
 shellexpand = "3.1.2"
 shlex = "2.0.1"
+sigpipe = "0.1.3"
 tabular = { version = "0.2.0", features = ["ansi-cell"] }
 tokio = { workspace = true, features = ["full"] }
 toml = { version = "1.1.2", features = ["preserve_order"] }

@@ -17,8 +17,8 @@ futures-util = "0.3.32"
 handlebars = "6.4.1"
 hickory-proto = "0.26.1"
 hickory-server = "0.26.1"
-http = "1.4.0"
-hyper = { version = "1.9.0", features = ["http1", "server"] }
+http = "1.4.2"
+hyper = { version = "1.10.1", features = ["http1", "server"] }
 hyper-util = { version = "0.1.20", features = ["service", "tokio"] }
 indexmap.workspace = true
 rcgen = { version = "0.14.8", features = ["pem", "x509-parser"] }
@@ -29,7 +29,7 @@ serde_json.workspace = true
 shared = { path = "../shared" }
 tokio = { workspace = true, features = ["full"] }
 tokio-rustls = "0.26.4"
-tower-http = { version = "0.6.11", features = ["set-header"] }
+tower-http = { version = "0.7.0", features = ["set-header"] }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
