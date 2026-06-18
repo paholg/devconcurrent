@@ -96,7 +96,7 @@ impl Up {
         }
 
         let mut compose_up_cmd = compose_cmd(devcontainer, &workspace)?;
-        compose_up_cmd.args(["up", "-d", "--build"]);
+        compose_up_cmd.args(["up", "-d", "--build", "--remove-orphans"]);
 
         if let Some(ref services) = devcontainer.config.run_services {
             compose_up_cmd.args(services);
