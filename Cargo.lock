@@ -927,7 +927,7 @@ dependencies = [
 
 [[package]]
 name = "devconcurrent"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "cached",
  "clap",
@@ -973,7 +973,7 @@ dependencies = [
 
 [[package]]
 name = "devconcurrent-proxy"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "async-trait",
  "axum",
