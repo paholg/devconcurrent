@@ -148,6 +148,8 @@ impl Status {
         ];
         let table = columns
             .into_iter()
+            // For speed, exclude CPU (requires at least 1 sec) unless live.
+            .filter(|c| self.live || !matches!(c, Column::Cpu))
             .map(|c| c.def(&sources, &fwd))
             .collect::<TableBuilder<Workspace>>()
             .build(&workspaces, self.live);
