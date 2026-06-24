@@ -126,6 +126,7 @@
             [
               cargo-dist
               cargo-edit
+              cargo-machete
               cargo-nextest
               fd
               just

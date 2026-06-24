@@ -5,7 +5,6 @@ use std::time::Duration;
 use clap::{Args, Subcommand};
 use clap_complete::engine::ArgValueCompleter;
 use color_eyre::owo_colors::OwoColorize;
-use comfy_table::{Cell, Color, ContentArrangement, Table, presets};
 use docker::{
     ContainerStatus, Docker, PROJECT_LABEL, PROXY_CONFIG_HASH_LABEL, PROXY_GROUP_LABEL,
     PROXY_LABEL, PROXY_SERVICE_LABEL, PROXY_SIDECAR_LABEL, WORKSPACE_LABEL,
@@ -18,6 +17,7 @@ use shared::{
 
 use crate::complete::complete_workspace;
 use crate::run::{Runnable, Runner};
+use crate::table::{Align, ColumnDef, TableBuilder, text};
 
 mod proxy_state;
 pub(crate) use proxy_state::ProxyState;
@@ -256,7 +256,7 @@ async fn proxy_status(proxy: &ProxyState) -> Result<()> {
     for (project, workspaces) in &grouped {
         println!();
         println!("project: {}", project.bold());
-        println!("{}", service_table(workspaces));
+        print!("{}", proxy_table(workspaces));
     }
     Ok(())
 }
@@ -269,39 +269,66 @@ struct ServiceRow {
     ports: Option<ProxyService>,
 }
 
-fn service_table(workspaces: &BTreeMap<String, Vec<ServiceRow>>) -> Table {
-    let mut table = Table::new();
-    table
-        .load_preset(presets::UTF8_FULL)
-        .set_content_arrangement(ContentArrangement::Dynamic)
-        .set_header([
-            "WORKSPACE",
-            "SERVICE",
-            "DOMAIN",
-            "STATUS",
-            "CONTAINER",
-            "PORTS",
-        ]);
-    for (workspace, rows) in workspaces {
-        for (i, row) in rows.iter().enumerate() {
-            let workspace_cell = if i == 0 { workspace.as_str() } else { "" };
-            table.add_row([
-                Cell::new(workspace_cell),
-                Cell::new(&row.service),
-                domain_cell(row.domain.as_deref()),
-                status_cell(row.proxy),
-                Cell::new(short_id(&row.container_id)),
-                ports_cell(row.ports.as_ref()),
-            ]);
-        }
-    }
-    table
+/// One row of the proxy table; `workspace` is blank on all but the first row of
+/// each workspace group.
+struct ProxyRow {
+    workspace: String,
+    service: String,
+    domain: Option<String>,
+    status: ContainerStatus,
+    container_id: String,
+    ports: Option<ProxyService>,
 }
 
-fn domain_cell(domain: Option<&str>) -> Cell {
+fn proxy_table(workspaces: &BTreeMap<String, Vec<ServiceRow>>) -> String {
+    let mut rows: Vec<ProxyRow> = Vec::new();
+    for (workspace, services) in workspaces {
+        for (i, sc) in services.iter().enumerate() {
+            rows.push(ProxyRow {
+                workspace: if i == 0 {
+                    workspace.clone()
+                } else {
+                    String::new()
+                },
+                service: sc.service.clone(),
+                domain: sc.domain.clone(),
+                status: sc.proxy,
+                container_id: sc.container_id.clone(),
+                ports: sc.ports.clone(),
+            });
+        }
+    }
+
+    [
+        ColumnDef::new("WORKSPACE", Align::Left, |r: &ProxyRow| {
+            text(r.workspace.clone())
+        }),
+        ColumnDef::new("SERVICE", Align::Left, |r: &ProxyRow| {
+            text(r.service.clone())
+        }),
+        ColumnDef::new("DOMAIN", Align::Left, |r: &ProxyRow| {
+            text(fmt_domain(r.domain.as_deref()))
+        }),
+        ColumnDef::new("STATUS", Align::Left, |r: &ProxyRow| {
+            text(fmt_status(r.status))
+        }),
+        ColumnDef::new("CONTAINER", Align::Left, |r: &ProxyRow| {
+            text(short_id(&r.container_id))
+        }),
+        ColumnDef::new("PORTS", Align::Left, |r: &ProxyRow| {
+            text(fmt_ports(r.ports.as_ref()))
+        }),
+    ]
+    .into_iter()
+    .collect::<TableBuilder<ProxyRow>>()
+    .build(&rows, false)
+    .rendered()
+}
+
+fn fmt_domain(domain: Option<&str>) -> String {
     match domain {
-        Some(d) if !d.is_empty() => Cell::new(d),
-        _ => Cell::new("-").fg(Color::DarkGrey),
+        Some(d) if !d.is_empty() => d.to_string(),
+        _ => "-".dimmed().to_string(),
     }
 }
 
@@ -309,29 +336,24 @@ fn short_id(id: &str) -> String {
     id.chars().take(12).collect()
 }
 
-fn status_cell(status: ContainerStatus) -> Cell {
-    let cell = Cell::new(status);
+fn fmt_status(status: ContainerStatus) -> String {
     match status {
-        ContainerStatus::Running => cell.fg(Color::Green),
-        ContainerStatus::Exited | ContainerStatus::Dead => cell.fg(Color::Red),
-        _ => cell.fg(Color::Yellow),
+        ContainerStatus::Running => status.green().to_string(),
+        ContainerStatus::Exited | ContainerStatus::Dead => status.red().to_string(),
+        _ => status.yellow().to_string(),
     }
 }
 
-fn ports_cell(svc: Option<&ProxyService>) -> Cell {
-    let Some(svc) = svc else {
-        return Cell::new("-").fg(Color::DarkGrey);
-    };
-    if svc.ports.is_empty() {
-        return Cell::new("-").fg(Color::DarkGrey);
+fn fmt_ports(svc: Option<&ProxyService>) -> String {
+    match svc {
+        Some(svc) if !svc.ports.is_empty() => svc
+            .ports
+            .iter()
+            .map(|p| p.host.to_string())
+            .collect::<Vec<_>>()
+            .join(", "),
+        _ => "-".dimmed().to_string(),
     }
-    let text = svc
-        .ports
-        .iter()
-        .map(|p| p.host.to_string())
-        .collect::<Vec<_>>()
-        .join(", ");
-    Cell::new(text)
 }
 
 async fn wait_for_running(docker: &Docker, id: &str) -> Result<()> {

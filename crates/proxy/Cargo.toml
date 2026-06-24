@@ -14,7 +14,6 @@ eyre = "0.6.12"
 fqdn = "0.5.2"
 fqdn-trie = "0.5.0"
 futures-util = "0.3.32"
-handlebars = "6.4.1"
 hickory-proto = "0.26.1"
 hickory-server = "0.26.1"
 http = "1.4.2"
@@ -23,8 +22,6 @@ hyper-util = { version = "0.1.20", features = ["service", "tokio"] }
 indexmap.workspace = true
 rcgen = { version = "0.14.8", features = ["pem", "x509-parser"] }
 rustls = "0.23.40"
-rustls-pemfile = "2.2.0"
-serde.workspace = true
 serde_json.workspace = true
 shared = { path = "../shared" }
 tokio = { workspace = true, features = ["full"] }
