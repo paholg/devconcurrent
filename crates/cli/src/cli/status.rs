@@ -53,16 +53,32 @@ pub(crate) enum Column {
     Git,
 }
 
+type GitSources = Arc<HashMap<String, Gatherer<Datum<String>>>>;
+
+/// The NAME column: just the workspace name. Available without Docker.
+fn name_column<'a>() -> ColumnDef<Workspace<'a>> {
+    ColumnDef::new("NAME", Align::Left, |r: &Workspace<'a>| {
+        text(r.name.clone())
+    })
+}
+
+/// The GIT column. Fed by the git gatherers, so available without Docker.
+fn git_column<'a>(git: &GitSources) -> ColumnDef<Workspace<'a>> {
+    let git = git.clone();
+    ColumnDef::new("GIT", Align::Left, move |r: &Workspace<'a>| {
+        value(git[&r.name].cell(|g: &Datum<String>| g.clone()))
+    })
+}
+
 impl Column {
     fn def<'a>(
         self,
+        git: &GitSources,
         sources: &Arc<HashMap<String, WsSources>>,
         fwd: &Gatherer<Option<FwdPorts>>,
     ) -> ColumnDef<Workspace<'a>> {
         match self {
-            Column::Name => ColumnDef::new("NAME", Align::Left, |r: &Workspace<'a>| {
-                text(r.name.clone())
-            }),
+            Column::Name => name_column(),
             Column::Status => {
                 let sources = sources.clone();
                 ColumnDef::new("STATUS", Align::Left, move |r: &Workspace<'a>| {
@@ -112,12 +128,7 @@ impl Column {
                     }))
                 })
             }
-            Column::Git => {
-                let sources = sources.clone();
-                ColumnDef::new("GIT", Align::Left, move |r: &Workspace<'a>| {
-                    value(sources[&r.name].git.cell(|g: &Datum<String>| g.clone()))
-                })
-            }
+            Column::Git => git_column(git),
         }
     }
 }
@@ -126,11 +137,19 @@ impl Status {
     pub(crate) async fn run(self, project: Option<String>) -> eyre::Result<()> {
         let config = Config::load()?;
         let state = State::new(project, &config).await?;
-        let docker = state.try_devcontainer()?.docker.clone();
 
-        let table = match state.try_resolve_workspace(self.workspace.clone()).await? {
-            Some(workspace) if !self.all => self.container_table(docker, &workspace).await?,
-            _ => self.workspace_table(&state, docker).await?,
+        let table = match state.devcontainer.as_ref() {
+            // No Docker: show only the columns that don't need it (NAME, GIT).
+            None => self.git_only_table(&state).await?,
+            Some(dc) => {
+                let docker = dc.docker.clone();
+                match state.try_resolve_workspace(self.workspace.clone()).await? {
+                    Some(workspace) if !self.all => {
+                        self.container_table(docker, &workspace).await?
+                    }
+                    _ => self.workspace_table(&state, docker).await?,
+                }
+            }
         };
 
         if std::io::stderr().is_terminal() {
@@ -151,13 +170,14 @@ impl Status {
         // One command feeds every workspace's forwarded ports.
         let fwd = spawn_fwd(docker.clone(), state.project_name.to_string());
 
+        let git = build_git(&workspaces);
         let sources: Arc<HashMap<String, WsSources>> = Arc::new(
             workspaces
                 .iter()
                 .map(|ws| {
                     (
                         ws.name.clone(),
-                        build_sources(docker.clone(), ws.path.clone(), ws.compose_project_name()),
+                        build_sources(docker.clone(), ws.compose_project_name()),
                     )
                 })
                 .collect(),
@@ -178,7 +198,20 @@ impl Status {
             .into_iter()
             // For speed, exclude CPU (requires at least 1 sec) unless live.
             .filter(|c| self.live || !matches!(c, Column::Cpu))
-            .map(|c| c.def(&sources, &fwd))
+            .map(|c| c.def(&git, &sources, &fwd))
+            .collect::<TableBuilder<Workspace>>()
+            .build(&workspaces, self.live))
+    }
+
+    /// One row per workspace, NAME + GIT only (no devcontainer / Docker).
+    async fn git_only_table(&self, state: &State<'_>) -> eyre::Result<Table> {
+        let mut workspaces = Workspace::list(state).await?;
+        workspaces.sort_by(|a, b| b.is_root.cmp(&a.is_root).then_with(|| a.name.cmp(&b.name)));
+
+        let git = build_git(&workspaces);
+        let columns = [name_column(), git_column(&git)];
+        Ok(columns
+            .into_iter()
             .collect::<TableBuilder<Workspace>>()
             .build(&workspaces, self.live))
     }
@@ -330,9 +363,31 @@ fn spawn_fwd(docker: Arc<DockerClient>, project: String) -> Gatherer<Option<FwdP
     })
 }
 
-/// The per-workspace gatherers. `stats`/`execs` derive off `info` to reuse the
-/// ids it discovers, so each runs independently without re-enumerating.
-fn build_sources(docker: Arc<DockerClient>, path: PathBuf, compose_project: String) -> WsSources {
+/// A git-status gatherer per workspace. Needs no Docker.
+fn build_git(workspaces: &[Workspace<'_>]) -> GitSources {
+    Arc::new(
+        workspaces
+            .iter()
+            .map(|ws| (ws.name.clone(), spawn_git(ws.path.clone())))
+            .collect(),
+    )
+}
+
+fn spawn_git(path: PathBuf) -> Gatherer<Datum<String>> {
+    Gatherer::spawn(PERIOD, move || {
+        let path = path.clone();
+        async move {
+            GitStatus::fetch(&path)
+                .await
+                .map(|g| Datum::Value(g.to_string()))
+                .unwrap_or(Datum::NotApplicable)
+        }
+    })
+}
+
+/// The per-workspace Docker gatherers. `stats`/`execs` derive off `info` to
+/// reuse the ids it discovers, so each runs independently without re-enumerating.
+fn build_sources(docker: Arc<DockerClient>, compose_project: String) -> WsSources {
     let info = {
         let docker = docker.clone();
         Gatherer::spawn(PERIOD, move || {
@@ -372,22 +427,7 @@ fn build_sources(docker: Arc<DockerClient>, path: PathBuf, compose_project: Stri
         })
     };
 
-    let git = Gatherer::spawn(PERIOD, move || {
-        let path = path.clone();
-        async move {
-            GitStatus::fetch(&path)
-                .await
-                .map(|g| Datum::Value(g.to_string()))
-                .unwrap_or(Datum::NotApplicable)
-        }
-    });
-
-    WsSources {
-        info,
-        stats,
-        execs,
-        git,
-    }
+    WsSources { info, stats, execs }
 }
 
 async fn poll_stats(

@@ -8,12 +8,12 @@ use crate::{
     table::{Datum, Gatherer},
 };
 
-/// Independent data sources for one workspace (per-workspace view).
+/// Docker-derived data sources for one workspace (per-workspace view). Git is
+/// gathered separately since it needs no Docker.
 pub(crate) struct WsSources {
     pub info: Gatherer<Option<Info>>,
     pub stats: Gatherer<Option<Stats>>,
     pub execs: Gatherer<Datum<Execs>>,
-    pub git: Gatherer<Datum<String>>,
 }
 
 /// One container row (per-container view).
