@@ -55,6 +55,12 @@ jobs:
 
       - name: Build & push per-arch image
         run: |
+          # GitHub's runner image hardcodes a v1 /etc/containers/registries.conf,
+          # which the newer nix-provided skopeo refuses to load. Point it at a v2 file.
+          mkdir -p "$RUNNER_TEMP/containers"
+          printf 'unqualified-search-registries = ["docker.io"]\n' \
+            > "$RUNNER_TEMP/containers/registries.conf"
+          export CONTAINERS_REGISTRIES_CONF="$RUNNER_TEMP/containers/registries.conf"
           nix run .#docker-service-image.copyTo -- \
             "docker://${IMAGE}:${{ steps.tag.outputs.primary }}-${{ matrix.arch }}"
 
