@@ -1,7 +1,7 @@
 //! A small async table abstraction.
 //!
 //! A `Table` is an erased grid of [`CellSource`]s plus column headers and
-//! alignment. Cell values may be known, resolve once, or be fed by a
+//! alignment. Cell values may be known up front ([`text`]) or fed by a
 //! [`Gatherer`]. `live` (keep redrawing) is a property of the table; the data
 //! layer produces [`ValueSource`]s and knows nothing about rendering.
 
@@ -10,7 +10,6 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use owo_colors::OwoColorize;
-use tokio::sync::watch;
 
 pub(crate) mod gatherer;
 pub(crate) mod render;
@@ -62,28 +61,6 @@ pub(crate) struct ValueSource<V> {
 }
 
 impl<V> ValueSource<V> {
-    /// Backed by a `watch` of `Option<V>` (`None` is pending).
-    #[allow(dead_code)]
-    pub(crate) fn from_watch(rx: watch::Receiver<Option<V>>) -> Self
-    where
-        V: Clone + Send + Sync + 'static,
-    {
-        let get = {
-            let rx = rx.clone();
-            Arc::new(move || match &*rx.borrow() {
-                Some(v) => Datum::Value(v.clone()),
-                None => Datum::Pending,
-            }) as Arc<dyn Fn() -> Datum<V> + Send + Sync>
-        };
-        let ready = Arc::new(move || {
-            let mut rx = rx.clone();
-            Box::pin(async move {
-                let _ = rx.wait_for(Option::is_some).await;
-            }) as BoxFuture<'static, ()>
-        }) as Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
-        ValueSource { get, ready }
-    }
-
     /// Used by [`Gatherer::cell`].
     pub(crate) fn new(
         get: Arc<dyn Fn() -> Datum<V> + Send + Sync>,
@@ -112,20 +89,6 @@ pub(crate) fn text(s: impl Into<String>) -> BuiltCell {
         source: Box::new(Static(s.into())),
         ready: Box::pin(async {}),
     }
-}
-
-/// A cell whose value resolves once, via a future.
-#[allow(dead_code)]
-pub(crate) fn deferred<F>(fut: F) -> BuiltCell
-where
-    F: std::future::Future<Output = String> + Send + 'static,
-{
-    let (tx, rx) = watch::channel(None);
-    tokio::spawn(async move {
-        let v = fut.await;
-        let _ = tx.send(Some(v));
-    });
-    value(ValueSource::from_watch(rx))
 }
 
 /// Render a [`ValueSource`] via its [`Display`].
