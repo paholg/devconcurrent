@@ -18,6 +18,7 @@ pub(crate) struct State<'a> {
     pub(crate) project_name: ProjectName,
     pub(crate) project: &'a Project,
     pub(crate) devcontainer: Option<DevcontainerState>,
+    working_dir: PathBuf,
 }
 
 pub(crate) struct DevcontainerState {
@@ -59,10 +60,13 @@ impl<'a> State<'a> {
 
         let devcontainer = DevcontainerState::new(project).await?;
 
+        let working_dir = Self::resolve_working_dir(&project_name, project, devcontainer.as_ref())?;
+
         Ok(Self {
             project_name,
             project,
             devcontainer,
+            working_dir,
         })
     }
 
@@ -73,34 +77,42 @@ impl<'a> State<'a> {
             .is_some_and(|root| name == root)
     }
 
-    /// The directory we have to create git worktrees and docker override files
-    ///
-    /// In priority:
+    /// The directory we use to create git worktrees and docker override files.
+    pub(crate) fn project_working_dir(&self) -> &Path {
+        &self.working_dir
+    }
+
+    /// Resolve the working directory, in priority:
     ///
     /// * Read from devconcurrent config file for the project
     /// * Read from customizations.devconcurrent in devcontainer.json
-    /// * Defaults to /tmp/devconcurrent/<`PROJECT_NAME`>/
-    pub(crate) fn project_working_dir(&self) -> PathBuf {
-        let dir = self
-            .project
-            .worktree_folder
-            .clone()
-            .or_else(|| {
-                self.devcontainer.as_ref().and_then(|dc| {
-                    dc.config
-                        .customizations
-                        .devconcurrent
-                        .worktree_folder
-                        .clone()
-                })
+    /// * Defaults to the XDG data dir, e.g. `~/.local/share/devconcurrent/<PROJECT_NAME>/`
+    fn resolve_working_dir(
+        project_name: &str,
+        project: &Project,
+        devcontainer: Option<&DevcontainerState>,
+    ) -> eyre::Result<PathBuf> {
+        let dir = match project.worktree_folder.clone().or_else(|| {
+            devcontainer.and_then(|dc| {
+                dc.config
+                    .customizations
+                    .devconcurrent
+                    .worktree_folder
+                    .clone()
             })
-            .unwrap_or_else(|| PathBuf::from_iter(["/tmp", "devconcurrent", &self.project_name]));
+        }) {
+            Some(dir) => dir,
+            None => directories::ProjectDirs::from("", "", "devconcurrent")
+                .ok_or_eyre("could not determine data directory")?
+                .data_dir()
+                .join(project_name),
+        };
 
-        if dir.is_relative() {
-            self.project.path.join(dir)
+        Ok(if dir.is_relative() {
+            project.path.join(dir)
         } else {
             dir
-        }
+        })
     }
 
     pub(crate) fn ensure_project_working_dir(&self) -> eyre::Result<()> {

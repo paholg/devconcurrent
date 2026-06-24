@@ -63,9 +63,7 @@ add a `devconcurrent` field with these properties, though none are required.
 * `defaultExec` - The command to run on `dc exec` and `dc up --exec` if none is
  specified.
 * `worktreeFolder` - The directory to place `dc`-generated worktrees. Defaults
-  to `/tmp/`.
-* `defaultCopyVolumes` - The volumes to copy with `dc copy` and `dc up --copy`
-  if none are specified.
+  to `$XDG_DATA_DIR/devconcurrent/$PROJECT`.
 * `mountGit` [default `true`]- Whether to mount your project's git directory in
   workspace devcontainers. Git worktrees have a simple `.git` file that just
   holds the path to the real `.git` directory. If it's not available, then `git`
