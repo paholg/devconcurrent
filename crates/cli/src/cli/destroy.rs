@@ -104,6 +104,14 @@ impl Runnable for Cleanup<'_> {
         }
 
         if !self.workspace.is_root {
+            // Swallow errors; we don't care if it was not locked.
+            let _ = tokio::process::Command::new("git")
+                .args(["worktree", "unlock"])
+                .arg(&self.workspace.path)
+                .current_dir(&self.workspace.state.project.path)
+                .output()
+                .await;
+
             let mut worktree_cmd = tokio::process::Command::new("git");
             worktree_cmd.args(["worktree", "remove"]);
 

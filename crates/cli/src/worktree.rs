@@ -34,6 +34,33 @@ pub(crate) async fn create(workspace: &Workspace<'_>, detach: bool) -> eyre::Res
         run_cmd(&args, Some(root_path)).await?;
     }
 
+    lock(workspace).await?;
+
+    Ok(())
+}
+
+/// The worktree isn't visible from other worktrees in devcontainers, so we lock
+/// it so that they won't clear it with `git worktree prune` and the like.
+async fn lock(workspace: &Workspace<'_>) -> eyre::Result<()> {
+    let out = Command::new("git")
+        .args([
+            "worktree",
+            "lock",
+            "--reason",
+            "managed by devconcurrent (mounted into devcontainer)",
+        ])
+        .arg(&workspace.path)
+        .current_dir(&workspace.state.project.path)
+        .output()
+        .await?;
+
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        if !stderr.contains("already locked") {
+            eyre::bail!("git worktree lock failed: {}", stderr.trim());
+        }
+    }
+
     Ok(())
 }
 
