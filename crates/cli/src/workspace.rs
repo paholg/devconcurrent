@@ -2,14 +2,12 @@ use std::path::PathBuf;
 
 use docker::{ContainerStatus, FORWARD_LABEL, PROJECT_LABEL, WORKSPACE_LABEL};
 use eyre::eyre;
-use futures::future::try_join_all;
 
-use crate::docker::{ContainerInfo, Stats};
+use crate::docker::ContainerInfo;
 use crate::state::{DevcontainerState, State};
 use crate::worktree;
 
 pub(crate) mod git_status;
-pub(crate) mod table;
 
 pub(crate) struct Workspace<'a> {
     pub(crate) state: &'a State<'a>,
@@ -75,23 +73,19 @@ impl<'a> Workspace<'a> {
     }
 
     pub(crate) async fn devcontainer(
-        &'a self,
-        devcontainer: &'a DevcontainerState,
-    ) -> eyre::Result<WorkspaceDevcontainer<'a>> {
+        &self,
+        devcontainer: &DevcontainerState,
+    ) -> eyre::Result<WorkspaceDevcontainer> {
         let containers = devcontainer.docker.workspace_container_info(self).await?;
-        Ok(WorkspaceDevcontainer {
-            devcontainer,
-            containers,
-        })
+        Ok(WorkspaceDevcontainer { containers })
     }
 }
 
-pub(crate) struct WorkspaceDevcontainer<'a> {
-    devcontainer: &'a DevcontainerState,
+pub(crate) struct WorkspaceDevcontainer {
     containers: Vec<ContainerInfo>,
 }
 
-impl WorkspaceDevcontainer<'_> {
+impl WorkspaceDevcontainer {
     /// Highest "liveness" state across the workspace's containers, or `None`
     /// if there are no containers at all.
     pub(crate) fn status(&self) -> Option<ContainerStatus> {
@@ -105,45 +99,5 @@ impl WorkspaceDevcontainer<'_> {
             .first()
             .ok_or_else(|| eyre!("no containers for workspace"))?
             .id)
-    }
-
-    pub(crate) async fn execs(&self) -> eyre::Result<usize> {
-        let counts = try_join_all(
-            self.containers
-                .iter()
-                .map(|c| self.devcontainer.docker.execs(&c.id)),
-        )
-        .await?;
-        Ok(counts.into_iter().sum())
-    }
-
-    pub(crate) fn created(&self) -> Option<i64> {
-        self.containers.iter().map(|c| c.created).min()
-    }
-
-    pub(crate) fn dc_managed(&self) -> bool {
-        self.containers.iter().any(|c| c.dc_project.is_some())
-    }
-
-    pub(crate) fn docker_ports(&self) -> Vec<u16> {
-        let mut ports: Vec<u16> = self
-            .containers
-            .iter()
-            .flat_map(|c| &c.host_ports)
-            .copied()
-            .collect();
-        ports.sort_unstable();
-        ports.dedup();
-        ports
-    }
-
-    pub(crate) async fn stats(&self) -> eyre::Result<Stats> {
-        let stats = try_join_all(
-            self.containers
-                .iter()
-                .map(|c| self.devcontainer.docker.stats(&c.id)),
-        )
-        .await?;
-        Ok(stats.into_iter().sum())
     }
 }

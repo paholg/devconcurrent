@@ -10,7 +10,6 @@ mod destroy;
 mod exec;
 pub(crate) mod fwd;
 mod go;
-mod list;
 pub(crate) mod proxy;
 mod show;
 mod status;
@@ -42,8 +41,6 @@ pub(crate) enum Commands {
     Exec(exec::Exec),
     #[command(visible_alias = "f")]
     Fwd(fwd::Fwd),
-    #[command(visible_alias = "l")]
-    List(list::List),
     #[command(visible_alias = "c")]
     Compose(compose::Compose),
     #[command()]
@@ -86,7 +83,6 @@ impl Cli {
             Commands::Up(up) => up.run(self.project).await,
             Commands::Exec(exec) => exec.run(self.project).await,
             Commands::Fwd(fwd) => fwd.run(self.project).await,
-            Commands::List(list) => list.run(self.project).await,
             Commands::Compose(compose) => compose.run(self.project).await,
             Commands::Show(show) => show.run(self.project).await,
             Commands::Status(status) => status.run(self.project).await,

@@ -11,7 +11,6 @@ clap = { version = "4.6.1", features = ["derive"] }
 clap_complete = { version = "4.6.5", features = ["unstable-dynamic"] }
 color-eyre = "0.6.5"
 crossterm = "0.29"
-derive_more = { version = "2.1.1", features = ["add", "add_assign", "sum"] }
 directories = "6.0.0"
 docker = { path = "../docker" }
 eyre = "0.6.12"

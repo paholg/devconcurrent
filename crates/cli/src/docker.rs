@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use derive_more::{Add, Sum};
 use docker::{
     COMPOSE_PROJECT_LABEL, COMPOSE_SERVICE_LABEL, FORWARD_LABEL, FORWARD_TARGET_LABEL,
     LOCAL_FOLDER_LABEL, PROJECT_LABEL, WORKSPACE_LABEL,
@@ -18,19 +17,10 @@ pub(crate) mod probe;
 pub(crate) struct ContainerInfo {
     pub(crate) id: String,
     pub(crate) state: docker::ContainerStatus,
-    pub(crate) dc_project: Option<String>,
-    pub(crate) created: i64,
-    pub(crate) host_ports: Vec<u16>,
     /// Container (private) ports the service exposes.
     pub(crate) exposed_ports: Vec<u16>,
     /// Compose service name, when the container is part of a compose project.
     pub(crate) service: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Add, Sum)]
-pub(crate) struct Stats {
-    /// Current memory use in bytes.
-    pub(crate) ram: u64,
 }
 
 /// Raw single-container sample with the CPU counters needed to diff a
@@ -47,18 +37,13 @@ pub(crate) struct StatsSample {
 }
 
 fn container_info_from(c: docker::ContainerSummary) -> ContainerInfo {
-    let dc_project = c.labels.get(PROJECT_LABEL).cloned();
     let service = c.labels.get(COMPOSE_SERVICE_LABEL).cloned();
-    let host_ports: Vec<u16> = c.ports.iter().filter_map(|p| p.public_port).collect();
     let mut exposed_ports: Vec<u16> = c.ports.iter().map(|p| p.private_port).collect();
     exposed_ports.sort_unstable();
     exposed_ports.dedup();
     ContainerInfo {
         id: c.id,
         state: c.state,
-        dc_project,
-        created: c.created,
-        host_ports,
         exposed_ports,
         service,
     }
@@ -116,14 +101,7 @@ impl DockerClient {
         Ok(summaries.into_iter().map(container_info_from).collect())
     }
 
-    pub(crate) async fn stats(&self, container_id: &str) -> eyre::Result<Stats> {
-        let stats = self.client.stats(container_id).await?;
-        Ok(Stats {
-            ram: stats.memory_stats.usage.unwrap_or_default(),
-        })
-    }
-
-    /// Like [`stats`](Self::stats), but also returns raw CPU counters.
+    /// A one-shot stats sample for a container, with the CPU counters.
     pub(crate) async fn stats_sample(&self, container_id: &str) -> eyre::Result<StatsSample> {
         let stats = self.client.stats(container_id).await?;
         Ok(StatsSample {

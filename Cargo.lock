@@ -873,7 +873,6 @@ dependencies = [
  "clap_complete",
  "color-eyre",
  "crossterm",
- "derive_more",
  "directories",
  "docker",
  "eyre",

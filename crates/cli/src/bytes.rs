@@ -60,7 +60,3 @@ impl std::fmt::Display for Bytes {
         )
     }
 }
-
-pub(crate) fn format_bytes(bytes: u64) -> String {
-    Bytes(bytes).to_string()
-}
