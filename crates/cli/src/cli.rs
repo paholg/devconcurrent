@@ -13,6 +13,7 @@ mod go;
 mod list;
 pub(crate) mod proxy;
 mod show;
+mod status;
 mod up;
 
 const ABOUT: &str =
@@ -48,6 +49,8 @@ pub(crate) enum Commands {
     #[command()]
     Destroy(destroy::Destroy),
     Show(show::Show),
+    #[command(visible_alias = "s")]
+    Status(status::Status),
     #[command()]
     Go(go::Go),
     Proxy(proxy::Proxy),
@@ -86,6 +89,7 @@ impl Cli {
             Commands::List(list) => list.run(self.project).await,
             Commands::Compose(compose) => compose.run(self.project).await,
             Commands::Show(show) => show.run(self.project).await,
+            Commands::Status(status) => status.run(self.project).await,
             Commands::Destroy(destroy) => destroy.run(self.project).await,
             Commands::Go(go) => go.run(self.project).await,
             Commands::Proxy(proxy) => proxy.run(self.project).await,

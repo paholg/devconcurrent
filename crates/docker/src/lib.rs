@@ -34,7 +34,7 @@ pub use exec::ExecDetails;
 pub use filter::Filter;
 pub use images::ImageDetails;
 pub use socket::discover_socket;
-pub use stats::{ContainerStats, MemoryStats};
+pub use stats::{ContainerStats, CpuStats, CpuUsage, MemoryStats};
 pub use types::ApiVersion;
 pub use volumes::Volume;
 

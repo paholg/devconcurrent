@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::Path;
 
 use derive_more::{Add, Sum};
 use docker::{
@@ -26,6 +27,19 @@ pub(crate) struct ContainerInfo {
 pub(crate) struct Stats {
     /// Current memory use in bytes.
     pub(crate) ram: u64,
+}
+
+/// Raw single-container sample with the CPU counters needed to diff a
+/// percentage. Not summable: `system_cpu` is host-wide, identical per container.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct StatsSample {
+    pub(crate) ram: u64,
+    /// Cumulative container CPU time (ns).
+    pub(crate) cpu_total: u64,
+    /// Host-wide cumulative CPU time (ns), when reported.
+    pub(crate) system_cpu: Option<u64>,
+    /// Online CPU count, when reported.
+    pub(crate) online_cpus: Option<u32>,
 }
 
 fn container_info_from(c: docker::ContainerSummary) -> ContainerInfo {
@@ -57,11 +71,20 @@ impl DockerClient {
         &self,
         workspace: &Workspace<'_>,
     ) -> eyre::Result<Vec<ContainerInfo>> {
+        self.container_info_for_path(&workspace.path).await
+    }
+
+    /// [`workspace_container_info`](Self::workspace_container_info) keyed by an
+    /// owned path, for callers without a `Workspace`.
+    pub(crate) async fn container_info_for_path(
+        &self,
+        path: &Path,
+    ) -> eyre::Result<Vec<ContainerInfo>> {
         let summaries = self
             .client
             .list_containers()
             .all(true)
-            .with_label(LOCAL_FOLDER_LABEL, workspace.path.display().to_string())
+            .with_label(LOCAL_FOLDER_LABEL, path.display().to_string())
             .call()
             .await?;
         Ok(summaries.into_iter().map(container_info_from).collect())
@@ -71,6 +94,17 @@ impl DockerClient {
         let stats = self.client.stats(container_id).await?;
         Ok(Stats {
             ram: stats.memory_stats.usage.unwrap_or_default(),
+        })
+    }
+
+    /// Like [`stats`](Self::stats), but also returns raw CPU counters.
+    pub(crate) async fn stats_sample(&self, container_id: &str) -> eyre::Result<StatsSample> {
+        let stats = self.client.stats(container_id).await?;
+        Ok(StatsSample {
+            ram: stats.memory_stats.usage.unwrap_or_default(),
+            cpu_total: stats.cpu_stats.cpu_usage.total_usage,
+            system_cpu: stats.cpu_stats.system_cpu_usage,
+            online_cpus: stats.cpu_stats.online_cpus,
         })
     }
 

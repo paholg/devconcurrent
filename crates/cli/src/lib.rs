@@ -20,6 +20,7 @@ mod helpers;
 pub mod run;
 mod state;
 mod subscriber;
+mod table;
 mod workspace;
 mod worktree;
 

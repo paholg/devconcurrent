@@ -9,6 +9,8 @@ use crate::request_ext::ReqwestExt;
 pub struct ContainerStats {
     #[serde(default)]
     pub memory_stats: MemoryStats,
+    #[serde(default)]
+    pub cpu_stats: CpuStats,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -16,6 +18,25 @@ pub struct MemoryStats {
     /// Current memory use in bytes. `None` if not available (e.g. cgroup v1
     /// without memory accounting enabled).
     pub usage: Option<u64>,
+}
+
+/// Cumulative CPU counters. A percentage needs two samples; `one-shot=true`
+/// zeroes `precpu_stats`, so callers diff against a prior snapshot themselves.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct CpuStats {
+    #[serde(default)]
+    pub cpu_usage: CpuUsage,
+    /// Host-wide cumulative CPU time, when reported.
+    pub system_cpu_usage: Option<u64>,
+    /// Online CPU count, when reported.
+    pub online_cpus: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct CpuUsage {
+    /// Cumulative container CPU time (ns).
+    #[serde(default)]
+    pub total_usage: u64,
 }
 
 impl Docker {

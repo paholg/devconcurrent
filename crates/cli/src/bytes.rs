@@ -30,27 +30,37 @@ const BYTE_UNITS: [Unit; 6] = [
     Unit::new(E, "E", RED),
 ];
 
-pub(crate) fn format_bytes(bytes: u64) -> String {
-    let bytes = bytes as f32;
-    let unit = BYTE_UNITS
-        .iter()
-        .take_while(|unit| unit.value <= bytes)
-        .last()
-        .unwrap_or(&BYTE_UNITS[0]);
-    let value = bytes / unit.value;
-    let n_decimals = if value < 10.0 {
-        2
-    } else {
-        usize::from(value < 100.0)
-    };
-    let decimal_point = if n_decimals == 0 { "." } else { "" };
+/// A byte count, rendered with a unit and color.
+#[derive(Clone, Copy)]
+pub(crate) struct Bytes(pub(crate) u64);
 
-    let color = unit.color;
-    format!(
-        "{color}{:.*}{} {}{RESET}",
-        n_decimals,
-        bytes / unit.value,
-        decimal_point,
-        unit.name
-    )
+impl std::fmt::Display for Bytes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let bytes = self.0 as f32;
+        let unit = BYTE_UNITS
+            .iter()
+            .take_while(|unit| unit.value <= bytes)
+            .last()
+            .unwrap_or(&BYTE_UNITS[0]);
+
+        let value = bytes / unit.value;
+        let n_decimals = if value < 10.0 {
+            2
+        } else {
+            usize::from(value < 100.0)
+        };
+
+        let decimal_point = if n_decimals == 0 { "." } else { "" };
+        let color = unit.color;
+
+        write!(
+            f,
+            "{color}{value:.n_decimals$}{decimal_point} {}{RESET}",
+            unit.name
+        )
+    }
+}
+
+pub(crate) fn format_bytes(bytes: u64) -> String {
+    Bytes(bytes).to_string()
 }
