@@ -112,13 +112,27 @@ impl<'a> State<'a> {
         self.project_working_dir().join(workspace_name)
     }
 
-    /// Find the workspace name.
-    ///
-    /// If no name is given, or if it's ".", we derive it from the current working direcory.
+    /// Find the workspace, erroring if no name is given and the current
+    /// working directory isn't inside a worktree.
     pub(crate) async fn resolve_workspace(
         &self,
         name: Option<String>,
     ) -> eyre::Result<Workspace<'_>> {
+        self.try_resolve_workspace(name).await?.ok_or_else(|| {
+            eyre::eyre!(
+                "no workspace specified and not inside a worktree of project '{}'",
+                self.project_name
+            )
+        })
+    }
+
+    /// Find the workspace. A given name (other than ".") always resolves;
+    /// otherwise we derive it from the current working directory, returning
+    /// `None` when the cwd isn't inside a worktree.
+    pub(crate) async fn try_resolve_workspace(
+        &self,
+        name: Option<String>,
+    ) -> eyre::Result<Option<Workspace<'_>>> {
         let worktrees = worktree::list(&self.project.path).await?;
 
         if let Some(workspace_name) = name
@@ -129,26 +143,23 @@ impl<'a> State<'a> {
                 .find(|wt| wt.file_name() == Some(workspace_name.as_ref()))
                 .unwrap_or_else(|| self.worktree_path(&workspace_name));
             let is_root = self.is_root(&workspace_name);
-            return Ok(Workspace {
+            return Ok(Some(Workspace {
                 state: self,
                 name: workspace_name,
                 path,
                 is_root,
-            });
+            }));
         }
 
         let cwd = env::current_dir()?;
 
-        let path = worktrees
+        let Some(path) = worktrees
             .into_iter()
             .filter(|wt| cwd.starts_with(wt))
             .max_by_key(|wt| wt.as_os_str().len())
-            .ok_or_else(|| {
-                eyre::eyre!(
-                    "no workspace specified and not inside a worktree of project '{}'",
-                    self.project_name
-                )
-            })?;
+        else {
+            return Ok(None);
+        };
 
         let name = path
             .file_name()
@@ -158,12 +169,12 @@ impl<'a> State<'a> {
 
         let is_root = self.is_root(&name);
 
-        Ok(Workspace {
+        Ok(Some(Workspace {
             state: self,
             name,
             path,
             is_root,
-        })
+        }))
     }
 
     pub(crate) fn try_devcontainer(&self) -> eyre::Result<&DevcontainerState> {

@@ -5,15 +5,18 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use clap::Args;
+use clap_complete::engine::ArgValueCompleter;
 
 use crate::bytes::Bytes;
 use crate::cli::status::data::{
-    ContainerState, Cpu, Execs, FwdPorts, Info, Ports, PrevSample, Stats, WsSources,
+    ContainerRow, ContainerSources, ContainerState, ContainerStates, Cpu, Execs, FwdPorts, Info,
+    Ports, PrevSample, Stats, WsSources,
 };
+use crate::complete::complete_workspace;
 use crate::config::Config;
 use crate::docker::DockerClient;
 use crate::state::State;
-use crate::table::{Align, ColumnDef, Datum, Gatherer, TableBuilder, text, value};
+use crate::table::{Align, ColumnDef, Datum, Gatherer, Table, TableBuilder, text, value};
 use crate::workspace::Workspace;
 use crate::workspace::git_status::GitStatus;
 
@@ -24,6 +27,14 @@ const PERIOD: Duration = Duration::from_secs(1);
 /// Show project or workspace status
 #[derive(Debug, Args)]
 pub(crate) struct Status {
+    /// Workspace name, or blank for summaries of all [default: current working directory]
+    #[arg(short, long, add = ArgValueCompleter::new(complete_workspace))]
+    workspace: Option<String>,
+
+    /// Show all workspaces, even when a workspace is given.
+    #[arg(short, long)]
+    all: bool,
+
     /// Show live, updating data
     #[arg(short, long)]
     live: bool,
@@ -115,10 +126,27 @@ impl Status {
     pub(crate) async fn run(self, project: Option<String>) -> eyre::Result<()> {
         let config = Config::load()?;
         let state = State::new(project, &config).await?;
-        let dc = state.try_devcontainer()?;
-        let mut workspaces = Workspace::list(&state).await?;
+        let docker = state.try_devcontainer()?.docker.clone();
 
-        let docker = dc.docker.clone();
+        let table = match state.try_resolve_workspace(self.workspace.clone()).await? {
+            Some(workspace) if !self.all => self.container_table(docker, &workspace).await?,
+            _ => self.workspace_table(&state, docker).await?,
+        };
+
+        if std::io::stderr().is_terminal() {
+            table.run_tty().await
+        } else {
+            table.run_piped().await
+        }
+    }
+
+    /// One row per workspace.
+    async fn workspace_table(
+        &self,
+        state: &State<'_>,
+        docker: Arc<DockerClient>,
+    ) -> eyre::Result<Table> {
+        let mut workspaces = Workspace::list(state).await?;
 
         // One command feeds every workspace's forwarded ports.
         let fwd = spawn_fwd(docker.clone(), state.project_name.to_string());
@@ -129,7 +157,7 @@ impl Status {
                 .map(|ws| {
                     (
                         ws.name.clone(),
-                        build_sources(docker.clone(), ws.path.clone()),
+                        build_sources(docker.clone(), ws.path.clone(), ws.compose_project_name()),
                     )
                 })
                 .collect(),
@@ -146,19 +174,150 @@ impl Status {
             Column::Ports,
             Column::Git,
         ];
-        let table = columns
+        Ok(columns
             .into_iter()
             // For speed, exclude CPU (requires at least 1 sec) unless live.
             .filter(|c| self.live || !matches!(c, Column::Cpu))
             .map(|c| c.def(&sources, &fwd))
             .collect::<TableBuilder<Workspace>>()
-            .build(&workspaces, self.live);
+            .build(&workspaces, self.live))
+    }
 
-        if std::io::stderr().is_terminal() {
-            table.run_tty().await
-        } else {
-            table.run_piped().await
+    /// One row per container of a single workspace.
+    async fn container_table(
+        &self,
+        docker: Arc<DockerClient>,
+        workspace: &Workspace<'_>,
+    ) -> eyre::Result<Table> {
+        let compose_project = workspace.compose_project_name();
+        let containers = docker.compose_container_info(&compose_project).await?;
+
+        let mut rows: Vec<ContainerRow> = containers
+            .iter()
+            .map(|c| ContainerRow {
+                id: c.id.clone(),
+                service: c.service.clone().unwrap_or_else(|| short_id(&c.id)),
+                exposed: c.exposed_ports.clone(),
+            })
+            .collect();
+        rows.sort_by(|a, b| a.service.cmp(&b.service));
+
+        // Live container states by id.
+        let info = {
+            let docker = docker.clone();
+            let compose_project = compose_project.clone();
+            Gatherer::spawn(PERIOD, move || {
+                let docker = docker.clone();
+                let compose_project = compose_project.clone();
+                async move {
+                    let states = docker
+                        .compose_container_info(&compose_project)
+                        .await
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|c| (c.id, ContainerState(c.state)))
+                        .collect::<ContainerStates>();
+                    Some(states)
+                }
+            })
+        };
+
+        // The workspace's forwarded ports; attributed to containers by which
+        // exposed port each one targets.
+        let fwd = {
+            let docker = docker.clone();
+            let project = workspace.state.project_name.to_string();
+            let workspace = workspace.name.clone();
+            Gatherer::spawn(PERIOD, move || {
+                let docker = docker.clone();
+                let project = project.clone();
+                let workspace = workspace.clone();
+                async move {
+                    let map = docker.forwarded_ports(&project).await.unwrap_or_default();
+                    Some(map.get(&workspace).cloned().unwrap_or_default())
+                }
+            })
+        };
+
+        let sources: Arc<HashMap<String, ContainerSources>> = Arc::new(
+            containers
+                .iter()
+                .map(|c| {
+                    (
+                        c.id.clone(),
+                        build_container_sources(docker.clone(), c.id.clone()),
+                    )
+                })
+                .collect(),
+        );
+
+        let mut columns: Vec<ColumnDef<ContainerRow>> = vec![
+            ColumnDef::new("NAME", Align::Left, |r: &ContainerRow| {
+                text(r.service.clone())
+            }),
+            ColumnDef::new("STATUS", Align::Left, {
+                let info = info.clone();
+                move |r: &ContainerRow| {
+                    let id = r.id.clone();
+                    value(info.cell(move |m: &Option<ContainerStates>| {
+                        m.as_ref().map_or(Datum::Pending, |m| {
+                            m.get(&id)
+                                .copied()
+                                .map_or(Datum::NotApplicable, Datum::Value)
+                        })
+                    }))
+                }
+            }),
+            ColumnDef::new("MEM", Align::Right, {
+                let sources = sources.clone();
+                move |r: &ContainerRow| {
+                    value(
+                        sources[&r.id]
+                            .stats
+                            .cell(|s: &Option<Stats>| s.as_ref().map_or(Datum::Pending, |s| s.mem)),
+                    )
+                }
+            }),
+        ];
+        if self.live {
+            let sources = sources.clone();
+            columns.push(ColumnDef::new(
+                "CPU",
+                Align::Right,
+                move |r: &ContainerRow| {
+                    value(
+                        sources[&r.id]
+                            .stats
+                            .cell(|s: &Option<Stats>| s.as_ref().map_or(Datum::Pending, |s| s.cpu)),
+                    )
+                },
+            ));
         }
+        columns.push(ColumnDef::new("EXECS", Align::Right, {
+            let sources = sources.clone();
+            move |r: &ContainerRow| value(sources[&r.id].execs.cell(|e: &Datum<Execs>| *e))
+        }));
+        columns.push(ColumnDef::new("PORTS", Align::Left, {
+            let fwd = fwd.clone();
+            move |r: &ContainerRow| {
+                let exposed = r.exposed.clone();
+                value(fwd.cell(move |forwarded: &Option<Vec<u16>>| {
+                    forwarded.as_ref().map_or(Datum::Pending, |forwarded| {
+                        let ports = exposed
+                            .iter()
+                            .copied()
+                            .filter(|p| forwarded.contains(p))
+                            .collect();
+                        Datum::Value(Ports(ports))
+                    })
+                }))
+            }
+        }));
+
+        Ok(columns
+            .into_iter()
+            .collect::<TableBuilder<ContainerRow>>()
+            .build(&rows, self.live))
     }
 }
 
@@ -173,16 +332,15 @@ fn spawn_fwd(docker: Arc<DockerClient>, project: String) -> Gatherer<Option<FwdP
 
 /// The per-workspace gatherers. `stats`/`execs` derive off `info` to reuse the
 /// ids it discovers, so each runs independently without re-enumerating.
-fn build_sources(docker: Arc<DockerClient>, path: PathBuf) -> WsSources {
+fn build_sources(docker: Arc<DockerClient>, path: PathBuf, compose_project: String) -> WsSources {
     let info = {
         let docker = docker.clone();
-        let path = path.clone();
         Gatherer::spawn(PERIOD, move || {
             let docker = docker.clone();
-            let path = path.clone();
+            let compose_project = compose_project.clone();
             async move {
                 let containers = docker
-                    .container_info_for_path(&path)
+                    .compose_container_info(&compose_project)
                     .await
                     .unwrap_or_default();
                 let status = match containers.iter().map(|c| c.state).max() {
@@ -319,4 +477,71 @@ async fn poll_execs(docker: &DockerClient, info: &Option<Info>) -> Datum<Execs> 
         .filter_map(Result::ok)
         .sum();
     Datum::Value(Execs(total))
+}
+
+/// Per-container stats and execs gatherers.
+fn build_container_sources(docker: Arc<DockerClient>, id: String) -> ContainerSources {
+    let stats = {
+        let docker = docker.clone();
+        let id = id.clone();
+        let prev: Arc<Mutex<Option<PrevSample>>> = Arc::new(Mutex::new(None));
+        Gatherer::spawn(PERIOD, move || {
+            let docker = docker.clone();
+            let id = id.clone();
+            let prev = prev.clone();
+            async move { poll_container_stats(&docker, &id, &prev).await }
+        })
+    };
+
+    let execs = Gatherer::spawn(PERIOD, move || {
+        let docker = docker.clone();
+        let id = id.clone();
+        async move {
+            match docker.execs(&id).await {
+                Ok(n) => Datum::Value(Execs(n)),
+                Err(_) => Datum::NotApplicable,
+            }
+        }
+    });
+
+    ContainerSources { stats, execs }
+}
+
+async fn poll_container_stats(
+    docker: &DockerClient,
+    id: &str,
+    prev: &Mutex<Option<PrevSample>>,
+) -> Option<Stats> {
+    let Ok(sample) = docker.stats_sample(id).await else {
+        return Some(Stats {
+            mem: Datum::NotApplicable,
+            cpu: Datum::NotApplicable,
+        });
+    };
+
+    let mut prev = prev.lock().unwrap();
+    let cpu = match (*prev, sample.system_cpu) {
+        (Some(p), Some(system_now)) if system_now > p.system => {
+            let delta = sample.cpu_total.saturating_sub(p.total);
+            let cpus = f64::from(sample.online_cpus.unwrap_or(1));
+            Datum::Value(Cpu(delta as f64 / (system_now - p.system) as f64
+                * cpus
+                * 100.0))
+        }
+        // Only one sample so far: pending.
+        _ => Datum::Pending,
+    };
+    *prev = Some(PrevSample {
+        total: sample.cpu_total,
+        system: sample.system_cpu.unwrap_or(0),
+    });
+
+    Some(Stats {
+        mem: Datum::Value(Bytes(sample.ram)),
+        cpu,
+    })
+}
+
+fn short_id(id: &str) -> String {
+    id.chars().take(12).collect()
 }

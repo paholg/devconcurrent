@@ -21,6 +21,10 @@ pub(crate) struct ContainerInfo {
     pub(crate) dc_project: Option<String>,
     pub(crate) created: i64,
     pub(crate) host_ports: Vec<u16>,
+    /// Container (private) ports the service exposes.
+    pub(crate) exposed_ports: Vec<u16>,
+    /// Compose service name, when the container is part of a compose project.
+    pub(crate) service: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Add, Sum)]
@@ -44,13 +48,19 @@ pub(crate) struct StatsSample {
 
 fn container_info_from(c: docker::ContainerSummary) -> ContainerInfo {
     let dc_project = c.labels.get(PROJECT_LABEL).cloned();
+    let service = c.labels.get(COMPOSE_SERVICE_LABEL).cloned();
     let host_ports: Vec<u16> = c.ports.iter().filter_map(|p| p.public_port).collect();
+    let mut exposed_ports: Vec<u16> = c.ports.iter().map(|p| p.private_port).collect();
+    exposed_ports.sort_unstable();
+    exposed_ports.dedup();
     ContainerInfo {
         id: c.id,
         state: c.state,
         dc_project,
         created: c.created,
         host_ports,
+        exposed_ports,
+        service,
     }
 }
 
@@ -85,6 +95,22 @@ impl DockerClient {
             .list_containers()
             .all(true)
             .with_label(LOCAL_FOLDER_LABEL, path.display().to_string())
+            .call()
+            .await?;
+        Ok(summaries.into_iter().map(container_info_from).collect())
+    }
+
+    /// All containers in a compose project. Unlike the `local_folder` filter,
+    /// this finds every service (db, cache, ...), not just the primary one.
+    pub(crate) async fn compose_container_info(
+        &self,
+        compose_project: &str,
+    ) -> eyre::Result<Vec<ContainerInfo>> {
+        let summaries = self
+            .client
+            .list_containers()
+            .all(true)
+            .with_label(COMPOSE_PROJECT_LABEL, compose_project)
             .call()
             .await?;
         Ok(summaries.into_iter().map(container_info_from).collect())

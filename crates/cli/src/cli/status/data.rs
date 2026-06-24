@@ -8,13 +8,30 @@ use crate::{
     table::{Datum, Gatherer},
 };
 
-/// Independent data sources for one workspace.
+/// Independent data sources for one workspace (per-workspace view).
 pub(crate) struct WsSources {
     pub info: Gatherer<Option<Info>>,
     pub stats: Gatherer<Option<Stats>>,
     pub execs: Gatherer<Datum<Execs>>,
     pub git: Gatherer<Datum<String>>,
 }
+
+/// One container row (per-container view).
+pub(crate) struct ContainerRow {
+    pub id: String,
+    pub service: String,
+    /// Container (private) ports it exposes; used to attribute forwarded ports.
+    pub exposed: Vec<u16>,
+}
+
+/// Per-container data sources (per-container view).
+pub(crate) struct ContainerSources {
+    pub stats: Gatherer<Option<Stats>>,
+    pub execs: Gatherer<Datum<Execs>>,
+}
+
+/// Live container states keyed by id, from one `list_containers` call.
+pub(crate) type ContainerStates = HashMap<String, ContainerState>;
 
 /// A container status, colored by liveness.
 #[derive(Clone, Copy)]
