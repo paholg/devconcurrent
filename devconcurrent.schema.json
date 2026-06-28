@@ -337,7 +337,7 @@
               "mountGit": null,
               "proxy": {
                 "enable": false,
-                "domainName": null,
+                "hostname": null,
                 "services": {}
               }
             }
@@ -596,7 +596,7 @@
             "mountGit": null,
             "proxy": {
               "enable": false,
-              "domainName": null,
+              "hostname": null,
               "services": {}
             }
           }
@@ -637,14 +637,14 @@
           "$ref": "#/$defs/ProxyOptions",
           "default": {
             "enable": false,
-            "domainName": null,
+            "hostname": null,
             "services": {}
           }
         }
       }
     },
     "ProxyOptions": {
-      "description": "Per-project proxy configuration. Lives under\n`customizations.devconcurrent.proxy` in `devcontainer.json`. The CLI\nmerges devcontainer.json + project-level overrides and serializes the\nresult; the proxy reads the same struct back.\n\nAny ports specified in `forwardPorts` are picked up automatically.",
+      "description": "Per-project proxy configuration.",
       "type": "object",
       "properties": {
         "enable": {
@@ -652,8 +652,8 @@
           "type": "boolean",
           "default": false
         },
-        "domainName": {
-          "description": "Handlebars template for the proxied domain name.\n\nAvailable variables:\n- `root` (bool) — whether this is the root workspace\n- `project` — project name\n- `workspace` — workspace name\n- `service` — name of the service from compose",
+        "hostname": {
+          "description": "Handlebars template for the proxied hostname.\n\nAvailable variables:\n- `root` (bool) — whether this is the root workspace\n- `project` — project name\n- `workspace` — workspace name\n- `service` — name of the service from compose\n\nDefault: {{workspace}}.{{service}}.test",
           "anyOf": [
             {
               "$ref": "#/$defs/ProxyHostnameTemplate"
@@ -691,7 +691,7 @@
       }
     },
     "ProxyPort": {
-      "description": "Port mapping for a single (host, container) pair on a service.\n\nValidation happens at deserialization: TLS termination requires the\n`host` port to differ from `container`, since the sidecar needs to bind\n`host` for incoming connections while the app binds `container`. A\nconfig-time error is far easier to track down than a runtime sidecar\nfailure.",
+      "description": "Port mapping for a single (host, container) pair on a service.",
       "type": "object",
       "properties": {
         "ip": {
@@ -713,7 +713,7 @@
           "maximum": 65535
         },
         "tls": {
-          "description": "Terminate TLS on `host` and forward plaintext to `container`. Requires\n`proxy.caRoot` to be configured globally. Default: false.",
+          "description": "Terminate TLS on `host` and forward plaintext to `container`. Requires\n`proxy.caRoot` to be configured.",
           "type": "boolean",
           "default": false
         }

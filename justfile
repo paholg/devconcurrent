@@ -1,5 +1,7 @@
 check: lint test
 
+fix: _fix check
+
 run *args: 
     cargo run --bin devconcurrent -- {{args}}
 
@@ -25,22 +27,17 @@ up:
     nix flake update
     cargo upgrade -i
 
-fix: clippy-fix tombi-fmt lint test
-
-clippy-fix:
+_fix:
     cargo clippy --all-features --all-targets --fix --allow-staged
     cargo fmt
-
-tombi-fmt:
     tombi format
+    rumdl fmt
 
-lint: fmt-check clippy
-
-fmt-check:
+lint:
     cargo fmt --all -- --check
-
-clippy:
     cargo clippy --all-features --all-targets -- -D warnings
+    tombi lint
+    rumdl check
 
 release version:
     git diff --exit-code

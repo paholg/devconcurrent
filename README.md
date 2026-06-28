@@ -1,27 +1,54 @@
-# devconcurrent - a worktree aware devcontainer manager
+# devconcurrent - Development environments made easy
 
-**NOTE:** This is brand new, experimental software. It is missing many features
-of devcontainers, and likely has bugs. Use at your own risk!
+**NOTE:** This is new, experimental software. Use at your own risk. It's still
+undergoing rapid breaking changes; expect this to slow down once above version
+0.1.0, and to mostly stop at 1.0.0.
 
-Git worktrees allow you to have multiple branches checked out at the same time
-in different directories.
+## Value Proposition
 
-Devcontainers can give you isolated development environments.
+With git worktrees, you can work on multiple branches of a project in different
+directories at the same time.
 
-Combining these, you can have multiple, isolated development environments at the
-same time. This allows you to easier prioritize incoming work without playing
-the git stash/commit dance or worrying about which worktree is using what
-dependency. It also lets you spin up devcontainers to cut AI agents loose
-without interrupting your workflow.
+With devcontainers, you _can_ have isolated development environments, but there
+isn't great tooling outside of VSCode, and the reality of ports make this harder
+than it should be.
 
-## Overview
+Enter `devconcurrent`, a tool to easily manage worktrees + devcontainers; it can
+bring them up, take them down, exec into them, etc all with simple CLI commands.
 
-## Installation
+With `dc up foo` you have a brand new worktree named `foo`, running its
+devcontainer, ready for you! Once you're done, just `dc destroy foo`.
 
-After install, I recommend you place the following in your shell to get nice
-completions. For bash, fish, and zsh this will also register the function `dc`
-with additional functionality. For the sake of this README, we will assume you've
-done that, and illustrate all commands as `dc`.
+On top of that, devoncurrent can give you a DNS server and TLS-terminating proxy.
+With a little bit of setup, if you have some web app `app` and are working on
+`feature3`, you can view it at `https://feature3.app.test` in your browser!
+
+## Prerequisites
+
+The only real requirement of `devconcurrent` is that you have git-enabled
+project. But if you want to use all of the features of `devconcurrent`, you'll
+need a modern `docker`, and will have to do a little bit of work to enable
+devconcurrent's DNS server and to install a CA. See [Layers](#layers) for
+details.
+
+## Installation and Setup
+
+### Installation
+
+See <https://github.com/paholg/devconcurrent/releases>
+
+In addition, tools that can install from standard GitHub releases, like mise,
+should work. With `mise` specifically: `mise install github:paholg/devconcurrent`.
+
+There is also a `nix` flake if you are a nix user.
+
+### Shell Setup
+
+Installation will install the `devconcurrent` binary. I recommend you then place
+the following in your shell config file (e.g. `.bashrc`) to get nice completions
+and the function `dc`. For the duration of this README, it is assumed you have
+done that, but if you do not want, the only difference between calling `dc` and
+`devconcurrent` is that `dc` has the power to cd you into workspaces.
 
 ```sh
 # bash:
@@ -37,65 +64,457 @@ COMPLETE=fish devconcurrent | source
 source <(COMPLETE=zsh devconcurrent)
 ```
 
-## Configuration
+### Configuration
 
 In order to give you a nice experience, we require a very simple confuration
 file that just lists your projects.
 
-In `~/.config/devconcurrent/config.toml` place a file like this:
+In your platform's standard config directory, in `devconcurrent/config.toml`,
+place a file like this:
 
 ```toml
+#:schema https://raw.githubusercontent.com/paholg/devconcurrent/refs/heads/main/devconcurrent.schema.json
+
 [projects.best_project]
-path = "~/src/best/"
+path = "~/src/best"
 
 [projects.second_project]
-path = "~/src/second/"
+path = "~/src/second"
 ```
 
-You may also specify an `projects.PROJECT.environment` if you want to set
-environment variables here that will get injected into docker-compose when
-running `dc up`. This is useful if there is per-user config you want for a
-project.
+NOTE: The schema line at the top will let [tombi](https://tombi-toml.github.io/tombi/)
+help you with this file. I highly recommend it!
 
-We also add a customization to `devcontainer.json`. It is recommended that you
-add a `devconcurrent` field with these properties, though none are required.
+For each project, you may also set `devcontainer`. This will merge with any
+settings from a project's `devcontainer.json`, to allow you to have per-user
+overrides. See <https://containers.dev/implementors/json_reference/>.
 
-* `defaultExec` - The command to run on `dc exec` and `dc up --exec` if none is
- specified.
-* `worktreeFolder` - The directory to place `dc`-generated worktrees. Defaults
-  to `$XDG_DATA_DIR/devconcurrent/$PROJECT`.
-* `mountGit` [default `true`]- Whether to mount your project's git directory in
-  workspace devcontainers. Git worktrees have a simple `.git` file that just
-  holds the path to the real `.git` directory. If it's not available, then `git`
-  commands won't work. This flag ensures it's available.
+You also may specify `worktree_folder` if you don't want to create worktrees in
+devcontainer's default directory.
 
-We also make use of `forwardPorts` from the standard devcontainer configuration.
+While we'll show snippets of configuring devconcurrent here, you can also view
+the [full configuration options](CONFIGURATION.md).
 
-## Detailed Usage
+## Layers
 
-## Devcontainer Tips
+Like an ogre, `devconcurrent` has layers. You do not need to use all of its
+features, and can mostly pick and choose as you wish.
+
+Maybe you don't use devcontainers, and just want to use it to manage git
+worktrees.
+
+Maybe you don't care about worktrees, and just want a nice CLI for managing
+devcontainers.
+
+Maybe you don't care about either of those. You are happy having VSCode manage
+your devcontainer, but you're excited about devcontainer's DNS server so you
+can never think about ports again.
+
+All of those use-cases are supported.
+
+### CLI Quirks
+
+It is expected that you generally want to operate on the workspace you are
+within. For that reason, any CLI command that takes a workspace will default to
+the one containing your current path if your working directory is in a workspace.
+
+If you have multiple projects configured, then the project `dc` operates on is
+determined as follows:
+
+1. The `--project` flag
+2. The `DC_PROJECT` environment variable
+3. The current directory, if you're inside the workspace of any project
+4. The first configured project
+
+This way, if you have several projects you use frequently, you can set up
+aliases. For example:
+
+```sh
+alias dcf='dc -p foopy'
+alias dcb='dc -p bippity'
+```
+
+Then `dcb status` will _always_ show the status of `bippity`.
+
+If this is confusing, please let me know!
+
+### Workspaces
+
+At its most basic, devconcurrent can manage git worktrees.
+
+Run `dc up foo` to create the workspace `foo`. Run it with `-g` to also go (cd)
+there.
+
+Run `dc destroy foo` once you're done with it. Treat workspaces as cattle, not
+pets. For me, each workspace is a branch is a single pull request. Full stop. If
+creating workspaces isn't cheap, see [Tips](#tips) and make it cheap.
+
+Run `dc status` to see all your workspaces and their current git dirtiness.
+
+Run `dc go foo` to cd into `foo`'s directory. Because these paths tend to be
+not super convenient, and because devconcurrent generates nice completions for
+you, this ends up being pretty nice. I alias `dc go` to just `d`, so this would
+be for me just `d f<TAB>`.
+
+### Devcontainers
+
+Currently, `devconcurrent` only supports a subset of devcontainer features. We
+only support compose-based devcontainers, and we don't support
+[features](https://containers.dev/implementors/features/). If you really need an
+image-based devcontainer or feature support, open a ticket, but I would
+encourage you to use compose, and to put whatever you need from the features
+directly in your `Dockerfile`.
+
+We provide some options via devcontainer's customizations section. In
+`customizations.devconcurrent` (either in `devcontainer.json` or devconcurrent
+config's `project.PROJECT_NAME.devcontainer.customizations.devconcurrent`), you
+may set the following:
+
+* `default_exec` - What to run if you call `dc x` with no arguments. This might
+  be going away, and we'll just run your default shell.
+* `worktree_folder` - Similar to the top-level `worktree_folder`, this determines
+  where worktrees are places. It's duplicated here so that it can be configured
+  in the project.
+* `mount_git` - (default `true`) Whether the project's `.git` directory should
+  be mounted into the devcontainer. Worktrees have a `.git` file that just
+  contains the location of the project's true `.git` directory. Without this,
+  `git` commands for non-root workspaces will not work in the devcontainer.
+* `proxy` - This will be covered in the [DNS](#dns) and [Proxy](#proxy-and-https)
+  sections.
+
+This will enhance the commands we discussed above:
+
+* Now, `dc up` will bring up the devcontainer as well, recreating an existing
+  one, and running all lifecycle commands.
+* Similarly, `dc destroy` will delete any containers and volumes (remember,
+  workspaces are not pets -- if you care about losing data here, you're using
+  them wrong).
+* Finally, `dc status` will also show some docker information, and you can
+  include the `--live` flag to use it as a monitor. With a workspace, it will
+  show the containers for that workspace, or without (and you can pass `--all`
+  to force this) it will show aggregate container information across all
+  workspaces.
+
+In addition, we introduce some new commands:
+
+* `dc exec` or `dc x` will exec into your main container. I use this so often
+  that I alias it to just `x`. This is how you'll run anything in the
+  devcontainer.
+* `dc fwd` or `dc f` will forward any ports specified in `forwardPorts` to the
+  host. If ports are already being forwarded, `dc` will "move" them to the
+  current workspace.
+* `dc compose` or `dc c` will let you run any docker compose commands targeted
+  at the workspace. For example, `dc c logs -f` to watch logs.
+
+### DNS
+
+While forwarding ports to containers is unarguably useful, it's quite annoying,
+especially if you regularly have multiple workspaces active at a single time.
+I've found myself very confused about why I didn't see what I expected only to
+eventually realize I was forwarding ports to the wrong workspace! With a
+different hostname for each workspace, this stops being an issue, but it does
+take a bit of work.
+
+With the setup here, say you have workspace `foo` and service `app`, with
+a server in the container running at port `8080`, you can access it from the
+host at `foo.app.test:8080`. At the same time, you can acces `bar` at
+`bar.app.test:8080`.
+
+When enabled, devconcurrent runs a DNS server at default port `43770`. By
+default, we use the `.test` TLD for all containers. You are free to configure
+this, but be aware that `.test` is a [reserved](https://en.wikipedia.org/wiki/Special-use_domain_name)
+domain, and real traffic will _never_ be served on it.
+
+This guide will assume you're using these defaults, but you can configure them.
+See port via `proxy.port`. Configuring the TLD is covered [below](#dns-configuration)
+
+_NOTE:_ If you want this to work for containers launched with tools other than
+`dc` (e.g. VS Code), you do need to set one label so devconcurrent knows what to
+look for. When you run `dc up`, it sets this label for you. On your primary
+service in `docker-compose.yml`, docker compose service, set:
+
+```yaml
+labels:
+  - "com.paholg.devconcurrent.project=<PROJECT NAME>"
+```
+
+#### Linux
+
+You'll need to configure your system to have devconcurrent handle DNS for the
+`.test` TLD. How you do that depends on how your system manages DNS; here we
+outline some possibilities, but your system may not be included.
+
+The goal here: Have devconcurrent's DNS server running at `127.0.0.1:43770` handle
+DNS requests for TLD `.test`.
+
+Note: The following instructions assume you're on a system using `systemd`. If
+you're unsure, you probably are.
+
+**NixOs**
+On `NixOs`, you can configure `resolved` as so:
+
+```nix
+services.resolved = {
+  enable = true;
+  settings.Resolve = {
+    DNS = "127.0.0.1:43770";
+    Domains = "~test";
+  };
+};
+```
+
+**systemd-resolved**
+Run `systemctl is-active systemd-resolved`. If that reports `active`:
+
+```sh
+sudo mkdir -p /etc/systemd/resolved.conf.d
+printf '[Resolve]\nDNS=127.0.0.1:43770\nDomains=~test\n' \
+  | sudo tee /etc/systemd/resolved.conf.d/devconcurrent.conf
+sudo systemctl restart systemd-resolved
+```
+
+**NetworkManager**
+Run `systemctl is-active NetworkManager`. If that reports `active`:
+
+```sh
+  printf 'server=/test/127.0.0.1#43770\n' \
+    | sudo tee /etc/NetworkManager/dnsmasq.d/test.conf
+  sudo systemctl reload NetworkManager
+```
+
+**FIXME**: Verify/tweak
+(This requires NetworkManager's `dns=dnsmasq` backend. Check with
+`NetworkManager --print-config | grep -A3 '\[main\]'`; if `dns` isn't `dnsmasq`,
+set it under `[main]` in `/etc/NetworkManager/NetworkManager.conf` first.)
+
+#### MacOs
+
+Docker Desktop does not provide container IPs to the host, which we need to be
+able to direct traffic. I know of two tools to do this for you, but have not
+personally used either:
+
+* [Docker Mac Net Connect](https://github.com/chipmk/docker-mac-net-connect) is
+  an open source tool for doing just this using wireguard.
+* [OrbStack](https://orbstack.dev/) is a proprietary alternative to Docker
+  Desktop that offers this via "Direct container access".
+
+In addition, you'll need to configure your system to have devconcurrent handle
+DNS for `.test`:
+
+```sh
+sudo mkdir -p /etc/resolver && \
+  printf 'nameserver 127.0.0.1\nport 43770\n' | \
+  sudo tee /etc/resolver/test
+```
+
+#### Windows
+
+Windows has the same issue as MacOs, that docker IP addresses aren't available
+to the Windows host. However, unlike MacOs, there doesn't seem to be a good
+solution today. There is an [open PR](https://github.com/chipmk/docker-mac-net-connect/pull/37)
+to Docker Mac Net Connect, but it's been sitting for a bit.
+
+With the Linux instructions, this should work on WSL2, but I don't believe you'll
+be able to access a container from e.g. a Windows browser.
+
+If you use Windows and are interested on finding a solution, please feel free to
+reach out to me!
+
+#### Verification
+
+Assuming you are using the default settings, have workspace `foo` and container
+`app`, then after configuring the above, `dc up foo` will also bring up
+devconcurrent's DNS server. Then `dig +short foo.app.test` should reveal the
+container's IP address!
+
+You can now reference containers by hostname. For example, if you have a
+database at compose service `postgres`, you can set your database url to
+`$(devconcurrent show workspace).postgres.test`.
+
+#### DNS Configuration
+
+As already mentioned, you can customize the DNS port via `proxy.port` in
+`config.toml`. In addition, you can customize the container hostnames if you
+don't like the default via the devcontainer's
+`customizations.devconcurrent.proxy.hostname`. This takes a
+[handlebars](https://handlebarsjs.com/) template with the following variables
+available:
+
+* `root` (bool) - whether this is the root workspace
+* `project` (string) - project name
+* `workspace` (string) - workspace name
+* `service` (string) - the compose service name
+
+The default is `{{workspace}}.{{service}}.test`. If you wanted a different TLD
+than `.test`, this is where you would set it.
+
+### Proxy and HTTPS
+
+We've gotten pretty far, but there's one looming dark cloud: security. Now that
+we're not using `localhost` to access our service, a lot of things might get
+grumpy. Browsers don't like to visit non-localhost domains at plain `http`, and
+some web frameworks don't like it either.
+
+We can solve this with the final piece: A TLS-terminating proxy. Devconcurrent's
+proxy operates in two modes; if you just want to do a port-map, then it operates
+at [Layer 4](https://en.wikipedia.org/wiki/Transport_layer) and just proxies raw
+bytes. But if you set `tls: true`, then it operates at
+[Layer 7](https://en.wikipedia.org/wiki/Application_layer), listening for https
+and setting headers.
+
+#### HTTPS
+
+There's a very handy tool, [mkcert](https://github.com/filosottile/mkcert),
+and you can generate a certificate authority as easily as:
+
+```sh
+mkcert -install
+```
+
+If it's able, `mkcert` will also install this CA into your system and browser,
+but if it's not, you may need to manually import it. This tends to be pretty
+easy to do, and can be achieved via a few clicks in your browser's ui.
+
+Then, see the path with `mkcert -CAROOT` and set it in devconcurrent's `config.toml`:
+
+```toml
+[proxy]
+caRoot = "<PATH FROM `mkcert -CAROOT`>" 
+```
+
+#### Proxy settings
+
+In `customizations.devconcurrent.proxy`, you'll want to set the following:
+
+* `enable` (bool) - set to `true`
+* `services` - a table of service names to a list of proxy options. Here's an
+  example of a `devcontainer.json` file:
+
+```json
+{
+  "name": "App Name",
+  # OTHER OPTIONS HERE
+  "customizations": {
+    "devconcurrent": {
+      "proxy": {
+        "enable": true,
+        "services": {
+          "app": {
+            "ports": [
+              {
+                "host": 443,
+                "container": 8080,
+                "tls": true
+              },
+              {
+                "host": 80,
+                "container": 8080
+              },
+            ]
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+With that setup, a service in the `app` container running on port 8080 will be
+accessible from the host at ports 80 and 443, with 443 doing full TLS
+termination, so it should _just work_ in a browser. Also enabling port 80 lets
+tools like `curl` work without needing `https`.
+
+Note: You can still access the service at port 8080 from the host as well. The
+port 80 entry there is just a convenience so you don't have to type ports ever.
+
+## Tips
 
 To make this tool work well, there are some important tips for how you configure
 your devcontainers.
 
+### Cache volumes
+
+Devconcurrent is designed around creating and destroying workspaces frequently.
+For this to be useful, it needs to be _fast_. For any dependencies or build
+artifacts, I recommend you create `external` compose volumes, so they aren't
+owned by any one workspace's compose project. To make this easy to manage, you
+can auto-create them in your `initializeCommand`. For example, for a Rust
+project I have in `docker-compose.yml`:
+
+```yaml
+services:
+  cookit:
+    # More settings here...
+    volumes:
+      - ..:/workspace:cached
+      # Cache volumes:
+      - nix-store:/nix
+      - cargo-registry:/home/vscode/.cargo/registry
+      - cargo-git:/home/vscode/.cargo/git
+      - sccache:/home/vscode/.cache/sccache
+
+volumes:
+  pg_data:
+  nix-store:
+    name: cookit-nix-store
+    external: true
+  cargo-registry:
+    name: cookit-cargo-registry
+    external: true
+  cargo-git:
+    name: cookit-cargo-git
+    external: true
+  sccache:
+    name: cookit-sccache
+    external: true
+```
+
+and in my `initializeCommand`:
+
+```sh
+# Ensure external volumes exist
+for vol in cookit-nix-store cookit-cargo-registry cookit-cargo-git cookit-sccache; do
+    docker volume create "$vol" 2>/dev/null || true
+done
+```
+
+This way users don't have to worry about manually creating these volumes, and no
+workspace's compose tries to own them. The downside is that if a user is every
+completely done with your project, they will have to manually clean up the volumes.
+
 ### Ports
 
-### Configuration and Caches
+Do not specify static ports in `docker-compose.yml` -- any two workspaces _will_
+conflict. You can specify `forwardPorts` in `devcontainer.json`, and `dc fwd`
+will happily forward these.
 
-One issue with spinning up short-lived devcontainers is that you have to
-configure them and repopulate caches (such as dependency directories) every
-time. Gross!
+If you _really_ need compose-forwared ports, you can separate them.
 
-To make using `dc` fast and breezy, you'll want to make heavy use of volumes and
-mounts.
+For example, define your services without ports in `.devcontainer/docker-compose.yml`,
+then in a root `docker-compose.yml` you can do:
 
-For anything that can be checked into git, do that, and then you can symlink it
-into place in `postCreate` or `postStart`. This ends up being pretty nice -- if
-you change any settings, they'll be reflected in git.
+```yaml
+include:
+  - path: .devcontainer/docker-compose.yml
 
-The flipside is that it only works for configuration that you're happy to share,
-so no secrets or developer-specific settings.
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+  redis:
+    ports:
+      - "6379:6379"
+```
 
-TODO
+Then devconainer users have ports managed by `forwardPorts` and anyone running
+`docker compose up` gets ports directly from docker.
 
+## Glossary
 
+We use a few terms repeatedly, and so want to make sure they have clear
+definitions.
+
+* `project` - Any devconcurrent-enabled git repository.
+* `workspace` - A git worktree plus optional devcontainer. These the the main
+  thing that devconcurrent manages.
+* `root workspace` - The workspace for the "main" worktree, as git calls it.

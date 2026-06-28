@@ -40,34 +40,33 @@ pub const ENV_DNS_PORT: &str = "DC_PROXY_DNS_PORT";
 pub const ENV_CA_DIR: &str = "DC_PROXY_CA_DIR";
 
 /// Default Handlebars template for proxied hostnames.
-pub const DEFAULT_DOMAIN_TEMPLATE: &str = "{{workspace}}.{{service}}.test";
+pub const DEFAULT_HOSTNAME_TEMPLATE: &str = "{{workspace}}.{{service}}.test";
 
-/// Per-project proxy configuration. Lives under
-/// `customizations.devconcurrent.proxy` in `devcontainer.json`. The CLI
-/// merges devcontainer.json + project-level overrides and serializes the
-/// result; the proxy reads the same struct back.
-///
-/// Any ports specified in `forwardPorts` are picked up automatically.
+/// Per-project proxy configuration.
 #[derive(Deserialize, Serialize, Clone, Debug, Default, JsonSchema)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ProxyOptions {
     /// Opt in to proxy routing for this project.
     pub enable: bool,
-    /// Handlebars template for the proxied domain name.
+
+    /// Handlebars template for the proxied hostname.
     ///
     /// Available variables:
     /// - `root` (bool) — whether this is the root workspace
     /// - `project` — project name
     /// - `workspace` — workspace name
     /// - `service` — name of the service from compose
-    pub domain_name: Option<Template>,
+    ///
+    /// Default: {{workspace}}.{{service}}.test
+    pub hostname: Option<Template>,
+
     /// Per-compose-service configuration.
     pub services: IndexMap<String, ProxyService>,
 }
 
 impl ProxyOptions {
     /// Render the hostname for one `(project, workspace, service)` tuple using
-    /// this project's `domainName` template (falling back to the default when
+    /// this project's `hostname` template (falling back to the default when
     /// unset). Returns `None` if the template fails to render.
     #[must_use]
     pub fn render_hostname(
@@ -85,11 +84,13 @@ impl ProxyOptions {
             service: &'a str,
         }
         let source = self
-            .domain_name
+            .hostname
             .as_ref()
-            .map_or(DEFAULT_DOMAIN_TEMPLATE, Template::source);
+            .map_or(DEFAULT_HOSTNAME_TEMPLATE, Template::source);
+
         let mut hbs = handlebars::Handlebars::new();
         hbs.set_strict_mode(false);
+
         let ctx = Ctx {
             root,
             project,
@@ -107,12 +108,6 @@ pub struct ProxyService {
 }
 
 /// Port mapping for a single (host, container) pair on a service.
-///
-/// Validation happens at deserialization: TLS termination requires the
-/// `host` port to differ from `container`, since the sidecar needs to bind
-/// `host` for incoming connections while the app binds `container`. A
-/// config-time error is far easier to track down than a runtime sidecar
-/// failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
 pub struct ProxyPort {
     /// The IP address to listen on. Defaults to 0.0.0.0, allowing traffic in
@@ -122,7 +117,7 @@ pub struct ProxyPort {
     pub host: u16,
     pub container: u16,
     /// Terminate TLS on `host` and forward plaintext to `container`. Requires
-    /// `proxy.caRoot` to be configured globally. Default: false.
+    /// `proxy.caRoot` to be configured.
     #[serde(default)]
     pub tls: bool,
 }
@@ -143,18 +138,25 @@ impl<'de> Deserialize<'de> for ProxyPort {
             #[serde(default)]
             tls: bool,
         }
-        let raw = Raw::deserialize(deserializer)?;
-        if raw.tls && raw.host == raw.container {
+
+        let Raw {
+            ip,
+            host,
+            container,
+            tls,
+        } = Raw::deserialize(deserializer)?;
+
+        if tls && host == container {
             return Err(de::Error::custom(format!(
-                "tls port mapping {}:{} has host == container; TLS termination requires a distinct host port (e.g. host: 443, container: {})",
-                raw.host, raw.container, raw.container,
+                "tls port mapping {host}:{container} has host == container; TLS termination requires a distinct host port (e.g. host: 443, container: {container})"
             )));
         }
+
         Ok(Self {
-            ip: raw.ip,
-            host: raw.host,
-            container: raw.container,
-            tls: raw.tls,
+            ip,
+            host,
+            container,
+            tls,
         })
     }
 }
@@ -164,6 +166,9 @@ impl<'de> Deserialize<'de> for ProxyPort {
 #[derive(Clone, Debug)]
 pub struct Template {
     source: String,
+    // TODO: Should we be using this? Currently it's used to ensure valida at deserialization time,
+    // but we could probably also use it to render?
+    #[allow(unused)]
     compiled: handlebars::Template,
 }
 
@@ -171,11 +176,6 @@ impl Template {
     #[must_use]
     pub fn source(&self) -> &str {
         &self.source
-    }
-
-    #[must_use]
-    pub fn compiled(&self) -> &handlebars::Template {
-        &self.compiled
     }
 
     fn compile(source: String) -> Result<Self, handlebars::TemplateError> {
@@ -186,7 +186,7 @@ impl Template {
 
 impl Default for Template {
     fn default() -> Self {
-        Self::compile(DEFAULT_DOMAIN_TEMPLATE.to_string())
+        Self::compile(DEFAULT_HOSTNAME_TEMPLATE.to_string())
             .expect("default template is a valid Handlebars template")
     }
 }

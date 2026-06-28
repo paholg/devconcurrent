@@ -1,0 +1,5 @@
+[global]
+flavor = "gfm"
+
+[MD013]
+code_blocks = false
