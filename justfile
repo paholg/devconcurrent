@@ -42,8 +42,7 @@ lint:
 release version:
     git diff --exit-code
     cargo set-version -p devconcurrent -p devconcurrent-proxy {{version}}
-    just lint
-    just test
+    just check
     git add -u
     git commit -m "Version {{version}}"
     git tag v{{version}}

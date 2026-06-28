@@ -21,7 +21,7 @@ devcontainer, ready for you! Once you're done, just `dc destroy foo`.
 
 On top of that, devconcurrent can give you a DNS server and TLS-terminating proxy.
 With a little bit of setup, if you have some web app `app` and are working on
-`feature3`, you can view it at `https://feature3.app.test` in your browser!
+`feature3`, you can view it in your browser at `https://feature3.app.test`!
 
 ## Prerequisites
 
@@ -276,18 +276,35 @@ sudo systemctl restart systemd-resolved
 ```
 
 **NetworkManager**
+NOTE: These instructions should work, but I do not have a system with
+NetworkManager. If you use them, please report back!
+
 Run `systemctl is-active NetworkManager`. If that reports `active`:
 
+NetworkManager only does conditional DNS forwarding when it's using its
+`dnsmasq` backend, which is not the default. Check whether it's enabled:
+
 ```sh
-  printf 'server=/test/127.0.0.1#43770\n' \
-    | sudo tee /etc/NetworkManager/dnsmasq.d/test.conf
-  sudo systemctl reload NetworkManager
+NetworkManager --print-config | grep -A3 '\[main\]'
 ```
 
-**FIXME**: Verify/tweak
-(This requires NetworkManager's `dns=dnsmasq` backend. Check with
-`NetworkManager --print-config | grep -A3 '\[main\]'`; if `dns` isn't `dnsmasq`,
-set it under `[main]` in `/etc/NetworkManager/NetworkManager.conf` first.)
+If `dns` isn't `dnsmasq`, enable it with a drop-in:
+
+```sh
+printf '[main]\ndns=dnsmasq\n' | sudo tee /etc/NetworkManager/conf.d/dns.conf
+```
+
+Then tell dnsmasq to forward `.test` to devconcurrent:
+
+```sh
+printf 'server=/test/127.0.0.1#43770\n' | sudo tee /etc/NetworkManager/dnsmasq.d/test.conf
+```
+
+Then restart NetworkManager:
+
+```sh
+sudo systemctl restart NetworkManager
+```
 
 #### MacOs
 
