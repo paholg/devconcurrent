@@ -28,7 +28,7 @@
         "path": {
           "type": "string"
         },
-        "worktree_folder": {
+        "worktreeFolder": {
           "type": [
             "string",
             "null"

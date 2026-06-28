@@ -91,6 +91,7 @@ impl Default for ProxyGlobal {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct Project {
     #[serde(deserialize_with = "deserialize_shell_path")]
     pub(crate) path: PathBuf,

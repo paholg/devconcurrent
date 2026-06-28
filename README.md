@@ -19,7 +19,7 @@ bring them up, take them down, exec into them, etc all with simple CLI commands.
 With `dc up foo` you have a brand new worktree named `foo`, running its
 devcontainer, ready for you! Once you're done, just `dc destroy foo`.
 
-On top of that, devoncurrent can give you a DNS server and TLS-terminating proxy.
+On top of that, devconcurrent can give you a DNS server and TLS-terminating proxy.
 With a little bit of setup, if you have some web app `app` and are working on
 `feature3`, you can view it at `https://feature3.app.test` in your browser!
 
@@ -54,7 +54,7 @@ done that, but if you do not want, the only difference between calling `dc` and
 # bash:
 source <(COMPLETE=bash devconcurrent)
 
-# elvish:
+# elvish (just generates completions for now):
 eval (E:COMPLETE=elvish devconcurrent | slurp)
 
 # fish:
@@ -66,7 +66,7 @@ source <(COMPLETE=zsh devconcurrent)
 
 ### Configuration
 
-In order to give you a nice experience, we require a very simple confuration
+In order to give you a nice experience, we require a very simple configuration
 file that just lists your projects.
 
 In your platform's standard config directory, in `devconcurrent/config.toml`,
@@ -89,7 +89,7 @@ For each project, you may also set `devcontainer`. This will merge with any
 settings from a project's `devcontainer.json`, to allow you to have per-user
 overrides. See <https://containers.dev/implementors/json_reference/>.
 
-You also may specify `worktree_folder` if you don't want to create worktrees in
+You also may specify `worktreeFolder` if you don't want to create worktrees in
 devcontainer's default directory.
 
 While we'll show snippets of configuring devconcurrent here, you can also view
@@ -170,12 +170,12 @@ We provide some options via devcontainer's customizations section. In
 config's `project.PROJECT_NAME.devcontainer.customizations.devconcurrent`), you
 may set the following:
 
-* `default_exec` - What to run if you call `dc x` with no arguments. This might
+* `defaultExec` - What to run if you call `dc x` with no arguments. This might
   be going away, and we'll just run your default shell.
-* `worktree_folder` - Similar to the top-level `worktree_folder`, this determines
-  where worktrees are places. It's duplicated here so that it can be configured
+* `worktreeFolder` - Similar to the top-level `worktreeFolder`, this determines
+  where worktrees are placed. It's duplicated here so that it can be configured
   in the project.
-* `mount_git` - (default `true`) Whether the project's `.git` directory should
+* `mountGit` - (default `true`) Whether the project's `.git` directory should
   be mounted into the devcontainer. Worktrees have a `.git` file that just
   contains the location of the project's true `.git` directory. Without this,
   `git` commands for non-root workspaces will not work in the devcontainer.
@@ -194,6 +194,8 @@ This will enhance the commands we discussed above:
   show the containers for that workspace, or without (and you can pass `--all`
   to force this) it will show aggregate container information across all
   workspaces.
+* You can also use `dc show` to show information about the current workspace;
+  this can be useful if you want to include it in a shell prompt or similar.
 
 In addition, we introduce some new commands:
 
@@ -217,7 +219,7 @@ take a bit of work.
 
 With the setup here, say you have workspace `foo` and service `app`, with
 a server in the container running at port `8080`, you can access it from the
-host at `foo.app.test:8080`. At the same time, you can acces `bar` at
+host at `foo.app.test:8080`. At the same time, you can access `bar` at
 `bar.app.test:8080`.
 
 When enabled, devconcurrent runs a DNS server at default port `43770`. By
@@ -231,7 +233,7 @@ See port via `proxy.port`. Configuring the TLD is covered [below](#dns-configura
 _NOTE:_ If you want this to work for containers launched with tools other than
 `dc` (e.g. VS Code), you do need to set one label so devconcurrent knows what to
 look for. When you run `dc up`, it sets this label for you. On your primary
-service in `docker-compose.yml`, docker compose service, set:
+service in `docker-compose.yml`, set:
 
 ```yaml
 labels:
@@ -329,7 +331,9 @@ container's IP address!
 
 You can now reference containers by hostname. For example, if you have a
 database at compose service `postgres`, you can set your database url to
-`$(devconcurrent show workspace).postgres.test`.
+`$(devconcurrent show workspace).postgres.test` or just
+`$(devconcurrent show ip postgres)`, but be aware the IP can change on container
+re-creation.
 
 #### DNS Configuration
 
@@ -393,7 +397,7 @@ In `customizations.devconcurrent.proxy`, you'll want to set the following:
 ```json
 {
   "name": "App Name",
-  # OTHER OPTIONS HERE
+  // OTHER OPTIONS HERE
   "customizations": {
     "devconcurrent": {
       "proxy": {
@@ -409,7 +413,7 @@ In `customizations.devconcurrent.proxy`, you'll want to set the following:
               {
                 "host": 80,
                 "container": 8080
-              },
+              }
             ]
           }
         }
@@ -479,7 +483,7 @@ done
 ```
 
 This way users don't have to worry about manually creating these volumes, and no
-workspace's compose tries to own them. The downside is that if a user is every
+workspace's compose tries to own them. The downside is that if a user is ever
 completely done with your project, they will have to manually clean up the volumes.
 
 ### Ports
@@ -488,7 +492,7 @@ Do not specify static ports in `docker-compose.yml` -- any two workspaces _will_
 conflict. You can specify `forwardPorts` in `devcontainer.json`, and `dc fwd`
 will happily forward these.
 
-If you _really_ need compose-forwared ports, you can separate them.
+If you _really_ need compose-forwarded ports, you can separate them.
 
 For example, define your services without ports in `.devcontainer/docker-compose.yml`,
 then in a root `docker-compose.yml` you can do:
@@ -506,7 +510,7 @@ services:
       - "6379:6379"
 ```
 
-Then devconainer users have ports managed by `forwardPorts` and anyone running
+Then devcontainer users have ports managed by `forwardPorts` and anyone running
 `docker compose up` gets ports directly from docker.
 
 ## Glossary
@@ -516,5 +520,5 @@ definitions.
 
 * `project` - Any devconcurrent-enabled git repository.
 * `workspace` - A git worktree plus optional devcontainer. These the the main
-  thing that devconcurrent manages.
+  things that devconcurrent manages.
 * `root workspace` - The workspace for the "main" worktree, as git calls it.
