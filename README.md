@@ -190,10 +190,8 @@ This will enhance the commands we discussed above:
   workspaces are not pets -- if you care about losing data here, you're using
   them wrong).
 * Finally, `dc status` will also show some docker information, and you can
-  include the `--live` flag to use it as a monitor. With a workspace, it will
-  show the containers for that workspace, or without (and you can pass `--all`
-  to force this) it will show aggregate container information across all
-  workspaces.
+  include the `--live` flag to use it as a monitor. You can also pass
+  `--workspace` to see the containers within a workspace.
 * You can also use `dc show` to show information about the current workspace;
   this can be useful if you want to include it in a shell prompt or similar.
 

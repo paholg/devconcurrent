@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use clap::Args;
 use clap_complete::engine::ArgValueCompleter;
+use crossterm::style::Stylize;
 
 use crate::bytes::Bytes;
 use crate::cli::status::data::{
@@ -24,16 +25,12 @@ mod data;
 
 const PERIOD: Duration = Duration::from_secs(1);
 
-/// Show project or workspace status
+/// Show status for all workspaces in the project; container stats are aggregated.
 #[derive(Debug, Args)]
 pub(crate) struct Status {
-    /// Workspace name, or blank for summaries of all [default: current working directory]
-    #[arg(short, long, add = ArgValueCompleter::new(complete_workspace))]
-    workspace: Option<String>,
-
-    /// Show all workspaces, even when a workspace is given.
-    #[arg(short, long)]
-    all: bool,
+    /// Split by container, showing a single workspace
+    #[arg(short, long, num_args = 0..=1, add = ArgValueCompleter::new(complete_workspace))]
+    workspace: Option<Option<String>>,
 
     /// Show live, updating data
     #[arg(short, long)]
@@ -138,19 +135,30 @@ impl Status {
         let config = Config::load()?;
         let state = State::new(project, &config).await?;
 
-        let table = match state.devcontainer.as_ref() {
-            // No Docker: show only the columns that don't need it (NAME, GIT).
-            None => self.git_only_table(&state).await?,
+        let (table, workspace) = match state.devcontainer.as_ref() {
+            None => (self.git_only_table(&state).await?, None),
             Some(dc) => {
                 let docker = dc.docker.clone();
-                match state.try_resolve_workspace(self.workspace.clone()).await? {
-                    Some(workspace) if !self.all => {
-                        self.container_table(docker, &workspace).await?
+                match self.workspace.clone() {
+                    None => (self.workspace_table(&state, docker).await?, None),
+                    Some(name) => {
+                        let workspace = state.resolve_workspace(name).await?;
+                        (
+                            self.container_table(docker, &workspace).await?,
+                            Some(workspace),
+                        )
                     }
-                    _ => self.workspace_table(&state, docker).await?,
                 }
             }
         };
+
+        let project = state.project_name.to_string().blue();
+
+        eprintln!("PROJECT: {project}");
+        if let Some(ws) = workspace {
+            let ws_name = ws.name.yellow();
+            eprintln!("WORKSPACE: {ws_name}")
+        }
 
         if std::io::stderr().is_terminal() {
             table.run_tty().await
@@ -159,7 +167,6 @@ impl Status {
         }
     }
 
-    /// One row per workspace.
     async fn workspace_table(
         &self,
         state: &State<'_>,
@@ -167,7 +174,6 @@ impl Status {
     ) -> eyre::Result<Table> {
         let mut workspaces = Workspace::list(state).await?;
 
-        // One command feeds every workspace's forwarded ports.
         let fwd = spawn_fwd(docker.clone(), state.project_name.to_string());
 
         let git = build_git(&workspaces);
@@ -194,6 +200,7 @@ impl Status {
             Column::Ports,
             Column::Git,
         ];
+
         Ok(columns
             .into_iter()
             // For speed, exclude CPU (requires at least 1 sec) unless live.
@@ -203,7 +210,6 @@ impl Status {
             .build(&workspaces, self.live))
     }
 
-    /// One row per workspace, NAME + GIT only (no devcontainer / Docker).
     async fn git_only_table(&self, state: &State<'_>) -> eyre::Result<Table> {
         let mut workspaces = Workspace::list(state).await?;
         workspaces.sort_by(|a, b| b.is_root.cmp(&a.is_root).then_with(|| a.name.cmp(&b.name)));
@@ -216,7 +222,6 @@ impl Status {
             .build(&workspaces, self.live))
     }
 
-    /// One row per container of a single workspace.
     async fn container_table(
         &self,
         docker: Arc<DockerClient>,
@@ -354,7 +359,6 @@ impl Status {
     }
 }
 
-/// Forwarded-ports gatherer (one call, all workspaces).
 fn spawn_fwd(docker: Arc<DockerClient>, project: String) -> Gatherer<Option<FwdPorts>> {
     Gatherer::spawn(PERIOD, move || {
         let docker = docker.clone();
