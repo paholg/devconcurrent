@@ -9,3 +9,6 @@ exclude = [
 
 [MD013]
 code_blocks = false
+
+[MD033]
+allowed = ["p", "a", "img"]
