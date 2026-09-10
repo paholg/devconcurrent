@@ -29,6 +29,13 @@ RUN eval $(sed -n "s/${REMOTE_USER}:[^:]*:\([^:]*\):\([^:]*\):[^:]*:\([^:]*\).*/
 			echo "Group with GID exists ($EXISTING_GROUP=$NEW_GID)."; \
 			NEW_GID="$OLD_GID"; \
 		fi; \
+# BEGIN devconcurrent addition (not in upstream)
+# Skip the potentially expensive `chown -R` when the ids match already.
+		if [ "$OLD_UID" = "$NEW_UID" -a "$OLD_GID" = "$NEW_GID" ]; then \
+			echo "UIDs and GIDs are the same ($NEW_UID:$NEW_GID)."; \
+			exit 0; \
+		fi; \
+# END devconcurrent addition
 		echo "Updating UID:GID from $OLD_UID:$OLD_GID to $NEW_UID:$NEW_GID."; \
 		sed -i -e "s/\(${REMOTE_USER}:[^:]*:\)[^:]*:[^:]*/\1${NEW_UID}:${NEW_GID}/" /etc/passwd; \
 		if [ "$OLD_GID" != "$NEW_GID" ]; then \
