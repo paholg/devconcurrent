@@ -294,6 +294,8 @@ impl Up {
         workspace: &Workspace<'_>,
         project_name: &str,
     ) -> eyre::Result<()> {
+        // The build above rewrote the override without a pin, so this is the
+        // service's own image, not a `-uid` image from an earlier `up`.
         let base_image = compose_image(devcontainer, workspace).await?;
         let client = &devcontainer.docker().await?.client;
 

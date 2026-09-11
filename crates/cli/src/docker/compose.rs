@@ -5,6 +5,7 @@ use docker::{
 };
 use eyre::{Context, eyre};
 use indexmap::IndexMap;
+use serde::Deserialize;
 use serde_json::json;
 
 use crate::run::run_command;
@@ -236,23 +237,14 @@ pub(crate) async fn compose_cmd(
 }
 
 /// The image the primary service resolves to.
-///
-/// Asking compose beats deriving the name ourselves: for a service that only
-/// has `build:`, the answer is compose's own `{project}-{service}` convention,
-/// whose separator changed in compose 2.8.
 pub(crate) async fn compose_image(
     devcontainer: &DevcontainerState,
     workspace: &Workspace<'_>,
 ) -> eyre::Result<String> {
     let service = &devcontainer.config.service;
-    // Without our override, so this reports the service's own image rather than
-    // a pin `up` may already have written — but *with* `-p`, since a build-only
-    // service takes its image name from the project name, and compose would
-    // otherwise fall back to the compose file's directory.
-    let mut cmd = compose_config_cmd(devcontainer, workspace)?;
-    cmd.arg("-p")
-        .arg(project_name(devcontainer, workspace).await?);
-    cmd.args(["config", "--images", service]);
+    let project = project_name(devcontainer, workspace).await?;
+    let mut cmd = compose_cmd(devcontainer, workspace).await?;
+    cmd.args(["config", "--format", "json"]);
 
     let out = cmd
         .output()
@@ -260,16 +252,40 @@ pub(crate) async fn compose_image(
         .wrap_err("failed to run docker compose")?;
     eyre::ensure!(
         out.status.success(),
-        "docker compose config --images failed: {}",
+        "docker compose config failed: {}",
         String::from_utf8_lossy(&out.stderr).trim()
     );
 
-    String::from_utf8(out.stdout)?
-        .lines()
-        .map(str::trim)
-        .find(|s| !s.is_empty())
-        .map(ToOwned::to_owned)
-        .ok_or_else(|| eyre!("docker compose reported no image for service '{service}'"))
+    let config: ComposeConfig = serde_json::from_slice(&out.stdout)?;
+    config.image(project, service)
+}
+
+/// Subset of `docker compose config --format json`.
+#[derive(Debug, Deserialize)]
+struct ComposeConfig {
+    services: IndexMap<String, ComposeService>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ComposeService {
+    image: Option<String>,
+}
+
+impl ComposeConfig {
+    /// The image `service` resolves to.
+    fn image(&self, project: &str, service: &str) -> eyre::Result<String> {
+        let entry = self
+            .services
+            .get(service)
+            .ok_or_else(|| eyre!("docker compose reported no service '{service}'"))?;
+
+        Ok(match &entry.image {
+            Some(image) => image.clone(),
+            // A service with only `build:` has no `image` here; compose tags
+            // the build with this name (since 2.8 — earlier versions used `_`).
+            None => format!("{project}-{service}"),
+        })
+    }
 }
 
 /// Every service defined by this workspace's compose files, sorted.
@@ -630,5 +646,45 @@ mod tests {
             claim(&[(LOCAL_FOLDER_LABEL, "/elsewhere/fix")]),
             Some("the devcontainer for /elsewhere/fix".to_string())
         );
+    }
+}
+
+/// Against a real `docker compose`: the default-name fallback rests on what its
+/// rendered config leaves out, and its dependency handling on what it puts in.
+#[cfg(all(test, feature = "docker-tests"))]
+mod docker_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn the_primary_service_wins_over_its_dependencies() {
+        let dir = tempfile::tempdir().unwrap();
+        let compose_file = dir.path().join("docker-compose.yml");
+        std::fs::write(
+            &compose_file,
+            "services:\n  app:\n    build: .\n    depends_on: [db, cache]\n  db:\n    image: postgres:18\n  cache:\n    image: redis:7\n",
+        )
+        .unwrap();
+
+        // Several runs: compose orders a service's dependencies differently
+        // from one run to the next.
+        for _ in 0..5 {
+            let out = tokio::process::Command::new("docker")
+                .args(["compose", "-p", "ws_devcontainer", "-f"])
+                .arg(&compose_file)
+                .args(["config", "--format", "json"])
+                .output()
+                .await
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+
+            let config: ComposeConfig = serde_json::from_slice(&out.stdout).unwrap();
+            let image = config.image("ws_devcontainer", "app").unwrap();
+
+            assert_eq!(image, "ws_devcontainer-app");
+        }
     }
 }
