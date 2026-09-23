@@ -10,6 +10,7 @@ use indexmap::IndexMap;
 use crate::cli::State;
 use crate::complete::complete_workspace;
 use crate::config::Config;
+use crate::devcontainer::substitution;
 use crate::docker::probe;
 use crate::state::DevcontainerState;
 
@@ -59,15 +60,7 @@ impl Exec {
             devcontainer.config.user_env_probe,
         )
         .await?;
-        let mut remote_env: IndexMap<String, Option<String>> =
-            probed.into_iter().map(|(k, v)| (k, Some(v))).collect();
-        for (key, template) in &devcontainer.config.remote_env {
-            let value = template
-                .as_ref()
-                .map(|t| context.render_field(&format!("remoteEnv.{key}"), t))
-                .transpose()?;
-            remote_env.insert(key.clone(), value);
-        }
+        let remote_env = remote_env(devcontainer, &context, probed)?;
 
         exec_interactive(
             container_id,
@@ -78,6 +71,25 @@ impl Exec {
         )
         .await
     }
+}
+
+/// Overlay devcontainer.json `remoteEnv` on the probed env, per the spec's merge
+/// order. A `None` (spec `null`) emits `-e KEY=` (empty) downstream.
+pub(crate) fn remote_env(
+    devcontainer: &DevcontainerState,
+    context: &substitution::Context<'_>,
+    probed: IndexMap<String, String>,
+) -> eyre::Result<IndexMap<String, Option<String>>> {
+    let mut env: IndexMap<String, Option<String>> =
+        probed.into_iter().map(|(k, v)| (k, Some(v))).collect();
+    for (key, template) in &devcontainer.config.remote_env {
+        let value = template
+            .as_ref()
+            .map(|t| context.render_field(&format!("remoteEnv.{key}"), t))
+            .transpose()?;
+        env.insert(key.clone(), value);
+    }
+    Ok(env)
 }
 
 /// True when stdin is a terminal and we are its foreground process group.

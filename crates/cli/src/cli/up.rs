@@ -4,13 +4,12 @@ use clap::Args;
 use clap_complete::ArgValueCompleter;
 use color_eyre::owo_colors::OwoColorize;
 use eyre::WrapErr;
-use indexmap::IndexMap;
 use tracing::info_span;
 use tracing_indicatif::span_ext::IndicatifSpanExt;
 
 use docker::MANAGED_LABEL;
 
-use crate::cli::exec::exec_interactive;
+use crate::cli::exec::{exec_interactive, remote_env};
 use crate::cli::fwd::forward;
 use crate::cli::{State, go, proxy};
 use crate::complete::complete_workspace;
@@ -222,18 +221,7 @@ impl Up {
             devcontainer.config.user_env_probe,
         )
         .await?;
-        // Spec merge order: probed env is the base; devcontainer.json `remoteEnv` overlays.
-        // A `None` (spec `null`) emits `-e KEY=` (empty) downstream.
-        let mut merged: IndexMap<String, Option<String>> =
-            probed.into_iter().map(|(k, v)| (k, Some(v))).collect();
-        for (key, template) in &devcontainer.config.remote_env {
-            let value = template
-                .as_ref()
-                .map(|t| context.render_field(&format!("remoteEnv.{key}"), t))
-                .transpose()?;
-            merged.insert(key.clone(), value);
-        }
-        let remote_env = &merged;
+        let lifecycle_env = &remote_env(devcontainer, &context, probed)?;
 
         // Lifecycle commands: create-only commands run only on first creation
         // For now, though, we always recreate.
@@ -255,7 +243,7 @@ impl Up {
         ] {
             let Some(cmd) = cmd else { continue };
             cmd.render(name, &context)?
-                .run_in_container(name, &container_id, user, workdir, remote_env)
+                .run_in_container(name, &container_id, user, workdir, lifecycle_env)
                 .await
                 // The container id alone doesn't say which compose service to go
                 // poke at once the hook has failed.
@@ -269,7 +257,17 @@ impl Up {
 
         // Interactive exec if requested
         if let Some(cmd_args) = &self.exec {
-            exec_interactive(&container_id, devcontainer, remote_env, cmd_args, user).await?;
+            // Probe again: lifecycle commands may have installed shell config
+            // that changes the env.
+            let probed = probe::user_env(
+                &container_id,
+                user,
+                &container.env,
+                devcontainer.config.user_env_probe,
+            )
+            .await?;
+            let env = remote_env(devcontainer, &context, probed)?;
+            exec_interactive(&container_id, devcontainer, &env, cmd_args, user).await?;
         }
 
         Ok(())
