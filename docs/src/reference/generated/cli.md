@@ -14,6 +14,7 @@ This document contains the help content for the `devconcurrent` command-line pro
 * [`devconcurrent show`↴](#devconcurrent-show)
 * [`devconcurrent show ports`↴](#devconcurrent-show-ports)
 * [`devconcurrent show workspace`↴](#devconcurrent-show-workspace)
+* [`devconcurrent show compose-project`↴](#devconcurrent-show-compose-project)
 * [`devconcurrent show ip`↴](#devconcurrent-show-ip)
 * [`devconcurrent show hostname`↴](#devconcurrent-show-hostname)
 * [`devconcurrent show env`↴](#devconcurrent-show-env)
@@ -159,6 +160,7 @@ Show some value
 
 * `ports` — Show currently-forwarded ports for this workspace
 * `workspace` — Print the current workspace name, or exit 1
+* `compose-project` — Print the docker compose project name for this workspace
 * `ip` — Show container IP addresses for this workspace
 * `hostname` — Show proxied hostnames for this workspace
 * `env` — Show this workspace's configured shell variables
@@ -179,6 +181,14 @@ Show currently-forwarded ports for this workspace
 Print the current workspace name, or exit 1
 
 **Usage:** `devconcurrent show workspace`
+
+
+
+## `devconcurrent show compose-project`
+
+Print the docker compose project name for this workspace
+
+**Usage:** `devconcurrent show compose-project`
 
 
 

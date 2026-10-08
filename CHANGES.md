@@ -6,6 +6,14 @@ here.
 NOTE: Document the dangers of `mountGit` -- a container can write to it, which
 could result in host execution.
 
+## `dc show compose-project`
+
+Prints the workspace's docker compose project name, resolved the same way
+`dc up` resolves it. Scripts that need the workspace's volumes or containers,
+such as an `initializeCommand` that seeds a database volume, can use it instead
+of rebuilding the name from the directory, which goes wrong when the directory
+name has uppercase letters.
+
 ## Branch name templates
 
 `dc up NAME` used to always check out branch `NAME`. The branch is now rendered

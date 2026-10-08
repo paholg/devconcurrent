@@ -77,3 +77,6 @@ symbols here are modeled after
 
 Use `dc show workspace` to see the current workspace, or exit 1 if not in a
 workspace. This can be used for prompt-integration and the like.
+
+Use `dc show compose-project` to print the workspace's docker compose project
+name, for scripts that need to find its containers or volumes.

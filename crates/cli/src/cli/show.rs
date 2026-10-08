@@ -24,6 +24,8 @@ enum ShowCommands {
     Ports(Ports),
     /// Print the current workspace name, or exit 1
     Workspace(ShowWorkspace),
+    /// Print the docker compose project name for this workspace
+    ComposeProject(ComposeProject),
     /// Show container IP addresses for this workspace
     Ip(Ip),
     /// Show proxied hostnames for this workspace
@@ -42,6 +44,9 @@ struct Ports;
 
 #[derive(Debug, Args)]
 struct ShowWorkspace;
+
+#[derive(Debug, Args)]
+struct ComposeProject;
 
 #[derive(Debug, Args)]
 struct Ip {
@@ -87,6 +92,7 @@ impl Show {
         match command {
             ShowCommands::Ports(ports) => ports.run(state).await,
             ShowCommands::Workspace(ws) => ws.run(state).await,
+            ShowCommands::ComposeProject(cp) => cp.run(state).await,
             ShowCommands::Ip(ip) => ip.run(state).await,
             ShowCommands::Hostname(hostname) => hostname.run(state).await,
             ShowCommands::Env(_) | ShowCommands::CaRoot(_) => unreachable!("returned above"),
@@ -139,6 +145,18 @@ impl ShowWorkspace {
             }
             Err(_) => std::process::exit(1),
         }
+    }
+}
+
+impl ComposeProject {
+    async fn run(self, state: State<'_>) -> eyre::Result<()> {
+        let workspace = state.resolve_workspace(None).await?;
+        let devcontainer = state.devcontainer_for(&workspace.path)?;
+        println!(
+            "{}",
+            compose::project_name(&devcontainer, &workspace).await?
+        );
+        Ok(())
     }
 }
 
