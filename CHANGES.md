@@ -6,6 +6,13 @@ here.
 NOTE: Document the dangers of `mountGit` -- a container can write to it, which
 could result in host execution.
 
+## `finalizeCommand`
+
+`customizations.devconcurrent.finalizeCommand` runs on the host, from the
+workspace folder, after every other lifecycle command succeeds. It is the
+counterpart to `initializeCommand`, and takes the same forms. Unlike
+`initializeCommand`, `${containerEnv:…}` is available.
+
 ## Branch name templates
 
 `dc up NAME` used to always check out branch `NAME`. The branch is now rendered

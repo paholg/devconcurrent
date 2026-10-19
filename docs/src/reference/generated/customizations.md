@@ -9,6 +9,8 @@
     - [`proxy.services.<name>.hostname`](#proxy-services-name-hostname) — Handlebars template for this service's hostname.
     - [`proxy.services.<name>.httpProxyPort`](#proxy-services-name-httpproxyport) — If set, devconcurrent will run an HTTP proxy on ports 80 and 443 to this port in your container, performing TLS termination on 443.
 - [`env.<name>`](#env-name) — Define shell variables
+- [`finalizeCommand`](#finalizecommand) — A command to run locally after every other lifecycle command.
+  - [`finalizeCommand.<name>`](#finalizecommand-name) — A command as written in config, before `${...}` substitution.
 
 ## `worktreeFolder` {#worktreefolder}
 
@@ -122,3 +124,20 @@ Example:
   "DATABASE_URL": "postgres://postgres:postgres@{{hostname 'postgres'}}:5432/db"
 }
 ```
+
+## `finalizeCommand` {#finalizecommand}
+
+A command to run locally after every other lifecycle command. This command is run after
+"postAttachCommand".
+
+Like "initializeCommand", it runs on the host from the workspace folder, so it runs
+whatever the repository specifies with your permissions. Unlike "initializeCommand",
+`${containerEnv:…}` is available.
+
+**Type**: `string | array<string> | object`
+
+### `finalizeCommand.<name>` {#finalizecommand-name}
+
+A command as written in config, before `${...}` substitution.
+
+**Type**: `string | array<string>`

@@ -67,6 +67,8 @@
         - [`customizations.devconcurrent.proxy.services.<name>.hostname`](#customizations-devconcurrent-proxy-services-name-hostname) — Handlebars template for this service's hostname.
         - [`customizations.devconcurrent.proxy.services.<name>.httpProxyPort`](#customizations-devconcurrent-proxy-services-name-httpproxyport) — If set, devconcurrent will run an HTTP proxy on ports 80 and 443 to this port in your container, performing TLS termination on 443.
     - [`customizations.devconcurrent.env.<name>`](#customizations-devconcurrent-env-name) — Define shell variables
+    - [`customizations.devconcurrent.finalizeCommand`](#customizations-devconcurrent-finalizecommand) — A command to run locally after every other lifecycle command.
+      - [`customizations.devconcurrent.finalizeCommand.<name>`](#customizations-devconcurrent-finalizecommand-name) — A command as written in config, before `${...}` substitution.
 
 ## `dockerComposeFile` {#dockercomposefile}
 
@@ -571,3 +573,20 @@ Example:
   "DATABASE_URL": "postgres://postgres:postgres@{{hostname 'postgres'}}:5432/db"
 }
 ```
+
+#### `customizations.devconcurrent.finalizeCommand` {#customizations-devconcurrent-finalizecommand}
+
+A command to run locally after every other lifecycle command. This command is run after
+"postAttachCommand".
+
+Like "initializeCommand", it runs on the host from the workspace folder, so it runs
+whatever the repository specifies with your permissions. Unlike "initializeCommand",
+`${containerEnv:…}` is available.
+
+**Type**: `string | array<string> | object`
+
+##### `customizations.devconcurrent.finalizeCommand.<name>` {#customizations-devconcurrent-finalizecommand-name}
+
+A command as written in config, before `${...}` substitution.
+
+**Type**: `string | array<string>`

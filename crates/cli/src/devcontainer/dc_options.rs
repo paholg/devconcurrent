@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use shared::{ProxyOptions, Template};
 
+use crate::devcontainer::lifecycle_command::LifecycleCommandTemplate;
 use crate::helpers::deserialize_shell_path_opt;
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
@@ -41,6 +42,14 @@ pub(crate) struct DcOptions {
     }))]
     #[schemars(with = "crate::helpers::PatternMap<EnvVarName, Template>")]
     pub(crate) env: IndexMap<EnvVarName, Template>,
+
+    /// A command to run locally after every other lifecycle command. This command is run after
+    /// "postAttachCommand".
+    ///
+    /// Like "initializeCommand", it runs on the host from the workspace folder, so it runs
+    /// whatever the repository specifies with your permissions. Unlike "initializeCommand",
+    /// `${containerEnv:…}` is available.
+    pub(crate) finalize_command: Option<LifecycleCommandTemplate>,
 }
 
 impl DcOptions {

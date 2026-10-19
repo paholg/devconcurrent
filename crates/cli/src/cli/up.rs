@@ -256,6 +256,12 @@ impl Up {
                 .wrap_err_with(|| format!("service: {}", devcontainer.config.service))?;
         }
 
+        if let Some(cmd) = &devcontainer.devconcurrent().finalize_command {
+            cmd.render("finalizeCommand", &context)?
+                .run_on_host("finalizeCommand", Some(&workspace.path))
+                .await?;
+        }
+
         // Port forward if requested
         if self.forward {
             forward(devcontainer, workspace).await?;

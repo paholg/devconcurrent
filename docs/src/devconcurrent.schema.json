@@ -431,7 +431,8 @@
                 "hostname": null,
                 "services": {}
               },
-              "env": {}
+              "env": {},
+              "finalizeCommand": null
             }
           },
           "allOf": [
@@ -737,7 +738,8 @@
               "hostname": null,
               "services": {}
             },
-            "env": {}
+            "env": {},
+            "finalizeCommand": null
           },
           "allOf": [
             {
@@ -797,6 +799,18 @@
             }
           ],
           "default": {}
+        },
+        "finalizeCommand": {
+          "description": "A command to run locally after every other lifecycle command. This command is run after\n\"postAttachCommand\".\n\nLike \"initializeCommand\", it runs on the host from the workspace folder, so it runs\nwhatever the repository specifies with your permissions. Unlike \"initializeCommand\",\n`${containerEnv:…}` is available.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/LifecycleCommandTemplate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       }
     },
