@@ -2,13 +2,11 @@ use std::io::IsTerminal;
 use std::os::unix::process::CommandExt;
 
 use clap::Args;
-use clap_complete::ArgValueCompleter;
 use docker::ContainerStatus;
 use eyre::eyre;
 use indexmap::IndexMap;
 
 use crate::cli::State;
-use crate::complete::complete_workspace;
 use crate::config::Config;
 use crate::devcontainer::substitution;
 use crate::docker::probe;
@@ -17,20 +15,20 @@ use crate::state::DevcontainerState;
 /// Exec into a running devcontainer
 #[derive(Debug, Args)]
 pub(crate) struct Exec {
-    /// Workspace name [default: current working directory]
-    #[arg(short, long, add = ArgValueCompleter::new(complete_workspace))]
-    workspace: Option<String>,
-
     /// command to run [default: the container user's shell]
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     cmd: Vec<String>,
 }
 
 impl Exec {
-    pub(crate) async fn run(self, project: Option<String>) -> eyre::Result<()> {
+    pub(crate) async fn run(
+        self,
+        project: Option<String>,
+        workspace: Option<String>,
+    ) -> eyre::Result<()> {
         let config = Config::load()?;
         let state = State::new(project, &config).await?;
-        let workspace = state.resolve_workspace(self.workspace).await?;
+        let workspace = state.resolve_workspace(workspace).await?;
         let devcontainer = state.devcontainer_for(&workspace.path)?;
         let devcontainer = &devcontainer;
         let workspace_full = workspace.devcontainer(devcontainer).await?;

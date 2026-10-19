@@ -14,7 +14,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Args;
-use clap_complete::engine::ArgValueCompleter;
 use crossterm::style::Stylize;
 use eyre::Result;
 use serde::Serialize;
@@ -23,7 +22,6 @@ use self::checks::{Check, Probe, RowChecks};
 use self::endpoints::{Discovery, Endpoint, Sidecar};
 use super::ProxyState;
 use crate::ansi::{RED, RESET};
-use crate::complete::complete_workspace;
 use crate::table::{Align, ColumnDef, Datum, Gatherer, Report, Table, TableBuilder, text, value};
 
 mod checks;
@@ -35,10 +33,6 @@ const DEADLINE: Duration = Duration::from_secs(25);
 
 #[derive(Debug, Args)]
 pub(crate) struct StatusArgs {
-    /// Workspace name (only useful if its devcontainer.json diverges from the root workspace)
-    #[arg(short, long, add = ArgValueCompleter::new(complete_workspace))]
-    workspace: Option<String>,
-
     /// Check every proxy-enabled project, not just this one
     #[arg(short, long)]
     all: bool,
@@ -46,12 +40,6 @@ pub(crate) struct StatusArgs {
     /// Print the results as JSON instead of a table
     #[arg(long)]
     json: bool,
-}
-
-impl StatusArgs {
-    pub(crate) fn workspace(&self) -> Option<String> {
-        self.workspace.clone()
-    }
 }
 
 pub(super) async fn run(proxy: &ProxyState, args: &StatusArgs) -> Result<()> {

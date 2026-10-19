@@ -49,6 +49,7 @@ A tool for managing devcontainers, especially when combined with git worktrees
 ###### **Options:**
 
 * `-p`, `--project <PROJECT>` — name of project [default: The DEVCONCURRENT_PROJECT variable, then the first configured project]
+* `-w`, `--workspace <WORKSPACE>` — name of workspace [default: current working directory]
 
 
 
@@ -76,7 +77,7 @@ Bring up a workspace, creating it if it does not exist
 
 Exec into a running devcontainer
 
-**Usage:** `devconcurrent exec [OPTIONS] [CMD]...`
+**Usage:** `devconcurrent exec [CMD]...`
 
 **Command Alias:** `x`
 
@@ -84,27 +85,19 @@ Exec into a running devcontainer
 
 * `<CMD>` — command to run [default: the container user's shell]
 
-###### **Options:**
-
-* `-w`, `--workspace <WORKSPACE>` — Workspace name [default: current working directory]
-
 
 
 ## `devconcurrent fwd`
 
 Forward configured `forwardPorts` to a running workspace
 
-**Usage:** `devconcurrent fwd [OPTIONS] [COMMAND]`
+**Usage:** `devconcurrent fwd [COMMAND]`
 
 **Command Alias:** `f`
 
 ###### **Subcommands:**
 
 * `stop` — Stop forwarding ports (remove sidecar containers)
-
-###### **Options:**
-
-* `-w`, `--workspace <WORKSPACE>` — Workspace name [default: current working directory]
 
 
 
@@ -120,17 +113,13 @@ Stop forwarding ports (remove sidecar containers)
 
 Run `docker compose` against the given workspace
 
-**Usage:** `devconcurrent compose [OPTIONS] [ARGS]...`
+**Usage:** `devconcurrent compose [ARGS]...`
 
 **Command Alias:** `c`
 
 ###### **Arguments:**
 
 * `<ARGS>` — Arguments to provide to `docker compose`
-
-###### **Options:**
-
-* `-w`, `--workspace <WORKSPACE>` — Workspace name [default: current working directory]
 
 
 
@@ -154,7 +143,7 @@ Fully destroy the workspace; equivalent to `docker compose down -v --rmi local -
 
 Show some value
 
-**Usage:** `devconcurrent show [OPTIONS] <COMMAND>`
+**Usage:** `devconcurrent show <COMMAND>`
 
 ###### **Subcommands:**
 
@@ -165,10 +154,6 @@ Show some value
 * `env` — Show the workspace's configured shell variables
 * `compose-project` — Print the workspace's docker compose project name
 * `ca-root` — Print the CA root directory, generating the CA if it isn't there yet
-
-###### **Options:**
-
-* `-w`, `--workspace <WORKSPACE>` — Workspace name [default: current working directory]
 
 
 
@@ -259,7 +244,7 @@ Show status for all workspaces in the project; container stats are aggregated
 
 ###### **Options:**
 
-* `-w`, `--workspace <WORKSPACE>` — Split by container, showing a single workspace
+* `-c`, `--containers` — Split by container, showing a single workspace (implied by `--workspace`)
 * `-l`, `--live` — Show live, updating data
 
 
@@ -268,7 +253,7 @@ Show status for all workspaces in the project; container stats are aggregated
 
 Cd into the workspace directory (only if using via shell wrapper)
 
-**Usage:** `devconcurrent go <WORKSPACE>`
+**Usage:** `devconcurrent go [WORKSPACE]`
 
 ###### **Arguments:**
 
@@ -296,11 +281,7 @@ Manage the DNS server and HTTP proxy
 
 Start or restart the proxy
 
-**Usage:** `devconcurrent proxy up [OPTIONS]`
-
-###### **Options:**
-
-* `-w`, `--workspace <WORKSPACE>` — Workspace name (only useful if its devcontainer.json diverges from the root workspace)
+**Usage:** `devconcurrent proxy up`
 
 
 
@@ -322,7 +303,6 @@ Check that every configured hostname and port is reachable
 
 ###### **Options:**
 
-* `-w`, `--workspace <WORKSPACE>` — Workspace name (only useful if its devcontainer.json diverges from the root workspace)
 * `-a`, `--all` — Check every proxy-enabled project, not just this one
 * `--json` — Print the results as JSON instead of a table
 

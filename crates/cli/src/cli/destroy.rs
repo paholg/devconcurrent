@@ -7,7 +7,7 @@ use eyre::eyre;
 
 use crate::ansi::{RED, RESET, YELLOW};
 use crate::cli::go::go;
-use crate::cli::{State, confirm, safety_check};
+use crate::cli::{State, confirm, either_workspace, safety_check};
 use crate::complete::complete_workspace;
 use crate::config::Config;
 use crate::docker::compose::{self, compose_cmd, remove_override_file};
@@ -19,8 +19,8 @@ use crate::workspace::Workspace;
 #[derive(Debug, Args)]
 pub(crate) struct Destroy {
     /// Workspace name
-    #[arg(add = ArgValueCompleter::new(complete_workspace))]
-    workspace: Option<String>,
+    #[arg(value_name = "WORKSPACE", add = ArgValueCompleter::new(complete_workspace))]
+    workspace_name: Option<String>,
 
     /// Force remove the worktree, even if dirty
     #[arg(short, long)]
@@ -28,10 +28,16 @@ pub(crate) struct Destroy {
 }
 
 impl Destroy {
-    pub(crate) async fn run(self, project: Option<String>) -> eyre::Result<()> {
+    pub(crate) async fn run(
+        self,
+        project: Option<String>,
+        workspace: Option<String>,
+    ) -> eyre::Result<()> {
         let config = Config::load()?;
         let state = State::new(project, &config).await?;
-        let workspace = state.resolve_workspace(self.workspace).await?;
+        let workspace = state
+            .resolve_workspace(either_workspace(self.workspace_name, workspace)?)
+            .await?;
         // A workspace whose devcontainer.json is unusable still has to be
         // destroyable, so this is not fatal — but without the config we can't
         // compose-down, so say so rather than leaving containers behind

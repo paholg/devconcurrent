@@ -2,7 +2,6 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 use clap::{Args, Subcommand};
-use clap_complete::engine::ArgValueCompleter;
 use color_eyre::owo_colors::OwoColorize;
 use docker::{
     Docker, PROXY_CA_EXPIRY_LABEL, PROXY_CONFIG_HASH_LABEL, PROXY_GROUP_LABEL, PROXY_LABEL,
@@ -13,7 +12,6 @@ use shared::{
     PROXY_CONFIG_DIR, PROXY_CONFIG_VOLUME, PROXY_CONTAINER_NAME,
 };
 
-use crate::complete::complete_workspace;
 use crate::run::{Runnable, Runner};
 
 mod dns;
@@ -47,7 +45,7 @@ pub(crate) struct Proxy {
 #[derive(Debug, Subcommand)]
 enum ProxyCommands {
     /// Start or restart the proxy
-    Up(ProxyArgs),
+    Up,
     /// Stop and remove the proxy
     Down,
     /// Check that every configured hostname and port is reachable
@@ -73,25 +71,22 @@ enum ProxyCommands {
     Untrust(trust::Untrust),
 }
 
-#[derive(Debug, Args)]
-struct ProxyArgs {
-    /// Workspace name (only useful if its devcontainer.json diverges from the root workspace)
-    #[arg(short, long, add = ArgValueCompleter::new(complete_workspace))]
-    workspace: Option<String>,
-}
-
 impl Proxy {
     /// This command is a bit different than most; it needs to operate on multiple projects, but we
     /// still set a workspace so that a user can edit proxy settings from a workspace and test them.
-    pub(crate) async fn run(self, project: Option<String>) -> Result<()> {
+    pub(crate) async fn run(
+        self,
+        project: Option<String>,
+        workspace: Option<String>,
+    ) -> Result<()> {
         match self.command {
-            ProxyCommands::Up(args) => {
-                let proxy = ProxyState::resolve(project, args.workspace).await?;
+            ProxyCommands::Up => {
+                let proxy = ProxyState::resolve(project, workspace).await?;
                 ensure_enabled(&proxy)?;
                 proxy_up(&proxy).await
             }
             ProxyCommands::Status(args) => {
-                let proxy = ProxyState::resolve(project, args.workspace()).await?;
+                let proxy = ProxyState::resolve(project, workspace).await?;
                 ensure_enabled(&proxy)?;
                 status::run(&proxy, &args).await
             }

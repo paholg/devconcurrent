@@ -11,7 +11,7 @@ use docker::MANAGED_LABEL;
 
 use crate::cli::exec::{exec_interactive, remote_env};
 use crate::cli::fwd::forward;
-use crate::cli::{State, go, proxy};
+use crate::cli::{State, either_workspace, go, proxy};
 use crate::complete::complete_workspace;
 use crate::config::Config;
 use crate::devcontainer::substitution;
@@ -43,8 +43,8 @@ pub(crate) struct Up {
     go: bool,
 
     /// Workspace name
-    #[arg(add = ArgValueCompleter::new(complete_workspace))]
-    workspace: Option<String>,
+    #[arg(value_name = "WORKSPACE", add = ArgValueCompleter::new(complete_workspace))]
+    workspace_name: Option<String>,
 
     /// Exec once up with the given command [default: the container user's shell]
     #[arg(short = 'x', long, num_args = 0.., allow_hyphen_values = true)]
@@ -52,10 +52,16 @@ pub(crate) struct Up {
 }
 
 impl Up {
-    pub(crate) async fn run(self, project: Option<String>) -> eyre::Result<()> {
+    pub(crate) async fn run(
+        self,
+        project: Option<String>,
+        workspace: Option<String>,
+    ) -> eyre::Result<()> {
         let config = Config::load()?;
         let state = State::new(project, &config).await?;
-        let workspace = state.resolve_workspace(self.workspace.clone()).await?;
+        let workspace = state
+            .resolve_workspace(either_workspace(self.workspace_name.clone(), workspace)?)
+            .await?;
 
         // Set up span.
         let name = &workspace.name;

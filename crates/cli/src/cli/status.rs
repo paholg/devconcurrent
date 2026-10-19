@@ -5,7 +5,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use clap::Args;
-use clap_complete::engine::ArgValueCompleter;
 use crossterm::style::Stylize;
 
 use crate::bytes::Bytes;
@@ -13,7 +12,6 @@ use crate::cli::status::data::{
     ContainerRow, ContainerSources, ContainerState, ContainerStates, Cpu, Execs, FwdPorts, Info,
     Ports, PrevSample, Stats, WsSources,
 };
-use crate::complete::complete_workspace;
 use crate::config::Config;
 use crate::docker::DockerClient;
 use crate::state::State;
@@ -28,9 +26,9 @@ const PERIOD: Duration = Duration::from_secs(1);
 /// Show status for all workspaces in the project; container stats are aggregated.
 #[derive(Debug, Args)]
 pub(crate) struct Status {
-    /// Split by container, showing a single workspace
-    #[arg(short, long, num_args = 0..=1, add = ArgValueCompleter::new(complete_workspace))]
-    workspace: Option<Option<String>>,
+    /// Split by container, showing a single workspace (implied by `--workspace`)
+    #[arg(short, long)]
+    containers: bool,
 
     /// Show live, updating data
     #[arg(short, long)]
@@ -131,7 +129,11 @@ impl Column {
 }
 
 impl Status {
-    pub(crate) async fn run(self, project: Option<String>) -> eyre::Result<()> {
+    pub(crate) async fn run(
+        self,
+        project: Option<String>,
+        workspace: Option<String>,
+    ) -> eyre::Result<()> {
         let config = Config::load()?;
         let state = State::new(project, &config).await?;
 
@@ -139,15 +141,14 @@ impl Status {
             None => (self.git_only_table(&state).await?, None),
             Some(dc) => {
                 let docker = dc.docker().await?.clone();
-                match self.workspace.clone() {
-                    None => (self.workspace_table(&state, docker).await?, None),
-                    Some(name) => {
-                        let workspace = state.resolve_workspace(name).await?;
-                        (
-                            self.container_table(docker, &workspace).await?,
-                            Some(workspace),
-                        )
-                    }
+                if self.containers || workspace.is_some() {
+                    let workspace = state.resolve_workspace(workspace).await?;
+                    (
+                        self.container_table(docker, &workspace).await?,
+                        Some(workspace),
+                    )
+                } else {
+                    (self.workspace_table(&state, docker).await?, None)
                 }
             }
         };

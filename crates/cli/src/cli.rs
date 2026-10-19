@@ -24,10 +24,20 @@ pub(crate) struct Cli {
     #[arg(
         short,
         long,
+        global = true,
         help = "name of project [default: The DEVCONCURRENT_PROJECT variable, then the first configured project]",
         add = ArgValueCompleter::new(complete::complete_project),
     )]
     pub(crate) project: Option<String>,
+
+    #[arg(
+        short,
+        long,
+        global = true,
+        help = "name of workspace [default: current working directory]",
+        add = ArgValueCompleter::new(complete::complete_workspace),
+    )]
+    pub(crate) workspace: Option<String>,
 
     #[command(subcommand)]
     pub(crate) command: Commands,
@@ -51,6 +61,19 @@ pub(crate) enum Commands {
     #[command()]
     Go(go::Go),
     Proxy(proxy::Proxy),
+}
+
+/// Combine a command's positional workspace with the global `--workspace`.
+pub(crate) fn either_workspace(
+    positional: Option<String>,
+    flag: Option<String>,
+) -> eyre::Result<Option<String>> {
+    match (positional, flag) {
+        (Some(a), Some(b)) if a != b => {
+            eyre::bail!("workspace given as both '{a}' and '{b}'")
+        }
+        (a, b) => Ok(a.or(b)),
+    }
 }
 
 /// Check that the workspace is safe to tear down (clean git).
@@ -80,15 +103,15 @@ pub(crate) fn confirm() -> eyre::Result<bool> {
 impl Cli {
     pub(crate) async fn run(self) -> eyre::Result<()> {
         match self.command {
-            Commands::Up(up) => up.run(self.project).await,
-            Commands::Exec(exec) => exec.run(self.project).await,
-            Commands::Fwd(fwd) => fwd.run(self.project).await,
-            Commands::Compose(compose) => compose.run(self.project).await,
-            Commands::Show(show) => show.run(self.project).await,
-            Commands::Status(status) => status.run(self.project).await,
-            Commands::Destroy(destroy) => destroy.run(self.project).await,
-            Commands::Go(go) => go.run(self.project).await,
-            Commands::Proxy(proxy) => proxy.run(self.project).await,
+            Commands::Up(up) => up.run(self.project, self.workspace).await,
+            Commands::Exec(exec) => exec.run(self.project, self.workspace).await,
+            Commands::Fwd(fwd) => fwd.run(self.project, self.workspace).await,
+            Commands::Compose(compose) => compose.run(self.project, self.workspace).await,
+            Commands::Show(show) => show.run(self.project, self.workspace).await,
+            Commands::Status(status) => status.run(self.project, self.workspace).await,
+            Commands::Destroy(destroy) => destroy.run(self.project, self.workspace).await,
+            Commands::Go(go) => go.run(self.project, self.workspace).await,
+            Commands::Proxy(proxy) => proxy.run(self.project, self.workspace).await,
         }
     }
 }

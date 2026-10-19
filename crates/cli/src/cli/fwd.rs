@@ -1,14 +1,12 @@
 use std::net::{IpAddr, Ipv4Addr};
 
 use clap::{Args, Subcommand};
-use clap_complete::ArgValueCompleter;
 use docker::{FORWARD_LABEL, FORWARD_TARGET_LABEL, PROJECT_LABEL};
 use eyre::eyre;
 
 use color_eyre::owo_colors::OwoColorize;
 
 use crate::cli::State;
-use crate::complete::complete_workspace;
 use crate::config::Config;
 use crate::devcontainer::forward_port::ForwardPort;
 use crate::state::DevcontainerState;
@@ -19,10 +17,6 @@ const SOCAT_IMAGE: &str = "docker.io/alpine/socat:latest";
 /// Forward configured `forwardPorts` to a running workspace
 #[derive(Debug, Args)]
 pub(crate) struct Fwd {
-    /// Workspace name [default: current working directory]
-    #[arg(short, long, add = ArgValueCompleter::new(complete_workspace))]
-    workspace: Option<String>,
-
     #[command(subcommand)]
     command: Option<FwdCommands>,
 }
@@ -34,7 +28,11 @@ enum FwdCommands {
 }
 
 impl Fwd {
-    pub(crate) async fn run(self, project: Option<String>) -> eyre::Result<()> {
+    pub(crate) async fn run(
+        self,
+        project: Option<String>,
+        workspace: Option<String>,
+    ) -> eyre::Result<()> {
         let config = Config::load()?;
         let state = State::new(project, &config).await?;
         match self.command {
@@ -43,7 +41,7 @@ impl Fwd {
                 remove_sidecars(&state, &docker.client).await
             }
             None => {
-                let workspace = state.resolve_workspace(self.workspace).await?;
+                let workspace = state.resolve_workspace(workspace).await?;
                 let devcontainer = state.devcontainer_for(&workspace.path)?;
                 forward(&devcontainer, &workspace).await
             }

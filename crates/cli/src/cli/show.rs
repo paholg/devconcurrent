@@ -1,11 +1,10 @@
 use clap::{Args, Subcommand};
-use clap_complete::{ArgValueCompleter, Shell};
+use clap_complete::Shell;
 use eyre::WrapErr;
 use itertools::Itertools;
 
 use crate::{
     cli::{State, fwd},
-    complete::complete_workspace,
     config::Config,
     docker::compose,
     helpers,
@@ -17,10 +16,6 @@ use crate::{
 pub(crate) struct Show {
     #[command(subcommand)]
     command: ShowCommands,
-
-    /// Workspace name [default: current working directory]
-    #[arg(short, long, add = ArgValueCompleter::new(complete_workspace))]
-    workspace: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -84,12 +79,16 @@ struct Env {
 }
 
 impl Show {
-    pub(crate) async fn run(self, project: Option<String>) -> eyre::Result<()> {
+    pub(crate) async fn run(
+        self,
+        project: Option<String>,
+        workspace: Option<String>,
+    ) -> eyre::Result<()> {
         // `env` builds its own state: with `--export` it runs from a shell
         // prompt, where standing outside a project is ordinary rather than an
         // error. `ca-root` is global, so it needs no state at all.
         let command = match self.command {
-            ShowCommands::Env(env) => return env.run(project, self.workspace).await,
+            ShowCommands::Env(env) => return env.run(project, workspace).await,
             ShowCommands::CaRoot(ca_root) => return ca_root.run(),
             command => command,
         };
@@ -97,12 +96,12 @@ impl Show {
         let config = Config::load()?;
         let state = State::new(project, &config).await?;
         match command {
-            ShowCommands::Ports(ports) => ports.run(state, self.workspace).await,
-            ShowCommands::Workspace(ws) => ws.run(state, self.workspace).await,
-            ShowCommands::Ip(ip) => ip.run(state, self.workspace).await,
-            ShowCommands::Hostname(hostname) => hostname.run(state, self.workspace).await,
+            ShowCommands::Ports(ports) => ports.run(state, workspace).await,
+            ShowCommands::Workspace(ws) => ws.run(state, workspace).await,
+            ShowCommands::Ip(ip) => ip.run(state, workspace).await,
+            ShowCommands::Hostname(hostname) => hostname.run(state, workspace).await,
             ShowCommands::ComposeProject(compose_project) => {
-                compose_project.run(state, self.workspace).await
+                compose_project.run(state, workspace).await
             }
             ShowCommands::Env(_) | ShowCommands::CaRoot(_) => unreachable!("returned above"),
         }
