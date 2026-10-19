@@ -1,10 +1,11 @@
 use clap::{Args, Subcommand};
-use clap_complete::Shell;
+use clap_complete::{ArgValueCompleter, Shell};
 use eyre::WrapErr;
 use itertools::Itertools;
 
 use crate::{
     cli::{State, fwd},
+    complete::complete_workspace,
     config::Config,
     docker::compose,
     helpers,
@@ -16,20 +17,28 @@ use crate::{
 pub(crate) struct Show {
     #[command(subcommand)]
     command: ShowCommands,
+
+    /// Workspace name [default: current working directory]
+    #[arg(short, long, add = ArgValueCompleter::new(complete_workspace))]
+    workspace: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]
 enum ShowCommands {
-    /// Show currently-forwarded ports for this workspace
+    /// Show currently-forwarded ports for the workspace
     Ports(Ports),
-    /// Print the current workspace name, or exit 1
+    /// Print the workspace name, or exit 1
     Workspace(ShowWorkspace),
-    /// Show container IP addresses for this workspace
+    /// Show container IP addresses for the workspace
     Ip(Ip),
-    /// Show proxied hostnames for this workspace
+    /// Show proxied hostnames for the workspace
     Hostname(Hostname),
-    /// Show this workspace's configured shell variables
+    /// Show the workspace's configured shell variables
     Env(Env),
+    /// Print the workspace's docker compose project name
+    ///
+    /// Any resources created by docker compose are prefixed with this.
+    ComposeProject(ComposeProject),
     /// Print the CA root directory, generating the CA if it isn't there yet
     ///
     /// Trust the CA with `dc proxy trust`; this command is for importing
@@ -57,6 +66,9 @@ struct Hostname {
 }
 
 #[derive(Debug, Args)]
+struct ComposeProject;
+
+#[derive(Debug, Args)]
 struct CaRoot;
 
 #[derive(Debug, Args)]
@@ -77,7 +89,7 @@ impl Show {
         // prompt, where standing outside a project is ordinary rather than an
         // error. `ca-root` is global, so it needs no state at all.
         let command = match self.command {
-            ShowCommands::Env(env) => return env.run(project).await,
+            ShowCommands::Env(env) => return env.run(project, self.workspace).await,
             ShowCommands::CaRoot(ca_root) => return ca_root.run(),
             command => command,
         };
@@ -85,10 +97,13 @@ impl Show {
         let config = Config::load()?;
         let state = State::new(project, &config).await?;
         match command {
-            ShowCommands::Ports(ports) => ports.run(state).await,
-            ShowCommands::Workspace(ws) => ws.run(state).await,
-            ShowCommands::Ip(ip) => ip.run(state).await,
-            ShowCommands::Hostname(hostname) => hostname.run(state).await,
+            ShowCommands::Ports(ports) => ports.run(state, self.workspace).await,
+            ShowCommands::Workspace(ws) => ws.run(state, self.workspace).await,
+            ShowCommands::Ip(ip) => ip.run(state, self.workspace).await,
+            ShowCommands::Hostname(hostname) => hostname.run(state, self.workspace).await,
+            ShowCommands::ComposeProject(compose_project) => {
+                compose_project.run(state, self.workspace).await
+            }
             ShowCommands::Env(_) | ShowCommands::CaRoot(_) => unreachable!("returned above"),
         }
     }
@@ -105,16 +120,16 @@ impl CaRoot {
 }
 
 impl Ports {
-    async fn run(self, state: State<'_>) -> eyre::Result<()> {
-        let ports = get_ports(state).await?;
+    async fn run(self, state: State<'_>, workspace: Option<String>) -> eyre::Result<()> {
+        let ports = get_ports(state, workspace).await?;
 
         println!("{ports}");
         Ok(())
     }
 }
 
-async fn get_ports(state: State<'_>) -> eyre::Result<String> {
-    let workspace = state.resolve_workspace(None).await?;
+async fn get_ports(state: State<'_>, workspace: Option<String>) -> eyre::Result<String> {
+    let workspace = state.resolve_workspace(workspace).await?;
     let docker = state.docker().await?;
     let (ports, healthy) = tokio::join!(
         docker.workspace_forwarded_ports(&workspace),
@@ -131,8 +146,8 @@ async fn get_ports(state: State<'_>) -> eyre::Result<String> {
 }
 
 impl ShowWorkspace {
-    async fn run(self, state: State<'_>) -> eyre::Result<()> {
-        match state.resolve_workspace(None).await {
+    async fn run(self, state: State<'_>, workspace: Option<String>) -> eyre::Result<()> {
+        match state.resolve_workspace(workspace).await {
             Ok(workspace) => {
                 println!("{}", workspace.name);
                 Ok(())
@@ -143,8 +158,8 @@ impl ShowWorkspace {
 }
 
 impl Ip {
-    async fn run(self, state: State<'_>) -> eyre::Result<()> {
-        let workspace = state.resolve_workspace(None).await?;
+    async fn run(self, state: State<'_>, workspace: Option<String>) -> eyre::Result<()> {
+        let workspace = state.resolve_workspace(workspace).await?;
         let ips = state
             .docker()
             .await?
@@ -167,8 +182,8 @@ impl Ip {
 }
 
 impl Hostname {
-    async fn run(self, state: State<'_>) -> eyre::Result<()> {
-        let workspace = state.resolve_workspace(None).await?;
+    async fn run(self, state: State<'_>, workspace: Option<String>) -> eyre::Result<()> {
+        let workspace = state.resolve_workspace(workspace).await?;
         let devcontainer = state.devcontainer_for(&workspace.path)?;
         let proxy = &devcontainer.devconcurrent().proxy;
 
@@ -211,9 +226,21 @@ impl Hostname {
     }
 }
 
+impl ComposeProject {
+    async fn run(self, state: State<'_>, workspace: Option<String>) -> eyre::Result<()> {
+        let workspace = state.resolve_workspace(workspace).await?;
+        let devcontainer = state.devcontainer_for(&workspace.path)?;
+        println!(
+            "{}",
+            compose::project_name(&devcontainer, &workspace).await?
+        );
+        Ok(())
+    }
+}
+
 impl Env {
-    async fn run(self, project: Option<String>) -> eyre::Result<()> {
-        let vars = gather(project).await?;
+    async fn run(self, project: Option<String>, workspace: Option<String>) -> eyre::Result<()> {
+        let vars = gather(project, workspace).await?;
 
         let Some(shell) = self.export else {
             match vars {
@@ -247,12 +274,15 @@ impl Env {
 /// The prompt hook runs on every prompt, from anywhere, so "no project here" and
 /// "no workspace here" are ordinary answers rather than failures. A config or
 /// template that doesn't work still is one — noticing that is the point.
-async fn gather(project: Option<String>) -> eyre::Result<Option<Vec<(String, String)>>> {
+async fn gather(
+    project: Option<String>,
+    workspace: Option<String>,
+) -> eyre::Result<Option<Vec<(String, String)>>> {
     let config = Config::load()?;
     let Ok(state) = State::new(project, &config).await else {
         return Ok(None);
     };
-    let Ok(workspace) = state.resolve_workspace(None).await else {
+    let Ok(workspace) = state.resolve_workspace(workspace).await else {
         return Ok(None);
     };
     let Ok(devcontainer) = state.devcontainer_for(&workspace.path) else {

@@ -17,6 +17,7 @@ This document contains the help content for the `devconcurrent` command-line pro
 * [`devconcurrent show ip`↴](#devconcurrent-show-ip)
 * [`devconcurrent show hostname`↴](#devconcurrent-show-hostname)
 * [`devconcurrent show env`↴](#devconcurrent-show-env)
+* [`devconcurrent show compose-project`↴](#devconcurrent-show-compose-project)
 * [`devconcurrent show ca-root`↴](#devconcurrent-show-ca-root)
 * [`devconcurrent status`↴](#devconcurrent-status)
 * [`devconcurrent go`↴](#devconcurrent-go)
@@ -153,22 +154,27 @@ Fully destroy the workspace; equivalent to `docker compose down -v --rmi local -
 
 Show some value
 
-**Usage:** `devconcurrent show <COMMAND>`
+**Usage:** `devconcurrent show [OPTIONS] <COMMAND>`
 
 ###### **Subcommands:**
 
-* `ports` — Show currently-forwarded ports for this workspace
-* `workspace` — Print the current workspace name, or exit 1
-* `ip` — Show container IP addresses for this workspace
-* `hostname` — Show proxied hostnames for this workspace
-* `env` — Show this workspace's configured shell variables
+* `ports` — Show currently-forwarded ports for the workspace
+* `workspace` — Print the workspace name, or exit 1
+* `ip` — Show container IP addresses for the workspace
+* `hostname` — Show proxied hostnames for the workspace
+* `env` — Show the workspace's configured shell variables
+* `compose-project` — Print the workspace's docker compose project name
 * `ca-root` — Print the CA root directory, generating the CA if it isn't there yet
+
+###### **Options:**
+
+* `-w`, `--workspace <WORKSPACE>` — Workspace name [default: current working directory]
 
 
 
 ## `devconcurrent show ports`
 
-Show currently-forwarded ports for this workspace
+Show currently-forwarded ports for the workspace
 
 **Usage:** `devconcurrent show ports`
 
@@ -176,7 +182,7 @@ Show currently-forwarded ports for this workspace
 
 ## `devconcurrent show workspace`
 
-Print the current workspace name, or exit 1
+Print the workspace name, or exit 1
 
 **Usage:** `devconcurrent show workspace`
 
@@ -184,7 +190,7 @@ Print the current workspace name, or exit 1
 
 ## `devconcurrent show ip`
 
-Show container IP addresses for this workspace
+Show container IP addresses for the workspace
 
 **Usage:** `devconcurrent show ip [SERVICE]`
 
@@ -196,7 +202,7 @@ Show container IP addresses for this workspace
 
 ## `devconcurrent show hostname`
 
-Show proxied hostnames for this workspace
+Show proxied hostnames for the workspace
 
 **Usage:** `devconcurrent show hostname [SERVICE]`
 
@@ -208,7 +214,7 @@ Show proxied hostnames for this workspace
 
 ## `devconcurrent show env`
 
-Show this workspace's configured shell variables
+Show the workspace's configured shell variables
 
 **Usage:** `devconcurrent show env [OPTIONS]`
 
@@ -220,6 +226,16 @@ Show this workspace's configured shell variables
 
   Possible values: `bash`, `elvish`, `fish`, `powershell`, `zsh`
 
+
+
+
+## `devconcurrent show compose-project`
+
+Print the workspace's docker compose project name
+
+Any resources created by docker compose are prefixed with this.
+
+**Usage:** `devconcurrent show compose-project`
 
 
 
