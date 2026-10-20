@@ -20,6 +20,7 @@ use crate::devcontainer::DevcontainerConfig;
 use crate::docker::compose::to_project_name;
 use crate::run::cmd::NamedCmd;
 use crate::run::{Runnable, Runner, Token};
+use crate::subscriber::CHILD_STDOUT;
 
 const UPDATE_UID_DOCKERFILE: &str = include_str!("updateUID.Dockerfile");
 
@@ -256,9 +257,9 @@ impl Runnable for BuildDerivedImage<'_> {
     }
 
     async fn run(self, _: Token) -> eyre::Result<()> {
-        // Same level and field the process runner reports command output with,
-        // so a build looks the same as it did when this shelled out.
-        let mut report = |line: &str| tracing::trace!(stdout = true, "{line}");
+        // Same target the process runner reports command output with, so a
+        // build looks the same as it did when this shelled out.
+        let mut report = |line: &str| tracing::info!(target: CHILD_STDOUT, "{line}");
 
         let mut build = self
             .client

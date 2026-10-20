@@ -1,6 +1,5 @@
 #![forbid(unsafe_code)]
 
-use std::io::Write;
 use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser};
@@ -39,15 +38,7 @@ pub async fn cli_main() -> ExitCode {
         return ExitCode::SUCCESS;
     };
 
-    let report = format!("{RED}Error:{RESET} {err:?}");
-    match subscriber::stderr() {
-        Some(mut stderr) => {
-            let _ = writeln!(stderr, "{report}");
-            let _ = stderr.flush();
-        }
-        // We failed before the subscriber existed, so there are no bars to mind.
-        None => eprintln!("{report}"),
-    }
+    subscriber::eprintln(&format!("{RED}Error:{RESET} {err:?}"));
 
     ExitCode::FAILURE
 }

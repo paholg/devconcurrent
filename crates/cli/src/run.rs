@@ -13,6 +13,7 @@ use tracing_indicatif::span_ext::IndicatifSpanExt;
 use tokio::io::{AsyncBufReadExt, AsyncRead};
 
 use crate::ansi::{BLUE, CYAN, GREEN, RESET, YELLOW};
+use crate::subscriber::{CHILD_STDERR, CHILD_STDOUT};
 
 pub(crate) mod cmd;
 pub(crate) mod docker_exec;
@@ -224,10 +225,10 @@ async fn forward<R: AsyncRead + Unpin>(reader: R, stream: Stream) -> Tail {
     // next write, with nothing to say why.
     while let Ok(1..) = reader.read_until(b'\n', &mut buf).await {
         let line = String::from_utf8_lossy(trim_newline(&buf));
-        // Two callsites, because a `tracing` callsite has a fixed field set.
+        // Two callsites, because a `tracing` callsite has a fixed target.
         match stream {
-            Stream::Stdout => tracing::trace!(stdout = true, "{line}"),
-            Stream::Stderr => tracing::trace!("{line}"),
+            Stream::Stdout => tracing::info!(target: CHILD_STDOUT, "{line}"),
+            Stream::Stderr => tracing::info!(target: CHILD_STDERR, "{line}"),
         }
         tail.push(line.into_owned());
         buf.clear();

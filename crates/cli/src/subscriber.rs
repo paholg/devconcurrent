@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::io::Write;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,8 +19,13 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 use crate::ansi::{BLUE, GRAY, GREEN, MAGENTA, RED, RESET, YELLOW};
 
+/// The target for a line a child wrote to its stdout, forwarded to ours.
+pub(crate) const CHILD_STDOUT: &str = "devconcurrent::child::stdout";
+/// The target for a line a child wrote to its stderr, forwarded to ours.
+pub(crate) const CHILD_STDERR: &str = "devconcurrent::child::stderr";
+
 fn ts(time: &Zoned) -> String {
-    time.strftime("%F %T").to_string()
+    format!("{GRAY}{}{RESET}", time.strftime("%F %T"))
 }
 
 /// The writer everything must go through: it suspends the progress bars for the
@@ -27,9 +33,16 @@ fn ts(time: &Zoned) -> String {
 /// last span closes, so they aren't left stranded in the scrollback.
 static STDERR: OnceLock<IndicatifWriter<Stderr>> = OnceLock::new();
 
-/// A writer that plays nicely with the spinners, if the subscriber is up.
-pub(crate) fn stderr() -> Option<IndicatifWriter<Stderr>> {
-    STDERR.get().cloned()
+/// Print a line to stderr, minding the progress bars if the subscriber is up.
+pub(crate) fn eprintln(line: &str) {
+    match STDERR.get() {
+        // One `writeln!` is one `write_fmt`, which the writer wraps in a single
+        // suspend of the progress bars.
+        Some(stderr) => {
+            let _ = writeln!(stderr.clone(), "{line}");
+        }
+        None => std::eprintln!("{line}"),
+    }
 }
 
 pub(crate) fn init_subscriber() {
@@ -43,8 +56,8 @@ pub(crate) fn init_subscriber() {
     let indicatif_layer = indicatif_layer.with_filter(IndicatifFilter::new(false));
 
     let dc_layer = DcLayer {
-        stderr_writer,
-        stdout_writer,
+        stderr: stderr_writer,
+        stdout: stdout_writer,
     }
     .with_filter(filter_fn(|meta| {
         // Filter out verbose (TRACE) output from dependencies.
@@ -72,8 +85,8 @@ struct SpanTiming {
 }
 
 struct DcLayer {
-    stderr_writer: IndicatifWriter<Stderr>,
-    stdout_writer: IndicatifWriter<Stdout>,
+    stderr: IndicatifWriter<Stderr>,
+    stdout: IndicatifWriter<Stdout>,
 }
 
 impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
@@ -128,20 +141,17 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
             return;
         }
 
-        let ts = ts(&Zoned::now());
-        let mut line = format!("{GRAY}{ts}{RESET}");
+        let mut line = ts(&Zoned::now());
         if let Some(ref name) = timing.name {
-            line.push_str(&format!(" [{name}]"));
+            let _ = write!(line, " [{name}]");
         }
         if let Some(ref message) = timing.message {
-            line.push_str(&format!(" {message}:"));
+            let _ = write!(line, " {message}:");
         }
         if let Some(ref description) = timing.description {
-            line.push_str(&format!(" {description}"));
+            let _ = write!(line, " {description}");
         }
-        let mut stderr = self.stderr_writer.clone();
-        let _ = writeln!(stderr, "{line}");
-        let _ = stderr.flush();
+        let _ = writeln!(self.stderr.clone(), "{line}");
     }
 
     fn on_close(&self, id: Id, ctx: Context<'_, S>) {
@@ -152,10 +162,9 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
         };
 
         let now = Zoned::now();
-        let ts = ts(&now);
-        let mut line = format!("{GRAY}{ts}{RESET}");
+        let mut line = ts(&now);
         if let Some(ref name) = timing.name {
-            line.push_str(&format!(" [{name}]"));
+            let _ = write!(line, " [{name}]");
         }
 
         let dur = timing
@@ -167,17 +176,14 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
         if timing.failed.load(Ordering::Relaxed) {
             // The finish message would claim success, which is exactly what the
             // reader must not believe here.
-            line.push_str(&format!(" {RED}Failed{RESET} after {RED}{dur}{RESET}"));
+            let _ = write!(line, " {RED}Failed{RESET} after {RED}{dur}{RESET}");
         } else {
             if let Some(msg) = &timing.finish_message {
-                line.push(' ');
-                line.push_str(msg);
+                let _ = write!(line, " {msg}");
             }
-            line.push_str(&format!(" Took {GREEN}{dur}{RESET}"));
+            let _ = write!(line, " Took {GREEN}{dur}{RESET}");
         }
-        let mut stderr = self.stderr_writer.clone();
-        let _ = writeln!(stderr, "{line}");
-        let _ = stderr.flush();
+        let _ = writeln!(self.stderr.clone(), "{line}");
     }
 
     fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {
@@ -191,48 +197,39 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
                 .find_map(|s| s.extensions().get::<IndicatifName>().map(|n| n.0.clone()))
         });
 
-        let level = *event.metadata().level();
-
-        // We use TRACE logs as just forwarding output, and want to print them _almost_ undecorated.
-        // The caveat is tha when they're run as part of parallel commands, they'll be interleaved,
-        // so we want to show the source.
-        if level == tracing::Level::TRACE {
+        let target = event.metadata().target();
+        // Forwarded output goes out _almost_ undecorated, on the stream the
+        // child wrote it to. The caveat is that when it's from parallel
+        // commands, it'll be interleaved, so we show the source.
+        if target == CHILD_STDOUT || target == CHILD_STDERR {
             let line = match &name {
                 Some(name) => format!("[{name}] {msg}"),
                 None => msg,
             };
-            // Keep a command's output on the stream it wrote to, so redirecting
-            // ours separates what the command said from what we did.
-            if visitor.stdout {
-                let mut stdout = self.stdout_writer.clone();
-                let _ = writeln!(stdout, "{line}");
-                let _ = stdout.flush();
+            let _ = if target == CHILD_STDOUT {
+                writeln!(self.stdout.clone(), "{line}")
             } else {
-                let mut stderr = self.stderr_writer.clone();
-                let _ = writeln!(stderr, "{line}");
-                let _ = stderr.flush();
-            }
+                writeln!(self.stderr.clone(), "{line}")
+            };
             return;
         }
 
-        let ts = ts(&Zoned::now());
+        let level = *event.metadata().level();
         let level_color = match level {
             tracing::Level::ERROR => RED,
             tracing::Level::WARN => YELLOW,
             tracing::Level::INFO => GREEN,
-            tracing::Level::DEBUG => BLUE,
-            tracing::Level::TRACE => unreachable!(),
+            tracing::Level::DEBUG | tracing::Level::TRACE => BLUE,
         };
 
-        let mut line = format!("{GRAY}{ts}{RESET} {level_color}{level:>5}{RESET}");
+        let mut line = ts(&Zoned::now());
+        let _ = write!(line, " {level_color}{level:>5}{RESET}");
         if let Some(name) = &name {
-            line.push_str(&format!(" [{MAGENTA}{name}{RESET}]"));
+            let _ = write!(line, " [{MAGENTA}{name}{RESET}]");
         }
-        line.push_str(&format!(" {msg}"));
+        let _ = write!(line, " {msg}");
 
-        let mut stderr = self.stderr_writer.clone();
-        let _ = writeln!(stderr, "{line}");
-        let _ = stderr.flush();
+        let _ = writeln!(self.stderr.clone(), "{line}");
     }
 }
 
@@ -246,8 +243,6 @@ struct Visitor {
     finish_message: Option<String>,
     indicatif_show: bool,
     failed: bool,
-    /// Set on forwarded output that the child wrote to its stdout.
-    stdout: bool,
 }
 
 impl Visit for Visitor {
@@ -265,7 +260,6 @@ impl Visit for Visitor {
         match field.name() {
             "indicatif.pb_show" => self.indicatif_show = value,
             "failed" => self.failed = value,
-            "stdout" => self.stdout = value,
             _ => {}
         }
     }
