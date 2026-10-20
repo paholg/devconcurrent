@@ -9,10 +9,11 @@
 //! - `run_piped`: wait for each cell's first value (up to the deadline) and
 //!   print once, with no spinner or cursor control.
 
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::time::Duration;
 
-use crossterm::{cursor, queue, terminal};
+use crossterm::terminal;
+use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 
 use super::Table;
 
@@ -26,8 +27,7 @@ enum Block {
     Text(String),
     /// Lines recomputed each frame, so they can appear as their source
     /// resolves. Given the terminal width, since prose has to be wrapped by
-    /// whoever writes it: every line rendered has to be one physical line, or
-    /// the redraw loop loses count.
+    /// whoever writes it: lines are cut off at the width, not wrapped.
     Lines(Box<dyn Fn(u16) -> Vec<String>>),
     Table(Table),
 }
@@ -93,51 +93,54 @@ impl Report {
         self.tables().all(Table::done)
     }
 
-    fn render(&self, frame: usize, final_frame: bool, width: u16) -> (String, u16) {
+    fn render(&self, frame: usize, final_frame: bool, width: u16) -> String {
         let mut out = String::new();
-        let mut lines = 0u16;
         for block in &self.blocks {
             match block {
                 Block::Text(text) => {
                     out.push_str(&super::render::truncate_visible(text, width));
                     out.push('\n');
-                    lines += 1;
                 }
                 Block::Lines(build) => {
                     for line in build(width) {
                         out.push_str(&super::render::truncate_visible(&line, width));
                         out.push('\n');
-                        lines += 1;
                     }
                 }
                 Block::Table(table) => {
-                    let (block, block_lines) = table.render_block(frame, final_frame, width);
-                    out.push_str(&block);
-                    lines += block_lines;
+                    out.push_str(&table.render_block(frame, final_frame, width));
                 }
             }
         }
-        (out, lines)
+        out
+    }
+
+    /// Redraw in place if stdout is a terminal; otherwise print once.
+    pub(crate) async fn run(self) -> eyre::Result<()> {
+        if std::io::stdout().is_terminal() {
+            self.run_tty().await;
+            Ok(())
+        } else {
+            self.run_piped().await
+        }
     }
 
     /// Redraw in place until done (non-live) or Ctrl-C (live).
-    pub(crate) async fn run_tty(self) -> eyre::Result<()> {
-        let mut stdout = std::io::stdout();
+    async fn run_tty(self) {
+        let bar = ProgressBar::with_draw_target(None, ProgressDrawTarget::stdout()).with_style(
+            ProgressStyle::with_template("{msg}").expect("invalid progress style template"),
+        );
         let mut ticker = tokio::time::interval(TICK);
         let start = tokio::time::Instant::now();
         let live = self.live();
-        let mut prev_lines = 0u16;
         let mut frame = 0usize;
 
         loop {
             if live {
                 tokio::select! {
                     _ = ticker.tick() => {}
-                    _ = tokio::signal::ctrl_c() => {
-                        // Leave the last frame; move below it.
-                        writeln!(stdout)?;
-                        return Ok(());
-                    }
+                    // Leave the last frame.
+                    _ = tokio::signal::ctrl_c() => break,
                 }
             } else {
                 ticker.tick().await;
@@ -145,30 +148,23 @@ impl Report {
 
             let finished = !live && (self.done() || start.elapsed() >= self.deadline);
             let width = terminal::size().map(|(c, _)| c).unwrap_or(u16::MAX);
-            let (block, lines) = self.render(frame, finished, width);
-
-            if prev_lines > 0 {
-                queue!(stdout, cursor::MoveUp(prev_lines))?;
-            }
-            queue!(stdout, cursor::MoveToColumn(0))?;
-            queue!(stdout, terminal::Clear(terminal::ClearType::FromCursorDown))?;
-            write!(stdout, "{block}")?;
-            stdout.flush()?;
-
-            prev_lines = lines;
+            let block = self.render(frame, finished, width);
+            // The bar ends the last line itself.
+            bar.set_message(block.trim_end_matches('\n').to_owned());
             frame += 1;
 
             if finished {
-                return Ok(());
+                break;
             }
         }
+        bar.finish();
     }
 
     /// Wait for each cell's first value (up to the deadline), then print once.
-    pub(crate) async fn run_piped(mut self) -> eyre::Result<()> {
+    async fn run_piped(mut self) -> eyre::Result<()> {
         self.settle().await;
 
-        let (block, _) = self.render(0, true, u16::MAX);
+        let block = self.render(0, true, u16::MAX);
         print!("{block}");
         std::io::stdout().flush()?;
         Ok(())

@@ -9,7 +9,6 @@
 //! a whole column.
 
 use std::collections::HashMap;
-use std::io::IsTerminal;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -97,11 +96,7 @@ pub(super) async fn run(proxy: &ProxyState, args: &StatusArgs) -> Result<()> {
             .lines(notes(&group.rows));
     }
 
-    if std::io::stdout().is_terminal() {
-        report.run_tty().await?;
-    } else {
-        report.run_piped().await?;
-    }
+    report.run().await?;
 
     if failed(&proxy_checks, &groups) {
         // A diagnostic that found a problem still ran correctly, so this isn't

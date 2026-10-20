@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -161,11 +160,7 @@ impl Status {
             println!("WORKSPACE: {ws_name}")
         }
 
-        if std::io::stdout().is_terminal() {
-            table.run_tty().await
-        } else {
-            table.run_piped().await
-        }
+        table.run().await
     }
 
     async fn workspace_table(

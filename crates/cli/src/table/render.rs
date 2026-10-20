@@ -17,14 +17,14 @@ impl Table {
             .all(|c| matches!(c.get(), CellState::Ready(_)))
     }
 
-    /// Render the table to a string and its line count. Pending cells show the
-    /// spinner frame, or `-` on the final frame.
+    /// Render the table to a string. Pending cells show the spinner frame, or
+    /// `-` on the final frame.
     pub(super) fn render_block(
         &self,
         frame: usize,
         final_frame: bool,
         width: u16,
-    ) -> (String, u16) {
+    ) -> String {
         let spec = self
             .headers
             .iter()
@@ -55,34 +55,27 @@ impl Table {
 
         let rendered = table.to_string();
         let mut out = String::new();
-        let mut lines = 0u16;
         for line in rendered.lines() {
             out.push_str(&truncate_visible(line, width));
             out.push('\n');
-            lines += 1;
         }
-        (out, lines)
+        out
     }
 
     /// Render a final, static frame to a string — for callers that already have
     /// all their data and just want the aligned output (no spinner, no
     /// truncation, no cursor control).
     pub(crate) fn rendered(&self) -> String {
-        self.render_block(0, true, u16::MAX).0
+        self.render_block(0, true, u16::MAX)
     }
-    /// Redraw in place until done (non-live) or Ctrl-C (live).
-    pub(crate) async fn run_tty(self) -> eyre::Result<()> {
-        Report::from(self).run_tty().await
-    }
-
-    /// Wait for each cell's first value (up to the deadline), then print once.
-    pub(crate) async fn run_piped(self) -> eyre::Result<()> {
-        Report::from(self).run_piped().await
+    /// Redraw in place if stdout is a terminal; otherwise print once.
+    pub(crate) async fn run(self) -> eyre::Result<()> {
+        Report::from(self).run().await
     }
 }
 
 /// Truncate to `max` visible columns, copying ANSI escapes verbatim and
-/// resetting if cut. Keeps each row one physical line so `MoveUp` stays correct.
+/// resetting if cut. Keeps each row one physical line rather than wrapping.
 pub(super) fn truncate_visible(line: &str, max: u16) -> String {
     let max = max as usize;
     let mut out = String::new();
