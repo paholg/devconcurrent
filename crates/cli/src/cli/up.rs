@@ -200,7 +200,7 @@ impl Up {
         let mut compose_up_cmd = compose_cmd(devcontainer, workspace).await?;
         // No `--build`: the build above already ran, and rebuilding here would
         // re-tag the service's own Dockerfile output over the pinned image.
-        compose_up_cmd.args(["up", "-d", "--remove-orphans"]);
+        compose_up_cmd.args(["up", "-d", "--remove-orphans", "--force-recreate"]);
         self.add_services(devcontainer, &mut compose_up_cmd);
 
         let up_cmd = compose_up_cmd.into_std().into();
