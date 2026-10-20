@@ -29,6 +29,12 @@ fn ts(time: &Zoned, base: Style) -> String {
     base.black().bright().apply_to(ts).to_string()
 }
 
+/// The start of a line: the name of whatever it's from.
+fn head(name: Option<&Name>, to_stderr: bool) -> String {
+    name.map(|name| format!("[{}] ", name.styled(to_stderr)))
+        .unwrap_or_default()
+}
+
 /// The writer anything for stderr must go through: it suspends the progress bars
 /// for the duration of a write, so their next redraw can't clobber it — and, once the
 /// last span closes, so they aren't left stranded in the scrollback.
@@ -168,10 +174,8 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
             return;
         }
 
-        let mut line = ts(&Zoned::now(), Style::new());
-        if let Some(ref name) = timing.name {
-            let _ = write!(line, " [{}]", name.styled(false));
-        }
+        let mut line = head(timing.name.as_ref(), false);
+        line.push_str(&ts(&Zoned::now(), Style::new()));
         if let Some(ref message) = timing.message {
             let _ = write!(line, " {message}:");
         }
@@ -189,10 +193,8 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
         };
 
         let now = Zoned::now();
-        let mut line = ts(&now, Style::new());
-        if let Some(ref name) = timing.name {
-            let _ = write!(line, " [{}]", name.styled(false));
-        }
+        let mut line = head(timing.name.as_ref(), false);
+        line.push_str(&ts(&now, Style::new()));
 
         let dur = timing
             .start
@@ -224,7 +226,8 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
         event.record(&mut visitor);
         let msg = visitor.message.unwrap_or_default();
 
-        // Find indicatif name from ancestor spans
+        // Find indicatif name from ancestor spans; only parallel commands have
+        // one.
         let name = ctx.event_span(event).and_then(|span| {
             span.scope()
                 .find_map(|s| s.extensions().get::<IndicatifName>().map(|n| n.0.clone()))
@@ -236,10 +239,7 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
         // commands, it'll be interleaved, so we show the source.
         if target == CHILD_STDOUT || target == CHILD_STDERR {
             let to_stderr = target == CHILD_STDERR;
-            let line = match &name {
-                Some(name) => format!("[{}] {msg}", name.styled(to_stderr)),
-                None => msg,
-            };
+            let line = head(name.as_ref(), to_stderr) + &msg;
             let _ = if to_stderr {
                 writeln!(self.stderr.clone(), "{line}")
             } else {
@@ -268,12 +268,9 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
             .bright()
             .apply_to(format!("{level:>5}"));
 
-        let mut line = ts(&Zoned::now(), base.clone());
-        let _ = write!(line, " {level}");
-        if let Some(name) = &name {
-            let _ = write!(line, " [{}]", name.styled(to_stderr));
-        }
-        let _ = write!(line, " {msg}");
+        let mut line = head(name.as_ref(), to_stderr);
+        line.push_str(&ts(&Zoned::now(), base.clone()));
+        let _ = write!(line, " {level} {msg}");
 
         let _ = if to_stderr {
             writeln!(self.stderr.clone(), "{line}")

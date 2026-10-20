@@ -165,19 +165,32 @@ fn parallel_child_output_names_its_command() {
     assert!(stderr.iter().any(|l| l == "[a] a-err"), "{stderr:#?}");
 }
 
+/// Whether `line` is one of our log lines: `head`, a timestamp, then `rest`.
+fn logged(line: &str, head: &str, rest: &str) -> bool {
+    line.strip_prefix(head)
+        .and_then(|line| line.get("YYYY-MM-DD HH:MM:SS".len()..))
+        .is_some_and(|line| line.starts_with(rest))
+}
+
 #[test]
 fn our_record_goes_to_stdout_and_the_error_to_stderr() {
     let out = piped(r#"{ "a": "true", "b": "exit 1" }"#);
 
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
-    for expected in [
-        "[up] Spinning up workspace",
-        "[a] Took ",
-        "[b] Failed after ",
+    for (head, rest) in [
+        ("[up] ", " Spinning up workspace"),
+        ("[a] ", " Took "),
+        ("[b] ", " Failed after "),
     ] {
-        assert!(stdout.contains(expected), "{expected:?}:\n{stdout}");
-        assert!(!stderr.contains(expected), "{expected:?}:\n{stderr}");
+        assert!(
+            stdout.lines().any(|l| logged(l, head, rest)),
+            "{head:?} {rest:?}:\n{stdout}"
+        );
+        assert!(
+            !stderr.lines().any(|l| logged(l, head, rest)),
+            "{head:?} {rest:?}:\n{stderr}"
+        );
     }
     assert!(stderr.starts_with("Error:"), "{stderr}");
 }
@@ -211,10 +224,14 @@ fn spinners_draw_on_a_terminal_and_clear_when_done() {
             "{expected:?}: {screen:#?}"
         );
     }
-    for expected in ["[a] Took ", "[b] Failed after ", "[up] Failed after "] {
+    for (head, rest) in [
+        ("[a] ", " Took "),
+        ("[b] ", " Failed after "),
+        ("[up] ", " Failed after "),
+    ] {
         assert!(
-            screen.iter().any(|l| l.contains(expected)),
-            "{expected:?}: {screen:#?}"
+            screen.iter().any(|l| logged(l, head, rest)),
+            "{head:?} {rest:?}: {screen:#?}"
         );
     }
 }
