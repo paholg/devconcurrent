@@ -186,7 +186,7 @@ impl Runnable for Cleanup<'_> {
             run_command(worktree_cmd, "git worktree remove").await?;
         }
 
-        eprintln!("Removed {}", self.workspace.path.display());
+        tracing::info!("Removed {}", self.workspace.path.display());
         Ok(())
     }
 }

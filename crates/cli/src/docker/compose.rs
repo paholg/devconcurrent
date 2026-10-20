@@ -24,7 +24,7 @@ pub(crate) fn remove_override_file(workspace: &Workspace) {
     if path.exists()
         && let Err(e) = std::fs::remove_file(&path)
     {
-        eprintln!("warning: failed to remove {}: {e}", path.display());
+        tracing::warn!("failed to remove {}: {e}", path.display());
     }
 }
 
