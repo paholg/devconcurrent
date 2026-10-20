@@ -13,14 +13,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Args;
-use crossterm::style::Stylize;
+use console::style;
 use eyre::Result;
 use serde::Serialize;
 
 use self::checks::{Check, Probe, RowChecks};
 use self::endpoints::{Discovery, Endpoint, Sidecar};
 use super::ProxyState;
-use crate::ansi::{RED, RESET};
 use crate::table::{Align, ColumnDef, Datum, Gatherer, Report, Table, TableBuilder, text, value};
 
 mod checks;
@@ -68,7 +67,7 @@ pub(super) async fn run(proxy: &ProxyState, args: &StatusArgs) -> Result<()> {
     };
     let groups = by_workspace(rows);
     let mut report = Report::new()
-        .text(format!("PROJECT: {}", title.blue()))
+        .text(format!("PROJECT: {}", style(title).blue().bright()))
         .text(String::new())
         .table(proxy_table(&proxy_checks))
         .lines(proxy_notes(&proxy_checks))
@@ -76,8 +75,9 @@ pub(super) async fn run(proxy: &ProxyState, args: &StatusArgs) -> Result<()> {
 
     if groups.is_empty() {
         report = report.text(String::new()).text(
-            "No proxy-enabled services are running."
-                .dark_grey()
+            style("No proxy-enabled services are running.")
+                .black()
+                .bright()
                 .to_string(),
         );
     }
@@ -90,7 +90,7 @@ pub(super) async fn run(proxy: &ProxyState, args: &StatusArgs) -> Result<()> {
         };
         report = report
             .text(String::new())
-            .text(format!("WORKSPACE: {}", heading.yellow()))
+            .text(format!("WORKSPACE: {}", style(heading).yellow().bright()))
             .text(String::new())
             .table(endpoint_table(&group.rows))
             .lines(notes(&group.rows));
@@ -413,7 +413,7 @@ fn note(subject: &str, detail: &str, width: u16) -> Vec<String> {
     let Some(first) = wrapped.next() else {
         return Vec::new();
     };
-    let mut lines = vec![format!("{INDENT}{RED}✗{RESET} {first}")];
+    let mut lines = vec![format!("{INDENT}{} {first}", style("✗").red().bright())];
     lines.extend(wrapped.map(|rest| format!("{HANG}{rest}")));
     lines
 }
@@ -511,10 +511,7 @@ mod tests {
     fn plain(lines: &[String]) -> Vec<String> {
         lines
             .iter()
-            .map(|line| {
-                line.replace(&RED.to_string(), "")
-                    .replace(&RESET.to_string(), "")
-            })
+            .map(|line| console::strip_ansi_codes(line).into_owned())
             .collect()
     }
 

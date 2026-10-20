@@ -1,9 +1,9 @@
 use std::{collections::HashMap, fmt};
 
+use console::{Color, style};
 use docker::ContainerStatus;
 
 use crate::{
-    ansi::{BLUE, GREEN, RED, RESET, YELLOW},
     bytes::Bytes,
     table::{Datum, Gatherer},
 };
@@ -40,15 +40,15 @@ pub(crate) struct ContainerState(pub ContainerStatus);
 impl fmt::Display for ContainerState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let color = match self.0 {
-            ContainerStatus::Running => GREEN,
-            ContainerStatus::Exited | ContainerStatus::Dead => RED,
+            ContainerStatus::Running => Color::Green,
+            ContainerStatus::Exited | ContainerStatus::Dead => Color::Red,
             ContainerStatus::Created
             | ContainerStatus::Paused
             | ContainerStatus::Removing
             | ContainerStatus::Restarting
-            | ContainerStatus::Stopping => YELLOW,
+            | ContainerStatus::Stopping => Color::Yellow,
         };
-        write!(f, "{color}{}{RESET}", self.0)
+        write!(f, "{}", style(self.0).fg(color).bright())
     }
 }
 
@@ -59,13 +59,14 @@ pub(crate) struct Cpu(pub f64);
 impl fmt::Display for Cpu {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let color = if self.0 < 50.0 {
-            GREEN
+            Color::Green
         } else if self.0 < 100.0 {
-            YELLOW
+            Color::Yellow
         } else {
-            RED
+            Color::Red
         };
-        write!(f, "{color}{:.0}%{RESET}", self.0)
+        let text = format!("{:.0}%", self.0);
+        write!(f, "{}", style(text).fg(color).bright())
     }
 }
 
@@ -89,7 +90,7 @@ impl fmt::Display for Ports {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (i, p) in self.0.iter().enumerate() {
             let sep = if i == 0 { "" } else { "," };
-            write!(f, "{sep}{BLUE}{p}{RESET}")?;
+            write!(f, "{sep}{}", style(p).blue().bright())?;
         }
         Ok(())
     }

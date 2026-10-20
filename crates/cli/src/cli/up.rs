@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use clap::Args;
 use clap_complete::ArgValueCompleter;
-use color_eyre::owo_colors::OwoColorize;
+use console::style;
 use eyre::WrapErr;
 use tracing::info_span;
 use tracing_indicatif::span_ext::IndicatifSpanExt;
@@ -65,8 +65,8 @@ impl Up {
 
         // Set up span.
         let name = &workspace.name;
-        let colored_name = name.cyan().to_string();
-        let up = "up".cyan().to_string();
+        let colored_name = style(name).cyan().for_stderr().to_string();
+        let up = style("up").cyan().for_stderr().to_string();
         let path = workspace.path.display().to_string();
         let description = &path;
         let message = format!(

@@ -1,7 +1,7 @@
 use std::fmt;
 use std::path::Path;
 
-use owo_colors::OwoColorize;
+use console::style;
 
 #[derive(Debug, Default)]
 pub(crate) struct GitStatus {
@@ -151,6 +151,6 @@ impl fmt::Display for GitStatus {
             s.push('=');
         }
 
-        write!(f, "{}", s.red())
+        write!(f, "{}", style(s).red())
     }
 }

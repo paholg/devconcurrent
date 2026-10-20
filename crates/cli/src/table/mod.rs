@@ -8,8 +8,8 @@
 use std::fmt::Display;
 use std::sync::Arc;
 
+use console::style;
 use futures::future::BoxFuture;
-use owo_colors::OwoColorize;
 
 pub(crate) mod gatherer;
 pub(crate) mod render;
@@ -199,5 +199,5 @@ pub(crate) struct Table {
 
 /// Dimmed placeholder for an unresolved cell.
 fn dash() -> String {
-    "-".dimmed().to_string()
+    style("-").dim().to_string()
 }

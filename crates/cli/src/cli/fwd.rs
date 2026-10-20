@@ -4,7 +4,7 @@ use clap::{Args, Subcommand};
 use docker::{FORWARD_LABEL, FORWARD_TARGET_LABEL, PROJECT_LABEL};
 use eyre::eyre;
 
-use color_eyre::owo_colors::OwoColorize;
+use console::style;
 
 use crate::cli::State;
 use crate::config::Config;
@@ -98,9 +98,9 @@ pub(crate) async fn forward(
 
     for (port, &ok) in ports.iter().zip(&free) {
         if ok {
-            tracing::info!("{} {port}", "✓".green());
+            tracing::info!("{} {port}", style("✓").green().for_stderr());
         } else {
-            tracing::warn!("{} {port} (already in use)", "✗".red());
+            tracing::warn!("{} {port} (already in use)", style("✗").red().for_stderr());
         }
     }
 

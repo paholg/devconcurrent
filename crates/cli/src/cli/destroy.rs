@@ -2,10 +2,10 @@ use std::borrow::Cow;
 
 use clap::Args;
 use clap_complete::ArgValueCompleter;
+use console::style;
 use docker::{PROJECT_LABEL, WORKSPACE_LABEL};
 use eyre::eyre;
 
-use crate::ansi::{RED, RESET, YELLOW};
 use crate::cli::go::go;
 use crate::cli::{State, confirm, either_workspace, safety_check};
 use crate::complete::complete_workspace;
@@ -60,8 +60,12 @@ impl Destroy {
         safety_check(&workspace, self.force).await?;
 
         if workspace.is_root {
+            let warn = console::Style::new().yellow().bright().for_stderr();
             eprintln!(
-                "{YELLOW}Will destroy {RED}root{YELLOW} workspace — DATA WILL BE LOST{RESET}",
+                "{} {} {}",
+                warn.apply_to("Will destroy"),
+                style("root").red().bright().for_stderr(),
+                warn.apply_to("workspace — DATA WILL BE LOST"),
             );
             if !confirm()? {
                 eprintln!("Aborted.");

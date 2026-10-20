@@ -3,6 +3,7 @@ use std::io::Write;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use console::{Color, style};
 use indicatif::ProgressStyle;
 use jiff::fmt::friendly::SpanPrinter;
 use jiff::{Unit, Zoned};
@@ -17,15 +18,14 @@ use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::util::SubscriberInitExt;
 
-use crate::ansi::{BLUE, GRAY, GREEN, MAGENTA, RED, RESET, YELLOW};
-
 /// The target for a line a child wrote to its stdout, forwarded to ours.
 pub(crate) const CHILD_STDOUT: &str = "devconcurrent::child::stdout";
 /// The target for a line a child wrote to its stderr, forwarded to ours.
 pub(crate) const CHILD_STDERR: &str = "devconcurrent::child::stderr";
 
 fn ts(time: &Zoned) -> String {
-    format!("{GRAY}{}{RESET}", time.strftime("%F %T"))
+    let ts = time.strftime("%F %T");
+    style(ts).black().bright().for_stderr().to_string()
 }
 
 /// The writer everything must go through: it suspends the progress bars for the
@@ -176,12 +176,18 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
         if timing.failed.load(Ordering::Relaxed) {
             // The finish message would claim success, which is exactly what the
             // reader must not believe here.
-            let _ = write!(line, " {RED}Failed{RESET} after {RED}{dur}{RESET}");
+            let red = console::Style::new().red().bright().for_stderr();
+            let _ = write!(
+                line,
+                " {} after {}",
+                red.apply_to("Failed"),
+                red.apply_to(dur)
+            );
         } else {
             if let Some(msg) = &timing.finish_message {
                 let _ = write!(line, " {msg}");
             }
-            let _ = write!(line, " Took {GREEN}{dur}{RESET}");
+            let _ = write!(line, " Took {}", style(dur).green().bright().for_stderr());
         }
         let _ = writeln!(self.stderr.clone(), "{line}");
     }
@@ -216,16 +222,20 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
 
         let level = *event.metadata().level();
         let level_color = match level {
-            tracing::Level::ERROR => RED,
-            tracing::Level::WARN => YELLOW,
-            tracing::Level::INFO => GREEN,
-            tracing::Level::DEBUG | tracing::Level::TRACE => BLUE,
+            tracing::Level::ERROR => Color::Red,
+            tracing::Level::WARN => Color::Yellow,
+            tracing::Level::INFO => Color::Green,
+            tracing::Level::DEBUG | tracing::Level::TRACE => Color::Blue,
         };
+        let level = style(format!("{level:>5}"))
+            .fg(level_color)
+            .bright()
+            .for_stderr();
 
         let mut line = ts(&Zoned::now());
-        let _ = write!(line, " {level_color}{level:>5}{RESET}");
+        let _ = write!(line, " {level}");
         if let Some(name) = &name {
-            let _ = write!(line, " [{MAGENTA}{name}{RESET}]");
+            let _ = write!(line, " [{}]", style(name).magenta().bright().for_stderr());
         }
         let _ = write!(line, " {msg}");
 

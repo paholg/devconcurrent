@@ -1,10 +1,10 @@
 //! Rendering for [`Table`](super::Table). The redraw loop that drives this
 //! lives in [`Report`](super::Report), which may hold several tables.
 
+use console::style;
 use tabular::{Row, Table as TabularTable};
 
 use super::{CellState, Report, Table};
-use crate::ansi::{GRAY, RESET};
 
 const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
@@ -19,12 +19,7 @@ impl Table {
 
     /// Render the table to a string. Pending cells show the spinner frame, or
     /// `-` on the final frame.
-    pub(super) fn render_block(
-        &self,
-        frame: usize,
-        final_frame: bool,
-        width: u16,
-    ) -> String {
+    pub(super) fn render_block(&self, frame: usize, final_frame: bool, width: u16) -> String {
         let spec = self
             .headers
             .iter()
@@ -39,7 +34,10 @@ impl Table {
         }
         table.add_row(header);
 
-        let spinner = format!("{GRAY}{}{RESET}", SPINNER[frame % SPINNER.len()]);
+        let spinner = style(SPINNER[frame % SPINNER.len()])
+            .black()
+            .bright()
+            .to_string();
         for cells in &self.grid {
             let mut row = Row::new();
             for cell in cells {

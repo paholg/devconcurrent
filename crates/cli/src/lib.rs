@@ -5,14 +5,13 @@ use std::process::ExitCode;
 use clap::{CommandFactory, Parser};
 use clap_complete::env::Shells;
 use clap_complete::{CompleteEnv, Shell};
-use color_eyre::config::HookBuilder;
+use color_eyre::config::{HookBuilder, Theme};
+use console::style;
 use eyre::eyre;
 
-use crate::ansi::{RED, RESET};
 use crate::cli::Cli;
 use crate::subscriber::init_subscriber;
 
-mod ansi;
 mod bytes;
 mod cli;
 mod complete;
@@ -38,7 +37,8 @@ pub async fn cli_main() -> ExitCode {
         return ExitCode::SUCCESS;
     };
 
-    subscriber::eprintln(&format!("{RED}Error:{RESET} {err:?}"));
+    let error = style("Error:").red().bright().for_stderr();
+    subscriber::eprintln(&format!("{error} {err:?}"));
 
     ExitCode::FAILURE
 }
@@ -50,7 +50,13 @@ async fn run() -> eyre::Result<()> {
     // devconcurrent itself.
     let debugging = std::env::var_os("RUST_BACKTRACE").is_some();
 
+    let theme = if console::colors_enabled_stderr() {
+        Theme::dark()
+    } else {
+        Theme::new()
+    };
     HookBuilder::default()
+        .theme(theme)
         .display_env_section(false)
         .display_location_section(debugging)
         // We never install `tracing_error::ErrorLayer`, so a captured span trace

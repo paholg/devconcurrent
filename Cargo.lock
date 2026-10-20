@@ -1024,7 +1024,6 @@ dependencies = [
  "jiff",
  "jsonschema",
  "num-bigint 0.5.1",
- "owo-colors",
  "rand 0.10.2",
  "rcgen",
  "rustix",

@@ -14,6 +14,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use console::style;
 use docker::{ContainerStatus, Docker, PROXY_CA_EXPIRY_LABEL, PROXY_CONFIG_HASH_LABEL};
 use eyre::{Result, WrapErr};
 use jiff::SignedDuration;
@@ -31,7 +32,6 @@ use tokio_rustls::TlsConnector;
 
 use super::ProxyChecks;
 use super::endpoints::{Endpoint, Sidecar};
-use crate::ansi::{GRAY, GREEN, RED, RESET};
 use crate::cli::proxy::{PROXY_IMAGE, dns, intermediate, trust};
 use crate::table::Datum;
 use crate::table::gatherer::Publisher;
@@ -122,10 +122,10 @@ impl Check {
 impl fmt::Display for Check {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match (self.outcome, self.short.as_deref()) {
-            (Outcome::Ok, Some(short)) => write!(f, "{GREEN}{short}{RESET}"),
-            (Outcome::Ok, None) => write!(f, "{GREEN}✓{RESET}"),
-            (Outcome::Skip, _) => write!(f, "{GRAY}-{RESET}"),
-            (Outcome::Fail, _) => write!(f, "{RED}✗{RESET}"),
+            (Outcome::Ok, Some(short)) => write!(f, "{}", style(short).green().bright()),
+            (Outcome::Ok, None) => write!(f, "{}", style("✓").green().bright()),
+            (Outcome::Skip, _) => write!(f, "{}", style("-").black().bright()),
+            (Outcome::Fail, _) => write!(f, "{}", style("✗").red().bright()),
         }
     }
 }

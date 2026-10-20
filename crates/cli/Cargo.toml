@@ -23,7 +23,6 @@ indicatif = "0.18"
 itertools = "0.15.0"
 jiff = "0.2"
 num-bigint = "0.5.1"
-owo-colors = "4.3.0"
 rand = "0.10.2"
 rcgen = { workspace = true }
 rustix = { version = "1.1.4", features = ["process", "termios"] }

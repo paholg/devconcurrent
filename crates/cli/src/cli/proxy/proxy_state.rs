@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use color_eyre::owo_colors::OwoColorize;
+use console::style;
 use docker::Docker;
 use eyre::{Result, WrapErr};
 use sha2::{Digest, Sha256};
@@ -96,7 +96,7 @@ impl ProxyState {
 
         tracing::info!(
             "{} pushed config for {} project(s): {}",
-            "✓".green(),
+            style("✓").green().for_stderr(),
             self.options.len(),
             self.options.keys().cloned().collect::<Vec<_>>().join(", ")
         );

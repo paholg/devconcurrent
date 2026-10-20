@@ -2,9 +2,8 @@ use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::process::ExitStatus;
 
-use color_eyre::owo_colors::OwoColorize;
 use color_eyre::{Section, SectionExt};
-use crossterm::style::SetForegroundColor;
+use console::{Color, style};
 use eyre::WrapErr;
 use itertools::Itertools;
 use tracing::{Instrument, Span, field, info_span};
@@ -12,7 +11,6 @@ use tracing_indicatif::span_ext::IndicatifSpanExt;
 
 use tokio::io::{AsyncBufReadExt, AsyncRead};
 
-use crate::ansi::{BLUE, CYAN, GREEN, RESET, YELLOW};
 use crate::subscriber::{CHILD_STDERR, CHILD_STDOUT};
 
 pub(crate) mod cmd;
@@ -25,7 +23,7 @@ pub(crate) mod docker_exec;
 pub(crate) struct Token(());
 
 const TOK: Token = Token(());
-const LABEL_COLORS: &[SetForegroundColor] = &[YELLOW, GREEN, BLUE, CYAN];
+const LABEL_COLORS: &[Color] = &[Color::Yellow, Color::Green, Color::Blue, Color::Cyan];
 
 pub(crate) trait Runnable: Sync {
     fn name(&self) -> Cow<'_, str>;
@@ -43,8 +41,8 @@ pub(crate) trait Runnable: Sync {
 pub(crate) struct Runner;
 
 fn run_span(name: &str, description: &str) -> Span {
-    let name = name.magenta().to_string();
-    let message = "Running".blue().to_string();
+    let name = style(name).magenta().for_stderr().to_string();
+    let message = style("Running").blue().for_stderr().to_string();
     let span = info_span!(
         "run",
         indicatif.pb_show = true,
@@ -96,10 +94,10 @@ impl Runner {
             .map(|(i, runnable)| {
                 let color = LABEL_COLORS[i % LABEL_COLORS.len()];
                 let name = runnable.name();
-                let name = format!("{color}{name}{RESET}");
+                let name = style(name).fg(color).bright().for_stderr().to_string();
                 let description: &str = &runnable.description();
 
-                let message = "Running".blue().to_string();
+                let message = style("Running").blue().for_stderr().to_string();
 
                 let span = info_span!(
                     "parallel",

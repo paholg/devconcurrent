@@ -11,7 +11,7 @@ pub(crate) use system::{windows, wsl};
 use std::path::{Path, PathBuf};
 
 use clap::Args;
-use color_eyre::owo_colors::OwoColorize;
+use console::style;
 use eyre::{Result, WrapErr, eyre};
 use shared::{ROOT_CA_KEY_PEM, ROOT_CA_PEM};
 
@@ -61,7 +61,7 @@ impl Untrust {
         }
         tracing::info!(
             "{} deleted the CA files; the next `dc proxy up` or `dc proxy trust` generates a fresh CA",
-            "✓".green(),
+            style("✓").green().for_stderr(),
         );
         Ok(())
     }

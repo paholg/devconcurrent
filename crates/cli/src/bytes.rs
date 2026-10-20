@@ -1,15 +1,13 @@
-use crossterm::style::SetForegroundColor;
-
-use crate::ansi::{BLUE, CYAN, MAGENTA, RED, RESET};
+use console::{Color, style};
 
 struct Unit<'a> {
     value: f32,
     name: &'a str,
-    color: SetForegroundColor,
+    color: Color,
 }
 
 impl Unit<'_> {
-    const fn new(value: f32, name: &str, color: SetForegroundColor) -> Unit<'_> {
+    const fn new(value: f32, name: &str, color: Color) -> Unit<'_> {
         Unit { value, name, color }
     }
 }
@@ -22,12 +20,12 @@ const P: f32 = 1000.0 * T;
 const E: f32 = 1000.0 * P;
 
 const BYTE_UNITS: [Unit; 6] = [
-    Unit::new(K, "k", BLUE),
-    Unit::new(M, "M", CYAN),
-    Unit::new(G, "G", MAGENTA),
-    Unit::new(T, "T", RED),
-    Unit::new(P, "P", RED),
-    Unit::new(E, "E", RED),
+    Unit::new(K, "k", Color::Blue),
+    Unit::new(M, "M", Color::Cyan),
+    Unit::new(G, "G", Color::Magenta),
+    Unit::new(T, "T", Color::Red),
+    Unit::new(P, "P", Color::Red),
+    Unit::new(E, "E", Color::Red),
 ];
 
 /// A byte count, rendered with a unit and color.
@@ -51,12 +49,8 @@ impl std::fmt::Display for Bytes {
         };
 
         let decimal_point = if n_decimals == 0 { "." } else { "" };
-        let color = unit.color;
+        let text = format!("{value:.n_decimals$}{decimal_point} {}", unit.name);
 
-        write!(
-            f,
-            "{color}{value:.n_decimals$}{decimal_point} {}{RESET}",
-            unit.name
-        )
+        write!(f, "{}", style(text).fg(unit.color).bright())
     }
 }

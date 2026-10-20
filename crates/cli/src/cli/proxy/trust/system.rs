@@ -68,7 +68,7 @@ mod tests {
 mod linux {
     use std::path::{Path, PathBuf};
 
-    use color_eyre::owo_colors::OwoColorize;
+    use console::style;
     use eyre::{Result, bail};
 
     use super::super::{Ca, sudo};
@@ -133,7 +133,10 @@ See your distribution's documentation for adding it as a trusted root."
         let dest = anchor_path(root, store, &ca.name).display().to_string();
         sudo::run_root(&["cp", &src, &dest])?;
         sudo::run_root(store.update)?;
-        tracing::info!("{} system trust store: installed {dest}", "✓".green());
+        tracing::info!(
+            "{} system trust store: installed {dest}",
+            style("✓").green().for_stderr()
+        );
         Ok(())
     }
 
@@ -153,7 +156,10 @@ See your distribution's documentation for adding it as a trusted root."
             .to_string();
         sudo::run_root(&["rm", "-f", &ours, &legacy])?;
         sudo::run_root(store.update)?;
-        tracing::info!("{} system trust store: removed", "✓".green());
+        tracing::info!(
+            "{} system trust store: removed",
+            style("✓").green().for_stderr()
+        );
         Ok(())
     }
 
@@ -190,7 +196,7 @@ See your distribution's documentation for adding it as a trusted root."
 mod macos {
     use std::process::Command;
 
-    use color_eyre::owo_colors::OwoColorize;
+    use console::style;
     use eyre::Result;
 
     use super::super::{Ca, sudo};
@@ -211,7 +217,10 @@ mod macos {
             SYSTEM_KEYCHAIN,
             &pem,
         ])?;
-        tracing::info!("{} installed in the system keychain", "✓".green());
+        tracing::info!(
+            "{} installed in the system keychain",
+            style("✓").green().for_stderr()
+        );
         Ok(())
     }
 
@@ -226,7 +235,10 @@ mod macos {
         }
         let pem = ca.pem_path.display().to_string();
         sudo::run_root(&["security", "remove-trusted-cert", "-d", &pem])?;
-        tracing::info!("{} removed from the system keychain", "✓".green());
+        tracing::info!(
+            "{} removed from the system keychain",
+            style("✓").green().for_stderr()
+        );
         Ok(())
     }
 
@@ -254,7 +266,7 @@ pub(crate) mod windows {
     use std::path::{Path, PathBuf};
     use std::process::Command;
 
-    use color_eyre::owo_colors::OwoColorize;
+    use console::style;
     use eyre::{Result, bail, eyre};
     pub(crate) use winstore::store_contains;
 
@@ -275,7 +287,10 @@ browsers read. Enable WSL interop, or install it from Windows yourself:
             "Windows will ask you to confirm adding the CA to your user's certificate store"
         );
         winstore::install(&certutil, winstore::Scope::User, &path)?;
-        tracing::info!("{} installed in the Windows certificate store", "✓".green());
+        tracing::info!(
+            "{} installed in the Windows certificate store",
+            style("✓").green().for_stderr()
+        );
         Ok(())
     }
 
@@ -291,7 +306,10 @@ Enable WSL interop, or remove it from Windows yourself:
         if winstore::uninstall(&certutil, winstore::Scope::User, ROOT_CN)? == 0 {
             tracing::info!("not in the Windows certificate store; nothing to remove");
         } else {
-            tracing::info!("{} removed from the Windows certificate store", "✓".green());
+            tracing::info!(
+                "{} removed from the Windows certificate store",
+                style("✓").green().for_stderr()
+            );
         }
         Ok(())
     }

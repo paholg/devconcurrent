@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use clap::Args;
-use crossterm::style::Stylize;
+use console::style;
 
 use crate::bytes::Bytes;
 use crate::cli::status::data::{
@@ -152,11 +152,11 @@ impl Status {
             }
         };
 
-        let project = state.project_name.to_string().blue();
+        let project = style(&state.project_name).blue().bright();
 
         println!("PROJECT: {project}");
         if let Some(ws) = workspace {
-            let ws_name = ws.name.yellow();
+            let ws_name = style(&ws.name).yellow().bright();
             println!("WORKSPACE: {ws_name}")
         }
 

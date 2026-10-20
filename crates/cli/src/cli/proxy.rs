@@ -2,7 +2,7 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 use clap::{Args, Subcommand};
-use color_eyre::owo_colors::OwoColorize;
+use console::style;
 use docker::{
     Docker, PROXY_CA_EXPIRY_LABEL, PROXY_CONFIG_HASH_LABEL, PROXY_GROUP_LABEL, PROXY_LABEL,
 };
@@ -153,7 +153,7 @@ async fn proxy_up(proxy: &ProxyState) -> Result<()> {
 
     wait_for_ready(&proxy.docker, &id, proxy.config.port).await?;
 
-    tracing::info!("{} proxy is running", "✓".green());
+    tracing::info!("{} proxy is running", style("✓").green().for_stderr());
     Ok(())
 }
 
@@ -264,7 +264,7 @@ async fn proxy_down() -> Result<()> {
     let docker = Docker::connect().await.wrap_err("connect to docker")?;
 
     remove_proxy_group(&docker).await?;
-    tracing::info!("{} proxy stopped", "✓".green());
+    tracing::info!("{} proxy stopped", style("✓").green().for_stderr());
 
     Ok(())
 }
