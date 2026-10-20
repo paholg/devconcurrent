@@ -67,7 +67,9 @@ x509-parser = { workspace = true }
 
 [dev-dependencies]
 jsonschema = { version = "0.50.1", default-features = false }
+rustix = { version = "1.1.4", features = ["pty", "termios"] }
 tempfile = { workspace = true }
+vt100 = "0.16"
 
 [features]
 # Compile the tests that talk to a real docker (or podman-as-docker) daemon.

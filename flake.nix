@@ -144,7 +144,13 @@
             }
           );
           fmt = craneLib.cargoFmt artifacts;
-          test = craneLib.cargoNextest artifacts;
+          test = craneLib.cargoNextest (
+            artifacts
+            // {
+              # The output tests run `dc up`, which needs a git repo.
+              nativeCheckInputs = [ pkgs.git ];
+            }
+          );
           # Dead-link check on the rendered book; catches links to pages
           # missing from SUMMARY.md, which mdbook silently doesn't render.
           docs-links =

@@ -1050,6 +1050,7 @@ dependencies = [
  "tracing-indicatif",
  "tracing-subscriber",
  "vec1",
+ "vt100",
  "which",
  "winnow 1.0.4",
  "winstore",
