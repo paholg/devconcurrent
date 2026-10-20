@@ -97,7 +97,7 @@ pub(super) async fn run(proxy: &ProxyState, args: &StatusArgs) -> Result<()> {
             .lines(notes(&group.rows));
     }
 
-    if std::io::stderr().is_terminal() {
+    if std::io::stdout().is_terminal() {
         report.run_tty().await?;
     } else {
         report.run_piped().await?;

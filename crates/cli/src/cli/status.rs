@@ -155,13 +155,13 @@ impl Status {
 
         let project = state.project_name.to_string().blue();
 
-        eprintln!("PROJECT: {project}");
+        println!("PROJECT: {project}");
         if let Some(ws) = workspace {
             let ws_name = ws.name.yellow();
-            eprintln!("WORKSPACE: {ws_name}")
+            println!("WORKSPACE: {ws_name}")
         }
 
-        if std::io::stderr().is_terminal() {
+        if std::io::stdout().is_terminal() {
             table.run_tty().await
         } else {
             table.run_piped().await

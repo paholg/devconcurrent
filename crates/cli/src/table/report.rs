@@ -122,7 +122,7 @@ impl Report {
 
     /// Redraw in place until done (non-live) or Ctrl-C (live).
     pub(crate) async fn run_tty(self) -> eyre::Result<()> {
-        let mut stderr = std::io::stderr();
+        let mut stdout = std::io::stdout();
         let mut ticker = tokio::time::interval(TICK);
         let start = tokio::time::Instant::now();
         let live = self.live();
@@ -135,7 +135,7 @@ impl Report {
                     _ = ticker.tick() => {}
                     _ = tokio::signal::ctrl_c() => {
                         // Leave the last frame; move below it.
-                        writeln!(stderr)?;
+                        writeln!(stdout)?;
                         return Ok(());
                     }
                 }
@@ -148,12 +148,12 @@ impl Report {
             let (block, lines) = self.render(frame, finished, width);
 
             if prev_lines > 0 {
-                queue!(stderr, cursor::MoveUp(prev_lines))?;
+                queue!(stdout, cursor::MoveUp(prev_lines))?;
             }
-            queue!(stderr, cursor::MoveToColumn(0))?;
-            queue!(stderr, terminal::Clear(terminal::ClearType::FromCursorDown))?;
-            write!(stderr, "{block}")?;
-            stderr.flush()?;
+            queue!(stdout, cursor::MoveToColumn(0))?;
+            queue!(stdout, terminal::Clear(terminal::ClearType::FromCursorDown))?;
+            write!(stdout, "{block}")?;
+            stdout.flush()?;
 
             prev_lines = lines;
             frame += 1;
