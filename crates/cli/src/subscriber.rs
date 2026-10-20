@@ -78,7 +78,9 @@ pub(crate) fn init_subscriber() {
 }
 
 struct HasIndicatif;
-struct IndicatifName(Name);
+/// The name of a span whose output interleaves with others', to prefix that
+/// output with.
+struct InterleavedName(Name);
 
 /// A span's `name`, kept plain alongside its `name_style` because it's shown on
 /// both streams.
@@ -133,10 +135,10 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
                 .as_deref()
                 .map_or_else(Style::new, Style::from_dotted_str),
         });
-        if span.name() == "parallel"
+        if visitor.interleaved
             && let Some(ref name) = name
         {
-            span.extensions_mut().insert(IndicatifName(name.clone()));
+            span.extensions_mut().insert(InterleavedName(name.clone()));
         }
 
         span.extensions_mut().insert(SpanTiming {
@@ -226,11 +228,10 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
         event.record(&mut visitor);
         let msg = visitor.message.unwrap_or_default();
 
-        // Find indicatif name from ancestor spans; only parallel commands have
-        // one.
+        // The name of the interleaved span this is from, if any.
         let name = ctx.event_span(event).and_then(|span| {
             span.scope()
-                .find_map(|s| s.extensions().get::<IndicatifName>().map(|n| n.0.clone()))
+                .find_map(|s| s.extensions().get::<InterleavedName>().map(|n| n.0.clone()))
         });
 
         let target = event.metadata().target();
@@ -291,6 +292,7 @@ struct Visitor {
     finish_message: Option<String>,
     indicatif_show: bool,
     failed: bool,
+    interleaved: bool,
 }
 
 impl Visit for Visitor {
@@ -308,6 +310,7 @@ impl Visit for Visitor {
         match field.name() {
             "indicatif.pb_show" => self.indicatif_show = value,
             "failed" => self.failed = value,
+            "interleaved" => self.interleaved = value,
             _ => {}
         }
     }

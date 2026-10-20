@@ -114,6 +114,9 @@ impl Runner {
                     indicatif.pb_show = true,
                     name,
                     name_style,
+                    // Its output mixes with its siblings', so the subscriber
+                    // prefixes it with `name`.
+                    interleaved = true,
                     description,
                     message = %style("Running").blue(),
                     failed = field::Empty,
