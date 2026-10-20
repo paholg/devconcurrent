@@ -135,7 +135,7 @@ See your distribution's documentation for adding it as a trusted root."
         sudo::run_root(store.update)?;
         tracing::info!(
             "{} system trust store: installed {dest}",
-            style("✓").green().for_stderr()
+            style("✓").green()
         );
         Ok(())
     }
@@ -156,10 +156,7 @@ See your distribution's documentation for adding it as a trusted root."
             .to_string();
         sudo::run_root(&["rm", "-f", &ours, &legacy])?;
         sudo::run_root(store.update)?;
-        tracing::info!(
-            "{} system trust store: removed",
-            style("✓").green().for_stderr()
-        );
+        tracing::info!("{} system trust store: removed", style("✓").green());
         Ok(())
     }
 
@@ -217,10 +214,7 @@ mod macos {
             SYSTEM_KEYCHAIN,
             &pem,
         ])?;
-        tracing::info!(
-            "{} installed in the system keychain",
-            style("✓").green().for_stderr()
-        );
+        tracing::info!("{} installed in the system keychain", style("✓").green());
         Ok(())
     }
 
@@ -235,10 +229,7 @@ mod macos {
         }
         let pem = ca.pem_path.display().to_string();
         sudo::run_root(&["security", "remove-trusted-cert", "-d", &pem])?;
-        tracing::info!(
-            "{} removed from the system keychain",
-            style("✓").green().for_stderr()
-        );
+        tracing::info!("{} removed from the system keychain", style("✓").green());
         Ok(())
     }
 
@@ -289,7 +280,7 @@ browsers read. Enable WSL interop, or install it from Windows yourself:
         winstore::install(&certutil, winstore::Scope::User, &path)?;
         tracing::info!(
             "{} installed in the Windows certificate store",
-            style("✓").green().for_stderr()
+            style("✓").green()
         );
         Ok(())
     }
@@ -308,7 +299,7 @@ Enable WSL interop, or remove it from Windows yourself:
         } else {
             tracing::info!(
                 "{} removed from the Windows certificate store",
-                style("✓").green().for_stderr()
+                style("✓").green()
             );
         }
         Ok(())

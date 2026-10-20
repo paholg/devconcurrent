@@ -153,7 +153,7 @@ async fn proxy_up(proxy: &ProxyState) -> Result<()> {
 
     wait_for_ready(&proxy.docker, &id, proxy.config.port).await?;
 
-    tracing::info!("{} proxy is running", style("✓").green().for_stderr());
+    tracing::info!("{} proxy is running", style("✓").green());
     Ok(())
 }
 
@@ -264,7 +264,7 @@ async fn proxy_down() -> Result<()> {
     let docker = Docker::connect().await.wrap_err("connect to docker")?;
 
     remove_proxy_group(&docker).await?;
-    tracing::info!("{} proxy stopped", style("✓").green().for_stderr());
+    tracing::info!("{} proxy stopped", style("✓").green());
 
     Ok(())
 }

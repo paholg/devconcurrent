@@ -61,7 +61,7 @@ impl Untrust {
         }
         tracing::info!(
             "{} deleted the CA files; the next `dc proxy up` or `dc proxy trust` generates a fresh CA",
-            style("✓").green().for_stderr(),
+            style("✓").green(),
         );
         Ok(())
     }

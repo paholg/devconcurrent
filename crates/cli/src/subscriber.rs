@@ -3,7 +3,7 @@ use std::io::Write;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use console::{Color, style};
+use console::{Color, Style, style};
 use indicatif::ProgressStyle;
 use jiff::fmt::friendly::SpanPrinter;
 use jiff::{Unit, Zoned};
@@ -23,13 +23,14 @@ pub(crate) const CHILD_STDOUT: &str = "devconcurrent::child::stdout";
 /// The target for a line a child wrote to its stderr, forwarded to ours.
 pub(crate) const CHILD_STDERR: &str = "devconcurrent::child::stderr";
 
-fn ts(time: &Zoned) -> String {
+/// `base` says which stream the timestamp is for.
+fn ts(time: &Zoned, base: Style) -> String {
     let ts = time.strftime("%F %T");
-    style(ts).black().bright().for_stderr().to_string()
+    base.black().bright().apply_to(ts).to_string()
 }
 
-/// The writer everything must go through: it suspends the progress bars for the
-/// duration of a write, so their next redraw can't clobber it — and, once the
+/// The writer anything for stderr must go through: it suspends the progress bars
+/// for the duration of a write, so their next redraw can't clobber it — and, once the
 /// last span closes, so they aren't left stranded in the scrollback.
 static STDERR: OnceLock<IndicatifWriter<Stderr>> = OnceLock::new();
 
@@ -71,10 +72,29 @@ pub(crate) fn init_subscriber() {
 }
 
 struct HasIndicatif;
-struct IndicatifName(String);
+struct IndicatifName(Name);
+
+/// A span's `name`, kept plain alongside its `name_style` because it's shown on
+/// both streams.
+#[derive(Clone)]
+struct Name {
+    text: String,
+    style: Style,
+}
+
+impl Name {
+    fn styled(&self, to_stderr: bool) -> console::StyledObject<&str> {
+        let style = if to_stderr {
+            self.style.clone().for_stderr()
+        } else {
+            self.style.clone()
+        };
+        style.apply_to(&self.text)
+    }
+}
 
 struct SpanTiming {
-    name: Option<String>,
+    name: Option<Name>,
     description: Option<String>,
     message: Option<String>,
     finish_message: Option<String>,
@@ -100,14 +120,21 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
             span.extensions_mut().insert(HasIndicatif);
         }
 
+        let name = visitor.name.map(|text| Name {
+            text,
+            style: visitor
+                .name_style
+                .as_deref()
+                .map_or_else(Style::new, Style::from_dotted_str),
+        });
         if span.name() == "parallel"
-            && let Some(ref name) = visitor.name
+            && let Some(ref name) = name
         {
             span.extensions_mut().insert(IndicatifName(name.clone()));
         }
 
         span.extensions_mut().insert(SpanTiming {
-            name: visitor.name,
+            name,
             description: visitor.description,
             message: visitor.message,
             finish_message: visitor.finish_message,
@@ -141,9 +168,9 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
             return;
         }
 
-        let mut line = ts(&Zoned::now());
+        let mut line = ts(&Zoned::now(), Style::new());
         if let Some(ref name) = timing.name {
-            let _ = write!(line, " [{name}]");
+            let _ = write!(line, " [{}]", name.styled(false));
         }
         if let Some(ref message) = timing.message {
             let _ = write!(line, " {message}:");
@@ -151,7 +178,7 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
         if let Some(ref description) = timing.description {
             let _ = write!(line, " {description}");
         }
-        let _ = writeln!(self.stderr.clone(), "{line}");
+        let _ = writeln!(self.stdout.clone(), "{line}");
     }
 
     fn on_close(&self, id: Id, ctx: Context<'_, S>) {
@@ -162,9 +189,9 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
         };
 
         let now = Zoned::now();
-        let mut line = ts(&now);
+        let mut line = ts(&now, Style::new());
         if let Some(ref name) = timing.name {
-            let _ = write!(line, " [{name}]");
+            let _ = write!(line, " [{}]", name.styled(false));
         }
 
         let dur = timing
@@ -176,7 +203,7 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
         if timing.failed.load(Ordering::Relaxed) {
             // The finish message would claim success, which is exactly what the
             // reader must not believe here.
-            let red = console::Style::new().red().bright().for_stderr();
+            let red = Style::new().red().bright();
             let _ = write!(
                 line,
                 " {} after {}",
@@ -187,9 +214,9 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
             if let Some(msg) = &timing.finish_message {
                 let _ = write!(line, " {msg}");
             }
-            let _ = write!(line, " Took {}", style(dur).green().bright().for_stderr());
+            let _ = write!(line, " Took {}", style(dur).green().bright());
         }
-        let _ = writeln!(self.stderr.clone(), "{line}");
+        let _ = writeln!(self.stdout.clone(), "{line}");
     }
 
     fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {
@@ -208,38 +235,51 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
         // child wrote it to. The caveat is that when it's from parallel
         // commands, it'll be interleaved, so we show the source.
         if target == CHILD_STDOUT || target == CHILD_STDERR {
+            let to_stderr = target == CHILD_STDERR;
             let line = match &name {
-                Some(name) => format!("[{name}] {msg}"),
+                Some(name) => format!("[{}] {msg}", name.styled(to_stderr)),
                 None => msg,
             };
-            let _ = if target == CHILD_STDOUT {
-                writeln!(self.stdout.clone(), "{line}")
-            } else {
+            let _ = if to_stderr {
                 writeln!(self.stderr.clone(), "{line}")
+            } else {
+                writeln!(self.stdout.clone(), "{line}")
             };
             return;
         }
 
         let level = *event.metadata().level();
+        // Only trouble goes to stderr; the rest is a record of what we did.
+        let to_stderr = level <= tracing::Level::WARN;
+        let base = if to_stderr {
+            Style::new().for_stderr()
+        } else {
+            Style::new()
+        };
         let level_color = match level {
             tracing::Level::ERROR => Color::Red,
             tracing::Level::WARN => Color::Yellow,
             tracing::Level::INFO => Color::Green,
             tracing::Level::DEBUG | tracing::Level::TRACE => Color::Blue,
         };
-        let level = style(format!("{level:>5}"))
+        let level = base
+            .clone()
             .fg(level_color)
             .bright()
-            .for_stderr();
+            .apply_to(format!("{level:>5}"));
 
-        let mut line = ts(&Zoned::now());
+        let mut line = ts(&Zoned::now(), base.clone());
         let _ = write!(line, " {level}");
         if let Some(name) = &name {
-            let _ = write!(line, " [{}]", style(name).magenta().bright().for_stderr());
+            let _ = write!(line, " [{}]", name.styled(to_stderr));
         }
         let _ = write!(line, " {msg}");
 
-        let _ = writeln!(self.stderr.clone(), "{line}");
+        let _ = if to_stderr {
+            writeln!(self.stderr.clone(), "{line}")
+        } else {
+            writeln!(self.stdout.clone(), "{line}")
+        };
     }
 }
 
@@ -248,6 +288,7 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for DcLayer {
 #[derive(Default)]
 struct Visitor {
     name: Option<String>,
+    name_style: Option<String>,
     description: Option<String>,
     message: Option<String>,
     finish_message: Option<String>,
@@ -277,6 +318,7 @@ impl Visit for Visitor {
     fn record_str(&mut self, field: &Field, value: &str) {
         match field.name() {
             "name" => self.name = Some(value.to_string()),
+            "name_style" => self.name_style = Some(value.to_string()),
             "description" => self.description = Some(value.to_string()),
             "message" => self.message = Some(value.to_string()),
             "finish_message" => self.finish_message = Some(value.to_string()),

@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use std::process::ExitStatus;
 
 use color_eyre::{Section, SectionExt};
-use console::{Color, style};
+use console::{Style, style};
 use eyre::WrapErr;
 use itertools::Itertools;
 use tracing::{Instrument, Span, field, info_span};
@@ -23,7 +23,14 @@ pub(crate) mod docker_exec;
 pub(crate) struct Token(());
 
 const TOK: Token = Token(());
-const LABEL_COLORS: &[Color] = &[Color::Yellow, Color::Green, Color::Blue, Color::Cyan];
+/// `name_style`s, in `console::Style::from_dotted_str` syntax, to tell parallel
+/// commands apart.
+const LABEL_STYLES: &[&str] = &[
+    "yellow.bright",
+    "green.bright",
+    "blue.bright",
+    "cyan.bright",
+];
 
 pub(crate) trait Runnable: Sync {
     fn name(&self) -> Cow<'_, str>;
@@ -40,19 +47,24 @@ pub(crate) trait Runnable: Sync {
 /// a running command or for several concurrent commands.
 pub(crate) struct Runner;
 
+/// Fields are styled for the log, on stdout, except `name`, which the
+/// subscriber styles with `name_style`; the progress bar message for the
+/// spinners, on stderr.
 fn run_span(name: &str, description: &str) -> Span {
-    let name = style(name).magenta().for_stderr().to_string();
-    let message = style("Running").blue().for_stderr().to_string();
     let span = info_span!(
         "run",
         indicatif.pb_show = true,
         name,
+        name_style = "magenta",
         description,
-        message,
+        message = %style("Running").blue(),
         failed = field::Empty,
     );
-    let pb_message = format!("[{name}] {message}");
-    span.pb_set_message(&pb_message);
+    span.pb_set_message(&format!(
+        "[{}] {}",
+        style(name).magenta().for_stderr(),
+        style("Running").blue().for_stderr(),
+    ));
     span
 }
 
@@ -92,23 +104,27 @@ impl Runner {
             .into_iter()
             .enumerate()
             .map(|(i, runnable)| {
-                let color = LABEL_COLORS[i % LABEL_COLORS.len()];
-                let name = runnable.name();
-                let name = style(name).fg(color).bright().for_stderr().to_string();
+                let name_style = LABEL_STYLES[i % LABEL_STYLES.len()];
+                let name: &str = &runnable.name();
                 let description: &str = &runnable.description();
 
-                let message = style("Running").blue().for_stderr().to_string();
-
+                // Styled as in `run_span`.
                 let span = info_span!(
                     "parallel",
                     indicatif.pb_show = true,
                     name,
+                    name_style,
                     description,
-                    message,
+                    message = %style("Running").blue(),
                     failed = field::Empty,
                 );
-                let pb_message = format!("[{name}] {message}");
-                span.pb_set_message(&pb_message);
+                span.pb_set_message(&format!(
+                    "[{}] {}",
+                    Style::from_dotted_str(name_style)
+                        .for_stderr()
+                        .apply_to(name),
+                    style("Running").blue().for_stderr(),
+                ));
                 let ctx = runnable.name().into_owned();
                 async move {
                     // Left unwrapped: who failed is said once, either by the

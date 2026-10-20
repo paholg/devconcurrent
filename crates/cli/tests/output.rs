@@ -1,5 +1,5 @@
-//! Where output lands, end to end: forwarded child output on the stream the
-//! child wrote it to, and spinners that draw on a terminal without clobbering
+//! Where output lands, end to end: our record of what we did on stdout,
+//! forwarded child output on the stream the child wrote it to, and spinners that draw on a terminal without clobbering
 //! the lines printed around them.
 //!
 //! `dc up` with an `initializeCommand` runs commands on the host, under
@@ -142,8 +142,10 @@ fn screen(output: &[u8]) -> Vec<String> {
 fn child_output_keeps_its_stream() {
     let out = piped(r#""echo out; echo err >&2; exit 1""#);
 
-    assert_eq!(lines(&out.stdout), ["out"]);
+    let stdout = lines(&out.stdout);
     let stderr = lines(&out.stderr);
+    assert!(stdout.iter().any(|l| l == "out"), "{stdout:#?}");
+    assert!(!stdout.iter().any(|l| l == "err"), "{stdout:#?}");
     assert!(stderr.iter().any(|l| l == "err"), "{stderr:#?}");
     assert!(!stderr.iter().any(|l| l == "out"), "{stderr:#?}");
 }
@@ -152,9 +154,32 @@ fn child_output_keeps_its_stream() {
 fn parallel_child_output_names_its_command() {
     let out = piped(r#"{ "a": "echo a-out; echo a-err >&2", "b": "echo b-out; exit 1" }"#);
 
-    assert_eq!(lines(&out.stdout), ["[a] a-out", "[b] b-out"]);
+    let stdout = lines(&out.stdout);
     let stderr = lines(&out.stderr);
+    for expected in ["[a] a-out", "[b] b-out"] {
+        assert!(
+            stdout.iter().any(|l| l == expected),
+            "{expected:?}: {stdout:#?}"
+        );
+    }
     assert!(stderr.iter().any(|l| l == "[a] a-err"), "{stderr:#?}");
+}
+
+#[test]
+fn our_record_goes_to_stdout_and_the_error_to_stderr() {
+    let out = piped(r#"{ "a": "true", "b": "exit 1" }"#);
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    for expected in [
+        "[up] Spinning up workspace",
+        "[a] Took ",
+        "[b] Failed after ",
+    ] {
+        assert!(stdout.contains(expected), "{expected:?}:\n{stdout}");
+        assert!(!stderr.contains(expected), "{expected:?}:\n{stderr}");
+    }
+    assert!(stderr.starts_with("Error:"), "{stderr}");
 }
 
 #[test]

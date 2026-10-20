@@ -63,28 +63,31 @@ impl Up {
             .resolve_workspace(either_workspace(self.workspace_name.clone(), workspace)?)
             .await?;
 
-        // Set up span.
+        // Set up span. Styled as in `run::run_span`.
         let name = &workspace.name;
-        let colored_name = style(name).cyan().for_stderr().to_string();
-        let up = style("up").cyan().for_stderr().to_string();
+        let colored_name = style(name).cyan();
         let path = workspace.path.display().to_string();
         let description = &path;
         let message = format!(
             "Spinning up workspace {colored_name} from root {}",
             state.project.path.display()
         );
-        let pb_message = format!("[{up}] Spinning up workspace {colored_name}");
         let finish_message = format!("Workspace {colored_name} is available.");
         let span = info_span!(
             "up",
             indicatif.pb_show = true,
-            name = up,
+            name = "up",
+            name_style = "cyan",
             description,
             message,
             finish_message,
             failed = tracing::field::Empty,
         );
-        span.pb_set_message(&pb_message);
+        span.pb_set_message(&format!(
+            "[{}] Spinning up workspace {}",
+            style("up").cyan().for_stderr(),
+            style(name).cyan().for_stderr(),
+        ));
         let _guard = span.enter();
 
         let brought_up: eyre::Result<()> = async {

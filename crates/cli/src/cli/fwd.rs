@@ -98,7 +98,7 @@ pub(crate) async fn forward(
 
     for (port, &ok) in ports.iter().zip(&free) {
         if ok {
-            tracing::info!("{} {port}", style("✓").green().for_stderr());
+            tracing::info!("{} {port}", style("✓").green());
         } else {
             tracing::warn!("{} {port} (already in use)", style("✗").red().for_stderr());
         }

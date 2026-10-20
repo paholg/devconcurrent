@@ -46,7 +46,7 @@ pub(super) fn install(ca: &Ca) -> Result<()> {
     if installed > 0 {
         tracing::info!(
             "{} installed in {installed} browser (NSS) trust store{}",
-            style("✓").green().for_stderr(),
+            style("✓").green(),
             if installed == 1 { "" } else { "s" },
         );
     }
@@ -83,7 +83,7 @@ pub(super) fn uninstall(ca: &Ca) -> Result<()> {
     if removed > 0 {
         tracing::info!(
             "{} removed from {removed} browser (NSS) trust store{}",
-            style("✓").green().for_stderr(),
+            style("✓").green(),
             if removed == 1 { "" } else { "s" },
         );
     }

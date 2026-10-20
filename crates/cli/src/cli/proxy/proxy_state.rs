@@ -96,7 +96,7 @@ impl ProxyState {
 
         tracing::info!(
             "{} pushed config for {} project(s): {}",
-            style("✓").green().for_stderr(),
+            style("✓").green(),
             self.options.len(),
             self.options.keys().cloned().collect::<Vec<_>>().join(", ")
         );
