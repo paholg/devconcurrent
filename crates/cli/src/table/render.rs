@@ -56,7 +56,7 @@ impl Table {
         let rendered = table.to_string();
         let mut out = String::new();
         for line in rendered.lines() {
-            out.push_str(&truncate_visible(line, width));
+            out.push_str(&console::truncate_str(line, width.into(), ""));
             out.push('\n');
         }
         out
@@ -72,39 +72,4 @@ impl Table {
     pub(crate) async fn run(self) -> eyre::Result<()> {
         Report::from(self).run().await
     }
-}
-
-/// Truncate to `max` visible columns, copying ANSI escapes verbatim and
-/// resetting if cut. Keeps each row one physical line rather than wrapping.
-pub(super) fn truncate_visible(line: &str, max: u16) -> String {
-    let max = max as usize;
-    let mut out = String::new();
-    let mut visible = 0usize;
-    let mut chars = line.chars().peekable();
-    let mut cut = false;
-
-    while let Some(c) = chars.next() {
-        if c == '\u{1b}' {
-            out.push(c);
-            while let Some(&next) = chars.peek() {
-                chars.next();
-                out.push(next);
-                if next.is_ascii_alphabetic() {
-                    break;
-                }
-            }
-            continue;
-        }
-        if visible >= max {
-            cut = true;
-            break;
-        }
-        out.push(c);
-        visible += 1;
-    }
-
-    if cut {
-        out.push_str(&RESET.to_string());
-    }
-    out
 }

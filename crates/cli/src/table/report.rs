@@ -98,12 +98,12 @@ impl Report {
         for block in &self.blocks {
             match block {
                 Block::Text(text) => {
-                    out.push_str(&super::render::truncate_visible(text, width));
+                    out.push_str(&console::truncate_str(text, width.into(), ""));
                     out.push('\n');
                 }
                 Block::Lines(build) => {
                     for line in build(width) {
-                        out.push_str(&super::render::truncate_visible(&line, width));
+                        out.push_str(&console::truncate_str(&line, width.into(), ""));
                         out.push('\n');
                     }
                 }
