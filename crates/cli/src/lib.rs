@@ -95,15 +95,7 @@ async fn run() -> eyre::Result<()> {
         return Ok(());
     }
 
-    let cli = match Cli::try_parse() {
-        Ok(cli) => cli,
-        Err(e) => {
-            // Ensure help/version/error output goes to stderr, not stdout
-            eprintln!("{}", e.render().ansi());
-            std::process::exit(e.exit_code());
-        }
-    };
-    cli.run().await
+    Cli::parse().run().await
 }
 
 fn register_shell_function(shell_str: &str) -> eyre::Result<()> {
