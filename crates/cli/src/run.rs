@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::process::ExitStatus;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use color_eyre::{Section, SectionExt};
 use console::{Style, style};
@@ -24,13 +25,23 @@ pub(crate) struct Token(());
 
 const TOK: Token = Token(());
 /// `name_style`s, in `console::Style::from_dotted_str` syntax, to tell parallel
-/// commands apart.
+/// commands apart. Leaves out cyan, which names `up`; magenta, which names the
+/// lifecycle commands and anything else run on its own or as a group; and red,
+/// which says something failed.
 const LABEL_STYLES: &[&str] = &[
     "yellow.bright",
     "green.bright",
     "blue.bright",
-    "cyan.bright",
+    "208", // orange
+    "141", // lavender
+    "180", // tan
+    "211", // pink
+    "110", // steel blue
 ];
+
+/// The next of `LABEL_STYLES` to use. Shared across runs, so the first of each
+/// run's commands isn't always the same color.
+static NEXT_LABEL: AtomicUsize = AtomicUsize::new(0);
 
 pub(crate) trait Runnable: Sync {
     fn name(&self) -> Cow<'_, str>;
@@ -102,9 +113,9 @@ impl Runner {
         let _enter = span.enter();
         let futures: Vec<_> = runnables
             .into_iter()
-            .enumerate()
-            .map(|(i, runnable)| {
-                let name_style = LABEL_STYLES[i % LABEL_STYLES.len()];
+            .map(|runnable| {
+                let label = NEXT_LABEL.fetch_add(1, Ordering::Relaxed);
+                let name_style = LABEL_STYLES[label % LABEL_STYLES.len()];
                 let name: &str = &runnable.name();
                 let description: &str = &runnable.description();
 
