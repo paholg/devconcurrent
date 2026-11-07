@@ -39,16 +39,12 @@ impl Destroy {
         let workspace = state
             .resolve_workspace(either_workspace(self.workspace_name, workspace)?)
             .await?;
-        // A workspace whose devcontainer.json is unusable still has to be
-        // destroyable, so this is not fatal — but without the config we can't
-        // compose-down, so say so rather than leaving containers behind
-        // silently.
+
         let devcontainer = match state.devcontainer_for(&workspace.path) {
             Ok(devcontainer) => Some(devcontainer),
             Err(e) => {
-                tracing::warn!(
-                    "could not load the devcontainer config; containers for this workspace may \
-                     be left behind: {e:#}"
+                tracing::debug!(
+                    "could not load the devcontainer config; containers for this workspace may be left behind: {e:#}"
                 );
                 None
             }
