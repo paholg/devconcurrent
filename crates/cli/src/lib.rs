@@ -19,6 +19,7 @@ pub mod config;
 pub mod devcontainer;
 mod docker;
 mod helpers;
+mod hooks;
 pub mod run;
 mod state;
 mod subscriber;

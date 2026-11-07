@@ -53,6 +53,20 @@
           "$ref": "#/definitions/WorktreeGlobal"
         }
       ]
+    },
+    "hooks": {
+      "description": "Commands run on the host around `up` and `destroy`, for every project, whether\nor not it has a devcontainer.\n\nEach takes the same forms as a devcontainer lifecycle command: a string run\nwith `/bin/sh -c`, an array run directly, or a map of named commands run in\nparallel. No `${...}` substitution applies. Instead, these environment\nvariables are set:\n\n- `DEVCONCURRENT_PROJECT`: the project name\n- `DEVCONCURRENT_PROJECT_PATH`: the project's root directory\n- `DEVCONCURRENT_WORKSPACE`: the workspace name\n- `DEVCONCURRENT_WORKSPACE_PATH`: the workspace directory\n- `DEVCONCURRENT_ROOT`: `true` for the root workspace, `false` otherwise\n\nIf a `before` hook fails, the operation does not happen.",
+      "default": {
+        "beforeUp": null,
+        "afterUp": null,
+        "beforeDestroy": null,
+        "afterDestroy": null
+      },
+      "allOf": [
+        {
+          "$ref": "#/definitions/Hooks"
+        }
+      ]
     }
   },
   "x-tombi-toml-version": "v1.1.0",
@@ -938,6 +952,90 @@
           "default": "`\"{{ workspace }}\"`"
         }
       }
+    },
+    "Hooks": {
+      "description": "Global hooks; see `Config::hooks`.",
+      "type": "object",
+      "properties": {
+        "beforeUp": {
+          "description": "Runs at the start of `up`, before the worktree is created, from the project root.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/LifecycleCommand"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "afterUp": {
+          "description": "Runs once `up` has brought the workspace up, after every lifecycle command and\nbefore `--forward` or `--exec`, from the workspace.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/LifecycleCommand"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "beforeDestroy": {
+          "description": "Runs before `destroy` removes anything, from the workspace.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/LifecycleCommand"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "afterDestroy": {
+          "description": "Runs once `destroy` has finished, from the project root.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/LifecycleCommand"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      }
+    },
+    "LifecycleCommand": {
+      "description": "One command, or a map of named commands run in parallel.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Cmd"
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/Cmd"
+          }
+        }
+      ]
+    },
+    "Cmd": {
+      "description": "A command: a string run with `/bin/sh -c`, or a program and its arguments.",
+      "anyOf": [
+        {
+          "description": "A command run with `/bin/sh -c`.",
+          "type": "string"
+        },
+        {
+          "description": "A program and its arguments, run directly.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
     }
   }
 }

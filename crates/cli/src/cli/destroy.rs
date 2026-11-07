@@ -11,6 +11,7 @@ use crate::cli::{State, confirm, either_workspace, safety_check};
 use crate::complete::complete_workspace;
 use crate::config::Config;
 use crate::docker::compose::{self, compose_cmd, remove_override_file};
+use crate::hooks::{self, Hook};
 use crate::run::{self, Runnable, Runner, run_command};
 use crate::state::DevcontainerState;
 use crate::workspace::Workspace;
@@ -83,7 +84,9 @@ impl Destroy {
             force: self.force,
         };
 
+        hooks::run(&config.hooks, Hook::BeforeDestroy, &workspace).await?;
         Runner::run(cleanup).await?;
+        hooks::run(&config.hooks, Hook::AfterDestroy, &workspace).await?;
 
         // We just deleted the directory the shell is sitting in, so move to the
         // project root. Destroying the root leaves its directory in place, so

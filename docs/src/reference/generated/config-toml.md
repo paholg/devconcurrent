@@ -14,6 +14,15 @@
   - [`shell.exportEnv`](#shell-exportenv) — Register a prompt hook to auto-set the variables from `customizations.devconcurrent.env` based on your current working directory.
 - [`worktree`](#worktree) — Worktree settings.
   - [`worktree.branch`](#worktree-branch) — Template for the default branch name for `up` on a new workspace
+- [`hooks`](#hooks) — Commands run on the host around `up` and `destroy`, for every project, whether or not it has a devcontainer.
+  - [`hooks.beforeUp`](#hooks-beforeup) — Runs at the start of `up`, before the worktree is created, from the project root.
+    - [`hooks.beforeUp.<name>`](#hooks-beforeup-name) — A command: a string run with `/bin/sh -c`, or a program and its arguments.
+  - [`hooks.afterUp`](#hooks-afterup) — Runs once `up` has brought the workspace up, after every lifecycle command and before `--forward` or `--exec`, from the workspace.
+    - [`hooks.afterUp.<name>`](#hooks-afterup-name) — A command: a string run with `/bin/sh -c`, or a program and its arguments.
+  - [`hooks.beforeDestroy`](#hooks-beforedestroy) — Runs before `destroy` removes anything, from the workspace.
+    - [`hooks.beforeDestroy.<name>`](#hooks-beforedestroy-name) — A command: a string run with `/bin/sh -c`, or a program and its arguments.
+  - [`hooks.afterDestroy`](#hooks-afterdestroy) — Runs once `destroy` has finished, from the project root.
+    - [`hooks.afterDestroy.<name>`](#hooks-afterdestroy-name) — A command: a string run with `/bin/sh -c`, or a program and its arguments.
 
 ## `projects.<name>` {#projects-name}
 
@@ -151,3 +160,72 @@ Template for the default branch name for `up` on a new workspace
 # `dc up foo` checks out `plg/foo`.
 branch = "plg/{{ workspace }}"
 ```
+
+## `hooks` {#hooks}
+
+Commands run on the host around `up` and `destroy`, for every project, whether
+or not it has a devcontainer.
+
+Each takes the same forms as a devcontainer lifecycle command: a string run
+with `/bin/sh -c`, an array run directly, or a map of named commands run in
+parallel. No `${...}` substitution applies. Instead, these environment
+variables are set:
+
+- `DEVCONCURRENT_PROJECT`: the project name
+- `DEVCONCURRENT_PROJECT_PATH`: the project's root directory
+- `DEVCONCURRENT_WORKSPACE`: the workspace name
+- `DEVCONCURRENT_WORKSPACE_PATH`: the workspace directory
+- `DEVCONCURRENT_ROOT`: `true` for the root workspace, `false` otherwise
+
+If a `before` hook fails, the operation does not happen.
+
+**Type**: `table`
+
+### `hooks.beforeUp` {#hooks-beforeup}
+
+Runs at the start of `up`, before the worktree is created, from the project root.
+
+**Type**: `string | array<string> | table`
+
+#### `hooks.beforeUp.<name>` {#hooks-beforeup-name}
+
+A command: a string run with `/bin/sh -c`, or a program and its arguments.
+
+**Type**: `string | array<string>`
+
+### `hooks.afterUp` {#hooks-afterup}
+
+Runs once `up` has brought the workspace up, after every lifecycle command and
+before `--forward` or `--exec`, from the workspace.
+
+**Type**: `string | array<string> | table`
+
+#### `hooks.afterUp.<name>` {#hooks-afterup-name}
+
+A command: a string run with `/bin/sh -c`, or a program and its arguments.
+
+**Type**: `string | array<string>`
+
+### `hooks.beforeDestroy` {#hooks-beforedestroy}
+
+Runs before `destroy` removes anything, from the workspace.
+
+**Type**: `string | array<string> | table`
+
+#### `hooks.beforeDestroy.<name>` {#hooks-beforedestroy-name}
+
+A command: a string run with `/bin/sh -c`, or a program and its arguments.
+
+**Type**: `string | array<string>`
+
+### `hooks.afterDestroy` {#hooks-afterdestroy}
+
+Runs once `destroy` has finished, from the project root.
+
+**Type**: `string | array<string> | table`
+
+#### `hooks.afterDestroy.<name>` {#hooks-afterdestroy-name}
+
+A command: a string run with `/bin/sh -c`, or a program and its arguments.
+
+**Type**: `string | array<string>`

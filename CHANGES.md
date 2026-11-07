@@ -6,6 +6,31 @@ here.
 NOTE: Document the dangers of `mountGit` -- a container can write to it, which
 could result in host execution.
 
+## Global hooks
+
+`config.toml` takes a `[hooks]` table of host commands run around `up` and
+`destroy` for every project, with or without a devcontainer. They take the same
+forms as devcontainer lifecycle commands, but no `${...}` substitution applies;
+instead they get `DEVCONCURRENT_PROJECT`, `DEVCONCURRENT_PROJECT_PATH`,
+`DEVCONCURRENT_WORKSPACE`, `DEVCONCURRENT_WORKSPACE_PATH`, and
+`DEVCONCURRENT_ROOT` (`true`/`false`) in their environment.
+
+```toml
+[hooks]
+beforeUp = "echo starting $DEVCONCURRENT_WORKSPACE"
+afterUp = { notify = ["notify-send", "up"], log = "echo up >> ~/dc.log" }
+beforeDestroy = ["./scripts/backup.sh"]
+afterDestroy = "echo bye"
+```
+
+* `beforeUp` runs before the worktree is created, from the project root.
+* `afterUp` runs after every lifecycle command (including `finalizeCommand`)
+  and before `--forward`/`--exec`, from the workspace.
+* `beforeDestroy` runs before anything is removed, from the workspace.
+* `afterDestroy` runs once `destroy` finishes, from the project root.
+
+If a `before` hook fails, the operation does not happen.
+
 ## `finalizeCommand`
 
 `customizations.devconcurrent.finalizeCommand` runs on the host, from the

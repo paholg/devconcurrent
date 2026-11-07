@@ -42,21 +42,30 @@ impl LifecycleCommandTemplate {
     }
 }
 
-#[derive(Clone, Debug)]
+/// One command, or a map of named commands run in parallel.
+// Ready to run; also what's written in config where no `${...}` substitution applies.
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+#[serde(untagged)]
 pub(crate) enum LifecycleCommand {
     Single(Cmd),
     Parallel(IndexMap<String, Cmd>),
 }
 
 impl LifecycleCommand {
-    pub(crate) async fn run_on_host(&self, name: &str, dir: Option<&Path>) -> eyre::Result<()> {
+    /// `env` is set for the command on top of the inherited environment.
+    pub(crate) async fn run_on_host(
+        &self,
+        name: &str,
+        dir: Option<&Path>,
+        env: &[(&str, &str)],
+    ) -> eyre::Result<()> {
         match self {
             LifecycleCommand::Single(cmd) => {
                 let cmd = NamedCmd {
                     name,
                     cmd,
                     dir,
-                    env: &[],
+                    env,
                 };
                 Runner::run(cmd).await
             }
@@ -65,7 +74,7 @@ impl LifecycleCommand {
                     name: cmd_name,
                     cmd,
                     dir,
-                    env: &[],
+                    env,
                 });
 
                 Runner::run_parallel(name, execs).await

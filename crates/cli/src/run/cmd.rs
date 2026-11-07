@@ -36,10 +36,15 @@ impl CmdTemplate {
     }
 }
 
-/// A command ready to run.
-#[derive(Debug, Clone)]
+/// A command: a string run with `/bin/sh -c`, or a program and its arguments.
+// Ready to run; also what's written in config where no `${...}` substitution applies.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(untagged)]
 pub(crate) enum Cmd {
+    /// A command run with `/bin/sh -c`.
     Shell(String),
+    /// A program and its arguments, run directly.
+    #[schemars(with = "Vec<String>")]
     Args(Vec1<String>),
 }
 

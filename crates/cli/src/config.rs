@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use shared::Template;
 
 use crate::devcontainer::DevcontainerConfig;
+use crate::devcontainer::lifecycle_command::LifecycleCommand;
 use crate::helpers::{deserialize_shell_path, deserialize_shell_path_opt, validate_name};
 
 pub(crate) const DEFAULT_PROXY_PORT: u16 = 43770;
@@ -81,6 +82,38 @@ pub(crate) struct Config {
     /// Worktree settings.
     #[serde(default)]
     pub(crate) worktree: WorktreeGlobal,
+    /// Commands run on the host around `up` and `destroy`, for every project, whether
+    /// or not it has a devcontainer.
+    ///
+    /// Each takes the same forms as a devcontainer lifecycle command: a string run
+    /// with `/bin/sh -c`, an array run directly, or a map of named commands run in
+    /// parallel. No `${...}` substitution applies. Instead, these environment
+    /// variables are set:
+    ///
+    /// - `DEVCONCURRENT_PROJECT`: the project name
+    /// - `DEVCONCURRENT_PROJECT_PATH`: the project's root directory
+    /// - `DEVCONCURRENT_WORKSPACE`: the workspace name
+    /// - `DEVCONCURRENT_WORKSPACE_PATH`: the workspace directory
+    /// - `DEVCONCURRENT_ROOT`: `true` for the root workspace, `false` otherwise
+    ///
+    /// If a `before` hook fails, the operation does not happen.
+    #[serde(default)]
+    pub(crate) hooks: Hooks,
+}
+
+/// Global hooks; see `Config::hooks`.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase", default)]
+pub(crate) struct Hooks {
+    /// Runs at the start of `up`, before the worktree is created, from the project root.
+    pub(crate) before_up: Option<LifecycleCommand>,
+    /// Runs once `up` has brought the workspace up, after every lifecycle command and
+    /// before `--forward` or `--exec`, from the workspace.
+    pub(crate) after_up: Option<LifecycleCommand>,
+    /// Runs before `destroy` removes anything, from the workspace.
+    pub(crate) before_destroy: Option<LifecycleCommand>,
+    /// Runs once `destroy` has finished, from the project root.
+    pub(crate) after_destroy: Option<LifecycleCommand>,
 }
 
 /// Global worktree settings.
@@ -332,5 +365,43 @@ branch = "{{project}}/{{workspace}}"
         let mut file = tempfile::Builder::new().suffix(".toml").tempfile().unwrap();
         file.write_all(toml.as_bytes()).unwrap();
         let _ = Config::load_from_path(file.path()).expect_err("unclosed template");
+    }
+
+    #[test]
+    fn hooks_take_every_lifecycle_command_form() {
+        let toml = r#"
+[hooks]
+beforeUp = "echo $DEVCONCURRENT_WORKSPACE"
+afterUp = { a = ["notify-send", "up"], b = "echo b" }
+beforeDestroy = ["./backup.sh"]
+"#;
+        let mut file = tempfile::Builder::new().suffix(".toml").tempfile().unwrap();
+        file.write_all(toml.as_bytes()).unwrap();
+        let hooks = Config::load_from_path(file.path()).unwrap().hooks;
+
+        assert!(matches!(
+            hooks.before_up,
+            Some(LifecycleCommand::Single(crate::run::cmd::Cmd::Shell(ref s))) if s == "echo $DEVCONCURRENT_WORKSPACE"
+        ));
+        let Some(LifecycleCommand::Parallel(after_up)) = &hooks.after_up else {
+            panic!("expected parallel afterUp: {:?}", hooks.after_up);
+        };
+        assert_eq!(after_up.keys().collect::<Vec<_>>(), ["a", "b"]);
+        assert_eq!(after_up["a"].as_args(), ["notify-send", "up"]);
+        assert!(matches!(
+            hooks.before_destroy,
+            Some(LifecycleCommand::Single(crate::run::cmd::Cmd::Args(_)))
+        ));
+        assert!(hooks.after_destroy.is_none());
+    }
+
+    #[test]
+    fn hooks_default_to_none() {
+        let mut file = tempfile::Builder::new().suffix(".toml").tempfile().unwrap();
+        file.write_all(b"[projects.a]\npath = \"/tmp/a\"\n")
+            .unwrap();
+        let hooks = Config::load_from_path(file.path()).unwrap().hooks;
+        assert!(hooks.before_up.is_none() && hooks.after_up.is_none());
+        assert!(hooks.before_destroy.is_none() && hooks.after_destroy.is_none());
     }
 }

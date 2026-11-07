@@ -17,6 +17,7 @@ use crate::config::Config;
 use crate::devcontainer::substitution;
 use crate::docker::compose::{self, compose_cmd, compose_image, compose_ps_q, compose_pull};
 use crate::docker::{probe, uid};
+use crate::hooks::{self, Hook};
 use crate::run::cmd::NamedCmd;
 use crate::run::{self, Runner};
 use crate::state::DevcontainerState;
@@ -91,6 +92,8 @@ impl Up {
         let _guard = span.enter();
 
         let brought_up: eyre::Result<()> = async {
+            hooks::run(&config.hooks, Hook::BeforeUp, &workspace).await?;
+
             if !workspace.is_root {
                 let branch = worktree::resolve_branch(
                     self.branch.as_deref(),
@@ -107,7 +110,10 @@ impl Up {
             }
 
             if state.has_devcontainer() {
+                // Runs `afterUp` itself, before any `--forward` or `--exec`.
                 self.up_devcontainer(&config, &state, &workspace).await?;
+            } else {
+                hooks::run(&config.hooks, Hook::AfterUp, &workspace).await?;
             }
 
             if self.go {
@@ -143,7 +149,7 @@ impl Up {
         if let Some(cmd) = &devcontainer.config.initialize_command {
             let context = devcontainer.context(&workspace.path);
             cmd.render("initializeCommand", &context)?
-                .run_on_host("initializeCommand", Some(&workspace.path))
+                .run_on_host("initializeCommand", Some(&workspace.path), &[])
                 .await?;
         }
 
@@ -261,9 +267,11 @@ impl Up {
 
         if let Some(cmd) = &devcontainer.devconcurrent().finalize_command {
             cmd.render("finalizeCommand", &context)?
-                .run_on_host("finalizeCommand", Some(&workspace.path))
+                .run_on_host("finalizeCommand", Some(&workspace.path), &[])
                 .await?;
         }
+
+        hooks::run(&config.hooks, Hook::AfterUp, workspace).await?;
 
         // Port forward if requested
         if self.forward {
