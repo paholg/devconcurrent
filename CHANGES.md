@@ -6,6 +6,17 @@ here.
 NOTE: Document the dangers of `mountGit` -- a container can write to it, which
 could result in host execution.
 
+## `primaryProject`
+
+`config.toml` takes a top-level `primaryProject`, naming the project to use when
+there is no `--project`, no `DEVCONCURRENT_PROJECT`, and the current directory
+isn't in a configured project. Without it, the first project listed is still the
+fallback.
+
+```toml
+primaryProject = "foo"
+```
+
 ## Global hooks
 
 `config.toml` takes a `[hooks]` table of host commands run around `up` and

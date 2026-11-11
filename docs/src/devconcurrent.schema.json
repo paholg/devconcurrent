@@ -5,6 +5,17 @@
   "description": "Per-user configuration for devconcurrent.",
   "type": "object",
   "properties": {
+    "primaryProject": {
+      "description": "The project to use when none is given and none can be inferred from the\ncurrent directory. Defaults to the first project listed.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ProjectName"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "projects": {
       "description": "Configured projects by name.",
       "type": "object",
@@ -71,6 +82,10 @@
   },
   "x-tombi-toml-version": "v1.1.0",
   "definitions": {
+    "ProjectName": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
     "Project": {
       "description": "A devconcurrent-enabled project.",
       "type": "object",

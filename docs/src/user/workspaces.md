@@ -23,7 +23,8 @@ All of `devconcurrent`'s commands pick a project in the following priority:
 1. A top-level `-p/--project` flag.
 2. The `DEVCONCURRENT_PROJECT` environment variable.
 3. Your current working directory.
-4. Your first configured project.
+4. The `primaryProject` set in `config.toml`.
+5. Your first configured project.
 
 This way, if you have several projects, you can define aliases like
 `alias dcc="dc -p cookit"` to always target that project, or you can just `cd`

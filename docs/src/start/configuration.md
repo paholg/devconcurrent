@@ -18,7 +18,8 @@ path = "~/src/foo"
 ```
 
 The order here matters; the first project will be considered your "default"
-project, and will be used when no other project can be inferred.
+project, and will be used when no other project can be inferred. To pick a
+different default, set `primaryProject = "foo"` at the top of the file.
 
 Note: `devconcurrent` has a published config schema. I recommend a tool like
 [tombi](https://github.com/tombi-toml/tombi), which will highlight errors and

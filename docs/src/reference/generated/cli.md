@@ -48,7 +48,7 @@ A tool for managing devcontainers, especially when combined with git worktrees
 
 ###### **Options:**
 
-* `-p`, `--project <PROJECT>` — name of project [default: The DEVCONCURRENT_PROJECT variable, then the first configured project]
+* `-p`, `--project <PROJECT>` — name of project [default: The DEVCONCURRENT_PROJECT variable, then `primaryProject`, then the first configured project]
 * `-w`, `--workspace <WORKSPACE>` — name of workspace [default: current working directory]
 
 

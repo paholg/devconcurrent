@@ -69,6 +69,10 @@ impl<'de> Deserialize<'de> for ProjectName {
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(title = "devconcurrent config")]
 pub(crate) struct Config {
+    /// The project to use when none is given and none can be inferred from the
+    /// current directory. Defaults to the first project listed.
+    #[serde(default, rename = "primaryProject")]
+    pub(crate) primary_project: Option<ProjectName>,
     /// Configured projects by name.
     #[serde(default)]
     #[schemars(with = "crate::helpers::PatternMap<ProjectName, Project>")]
@@ -219,8 +223,17 @@ impl Config {
             .wrap_err_with(|| format!("failed to load {}", path.display()))?;
         let de = toml::Deserializer::parse(&contents)
             .wrap_err_with(|| format!("failed to parse {}", path.display()))?;
-        serde_path_to_error::deserialize(de)
-            .wrap_err_with(|| format!("failed to parse {}", path.display()))
+        let config: Self = serde_path_to_error::deserialize(de)
+            .wrap_err_with(|| format!("failed to parse {}", path.display()))?;
+        if let Some(name) = &config.primary_project
+            && !config.projects.contains_key(name)
+        {
+            return Err(eyre!(
+                "failed to load {}: primaryProject {name:?} is not a configured project",
+                path.display()
+            ));
+        }
+        Ok(config)
     }
 
     /// The branch template for `project`: its own, or the global one.
@@ -251,6 +264,14 @@ impl Config {
                 .get(&name)
                 .expect("we just found this project");
             return Ok((name, project));
+        }
+
+        if let Some(name) = &self.primary_project {
+            let project = self
+                .projects
+                .get(name)
+                .ok_or_else(|| eyre!("no project configured with name: {name:?}"))?;
+            return Ok((name.clone(), project));
         }
 
         let (name, project) = self
@@ -332,6 +353,22 @@ mod tests {
             let got: Vec<&str> = cfg.projects.keys().map(ProjectName::as_str).collect();
             assert_eq!(got, expected, "project order changed on iteration {i}");
         }
+    }
+
+    #[test]
+    fn primary_project_must_be_configured() {
+        let load = |toml: &str| {
+            let mut file = tempfile::Builder::new().suffix(".toml").tempfile().unwrap();
+            file.write_all(toml.as_bytes()).unwrap();
+            Config::load_from_path(file.path())
+        };
+        let projects = "[projects.a]\npath = \"/tmp/a\"\n\n[projects.b]\npath = \"/tmp/b\"\n";
+
+        let cfg = load(&format!("primaryProject = \"b\"\n\n{projects}")).unwrap();
+        assert_eq!(cfg.primary_project.as_deref(), Some("b"));
+
+        let err = load(&format!("primaryProject = \"c\"\n\n{projects}")).expect_err("unknown");
+        assert!(format!("{err:#}").contains("primaryProject"), "{err:#}");
     }
 
     #[test]
