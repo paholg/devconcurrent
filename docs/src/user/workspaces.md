@@ -43,6 +43,9 @@ template in your `config.toml`, which defaults to the workspace name. If that
 branch does not exist, it is cut from the root project. Use `-b/--branch` to use
 a different branch name or `-d/--detach` for no branch.
 
+A new branch starts from whatever the root project has checked out. Use `--from`
+to start it somewhere else, such as `dc up NAME --from main`.
+
 To prefix your branches, set the template globally or per project:
 
 ```toml,filename=config.toml

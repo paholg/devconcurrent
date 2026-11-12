@@ -12,10 +12,42 @@ use crate::workspace::Workspace;
 /// What a new worktree checks out
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Checkout<'a> {
-    /// A detached HEAD at the root's commit.
+    /// A detached HEAD.
     Detach,
-    /// This branch, created from the root's HEAD if it does not exist.
+    /// This branch, created if it does not exist.
     Branch(&'a str),
+}
+
+/// The arguments to `git worktree add`, after the path.
+///
+/// `from` is where a detached HEAD or a new branch starts; the root's HEAD if
+/// `None`. An existing branch cannot be given a start point.
+fn add_args<'a>(
+    checkout: Checkout<'a>,
+    branch_exists: bool,
+    from: Option<&'a str>,
+) -> eyre::Result<Vec<&'a str>> {
+    let mut args = Vec::new();
+    match checkout {
+        Checkout::Detach => args.push("--detach"),
+        Checkout::Branch(branch) => {
+            // `-b` refuses an existing branch; without it, `git worktree
+            // add` would derive the branch from the path instead.
+            if !branch_exists {
+                args.push("-b");
+            } else if from.is_some() {
+                eyre::bail!("branch {branch} already exists, so --from cannot apply");
+            }
+            args.push(branch);
+            // Starting from a remote-tracking branch would otherwise make
+            // it the new branch's upstream.
+            if from.is_some() {
+                args.push("--no-track");
+            }
+        }
+    }
+    args.extend(from);
+    Ok(args)
 }
 
 /// The branch a new workspace checks out.
@@ -36,7 +68,11 @@ pub(crate) fn resolve_branch(
         .wrap_err_with(|| format!("rendering branch template {:?}", template.source()))
 }
 
-pub(crate) async fn create(workspace: &Workspace<'_>, checkout: Checkout<'_>) -> eyre::Result<()> {
+pub(crate) async fn create(
+    workspace: &Workspace<'_>,
+    checkout: Checkout<'_>,
+    from: Option<&str>,
+) -> eyre::Result<()> {
     validate_name(&workspace.name).map_err(|e| eyre::eyre!("invalid workspace name: {e}"))?;
 
     let root_path = &workspace.state.project.path;
@@ -54,22 +90,15 @@ pub(crate) async fn create(workspace: &Workspace<'_>, checkout: Checkout<'_>) ->
             eyre::bail!("existing repository at {worktree_path_str}");
         }
     } else {
+        let branch_exists = match checkout {
+            Checkout::Detach => false,
+            Checkout::Branch(branch) => repo
+                .try_find_reference(&format!("refs/heads/{branch}"))
+                .wrap_err_with(|| format!("looking up branch {branch}"))?
+                .is_some(),
+        };
         let mut args = vec!["git", "worktree", "add", &worktree_path_str];
-        match checkout {
-            Checkout::Detach => args.push("--detach"),
-            Checkout::Branch(branch) => {
-                // `-b` refuses an existing branch; without it, `git worktree
-                // add` would derive the branch from the path instead.
-                let exists = repo
-                    .try_find_reference(&format!("refs/heads/{branch}"))
-                    .wrap_err_with(|| format!("looking up branch {branch}"))?
-                    .is_some();
-                if !exists {
-                    args.push("-b");
-                }
-                args.push(branch);
-            }
-        }
+        args.extend(add_args(checkout, branch_exists, from)?);
 
         workspace.state.ensure_project_working_dir()?;
         run_cmd(&args, Some(root_path), "git worktree add").await?;
@@ -170,6 +199,39 @@ mod tests {
         let branch =
             resolve_branch(None, Some(&template("plg/{{workspace}}")), "proj", "foo").unwrap();
         assert_eq!(branch, "plg/foo");
+    }
+
+    #[test]
+    fn add_args_default_to_the_root_head() {
+        assert_eq!(
+            add_args(Checkout::Detach, false, None).unwrap(),
+            ["--detach"]
+        );
+        assert_eq!(
+            add_args(Checkout::Branch("foo"), false, None).unwrap(),
+            ["-b", "foo"]
+        );
+        assert_eq!(
+            add_args(Checkout::Branch("foo"), true, None).unwrap(),
+            ["foo"]
+        );
+    }
+
+    #[test]
+    fn add_args_start_from_the_given_commit() {
+        assert_eq!(
+            add_args(Checkout::Detach, false, Some("main")).unwrap(),
+            ["--detach", "main"]
+        );
+        assert_eq!(
+            add_args(Checkout::Branch("foo"), false, Some("origin/main")).unwrap(),
+            ["-b", "foo", "--no-track", "origin/main"]
+        );
+    }
+
+    #[test]
+    fn add_args_reject_from_for_an_existing_branch() {
+        assert!(add_args(Checkout::Branch("foo"), true, Some("main")).is_err());
     }
 
     #[test]

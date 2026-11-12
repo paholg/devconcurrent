@@ -6,6 +6,12 @@ here.
 NOTE: Document the dangers of `mountGit` -- a container can write to it, which
 could result in host execution.
 
+## `dc up --from`
+
+`dc up NAME --from main` starts the new worktree's branch (or detached HEAD,
+with `--detach`) from the given commit or branch instead of the root project's
+HEAD. It is an error if the branch already exists.
+
 ## `primaryProject`
 
 `config.toml` takes a top-level `primaryProject`, naming the project to use when

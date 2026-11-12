@@ -39,6 +39,10 @@ pub(crate) struct Up {
     #[arg(short, long)]
     branch: Option<String>,
 
+    /// Start a new worktree from this commit or branch [default: the root's HEAD]
+    #[arg(long, value_name = "COMMIT-ISH")]
+    from: Option<String>,
+
     /// Navigate to the directory after creating (if using via shell wrapper)
     #[arg(short, long)]
     go: bool,
@@ -106,7 +110,7 @@ impl Up {
                 } else {
                     worktree::Checkout::Branch(&branch)
                 };
-                worktree::create(&workspace, checkout).await?;
+                worktree::create(&workspace, checkout, self.from.as_deref()).await?;
             }
 
             if state.has_devcontainer() {
