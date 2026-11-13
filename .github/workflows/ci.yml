@@ -136,7 +136,7 @@ jobs:
       - name: Arch
         run: >-
           docker run --rm -v "$PWD:/src" -w /src archlinux:base
-          bash -c 'pacman -Sy --noconfirm --quiet nss openssl && bash .github/trust-e2e.sh'
+          bash -c 'pacman -Syu --noconfirm --quiet nss openssl && bash .github/trust-e2e.sh'
 
   # The Windows-store half of WSL trust support. Hosted runners can't run
   # WSL2 (no nested virtualization), so this runs the `winstore` crate — the
