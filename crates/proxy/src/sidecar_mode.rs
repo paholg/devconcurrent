@@ -248,9 +248,8 @@ where
 /// URLs needs this instead.
 fn build_router(container: u16, listener: Listener) -> Router {
     let upstream = format!("http://127.0.0.1:{container}");
-    let proxy = ReverseProxy::new("/", &upstream).with_policy(ProxyPolicy {
-        host_behaviour: HostBehaviour::Preserve,
-    });
+    let proxy = ReverseProxy::new("/", &upstream)
+        .with_policy(ProxyPolicy::new().with_host_behaviour(HostBehaviour::Preserve));
     let router: Router = proxy.into();
     let router = router
         .layer(SetRequestHeaderLayer::overriding(

@@ -9,6 +9,7 @@
 
 use std::fs::{File, OpenOptions};
 use std::io::Read;
+use std::num::NonZeroU16;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
@@ -16,8 +17,8 @@ use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
 use rustix::termios::{Winsize, tcsetwinsize};
 use tempfile::TempDir;
 
-const ROWS: u16 = 50;
-const COLS: u16 = 200;
+const ROWS: NonZeroU16 = NonZeroU16::new(50).unwrap();
+const COLS: NonZeroU16 = NonZeroU16::new(200).unwrap();
 
 /// A project whose `initializeCommand` is `initialize`, and a home to keep
 /// everything we write out of the real one.
@@ -89,8 +90,8 @@ fn on_a_terminal(initialize: &str) -> Vec<u8> {
     tcsetwinsize(
         &terminal,
         Winsize {
-            ws_row: ROWS,
-            ws_col: COLS,
+            ws_row: ROWS.get(),
+            ws_col: COLS.get(),
             ws_xpixel: 0,
             ws_ypixel: 0,
         },
